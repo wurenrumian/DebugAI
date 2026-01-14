@@ -1,0 +1,4 @@
+fastapi==0.109.0
+uvicorn==0.27.0.post1
+pydantic==2.5.3
+# TODO: Add other AI related libraries here (e.g., openai, transformers, llama-cpp-python)
