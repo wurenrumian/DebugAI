@@ -1,0 +1,27 @@
+# Go
+/backend-go/bin/
+/backend-go/*.exe
+/backend-go/*.test
+/backend-go/*.prof
+
+# Python
+/ai-python/__pycache__/
+/ai-python/*.pyc
+/ai-python/.venv/
+/ai-python/venv/
+
+# Node.js (Vue.js)
+/frontend-vue/node_modules/
+/frontend-vue/dist/
+/frontend-vue/.vite/
+
+# General
+.DS_Store
+.env
+.env.*
+!.env.production
+logs/
+*.log
+*.backup
+*.swp
+
