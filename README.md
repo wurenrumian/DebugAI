@@ -59,6 +59,7 @@
 - [ ] 在 Go 后端实现任务队列和 Worker 协程，用于向 Python AI 引擎分发任务。
 - [ ] 在 Python AI 引擎中实现 AST 静态分析。
 - [ ] 在 Python AI 引擎中集成大语言模型（LLM）进行代码分析。
+- [ ] 在 Python AI 引擎中集成大语言模型（LLM）进行学生画像构建与题目推送。
 - [ ] 开发前端页面，支持学生输入代码、提交并展示 AI 分析结果。
 - [ ] 编写 `docker-compose.yml` 以实现统一部署。
 - [ ] 集成 PostgreSQL 实现数据持久化。
