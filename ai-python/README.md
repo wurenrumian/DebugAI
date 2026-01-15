@@ -1,5 +1,64 @@
 <!--未来更改python代码后，请在这里描述项目功能和接口-->
+## 功能
 
+### 1. 评价打分 (Evaluation)
+- 输入：学生代码、题目描述、测试点（可选）
+- 输出：分数(0-100)、多维评价
+- 评价维度：
+    - 代码可读性 (10分)
+    - 逻辑严谨性 (35分)
+    - 算法合理性 (25分)
+    - 运行效率 (20分)
+
+### 2. 代码调试 (Debugging)
+- 输入：学生代码、题目描述、测试点（可选）、提交结果（可选）
+- 输出：调试分析、具体问题、修改建议
+- 特点：不直接给出修改代码，引导学生思考
+
+## API接口
+
+### POST /evaluate
+**评价打分接口**
+
+- 请求体：
+```json
+{
+    "code": "def add(a, b): return a + b",
+    "problem_description": "实现加法函数",
+    "test_points": [{"input": "2,3", "expected": "5"}],
+    "task_type": "evaluate"
+}
+```
+
+- 响应：
+```json
+{
+    "score": 95,
+    "overall_evaluation": "代码实现正确，但可读性有待提高",
+    "readability": {
+        "score": "5/10",
+        "analysis": "函数命名不够清晰"
+    },
+    "logical_rigor": {
+        "score": "35/35",
+        "analysis": "逻辑正确，考虑了边界情况"
+    },
+    "algorithm_quality": {
+        "score": "25/25",
+        "analysis": "算法简单直接，符合题目要求"
+    },
+    "efficiency": {
+        "score": "20/20",
+        "analysis": "时间复杂度O(1)，空间复杂度O(1)"
+    }
+}
+```
+
+### POST /analyze
+**通用分析接口**（根据task_type自动路由到evaluate或debug）
+
+### GET /health
+**健康检查接口**
 
 
 ## Todos

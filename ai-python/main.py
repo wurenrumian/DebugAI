@@ -2,35 +2,60 @@
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional, List, Dict
+from data import CodeSubmission, TaskType, EvaluateResult, TestPoint
+from evaluator import CodeEvaluator
 
 
-app = FastAPI()
+app = FastAPI(title="AI教学辅助平台")
 
-class CodeItem(BaseModel):
+evaluator = CodeEvaluator()
+
+class TestPointRequest(BaseModel):
+    input: str
+    status: str
+
+class AnalyzeRequest(BaseModel):
     code: str
-    task_type: str = "debug" # Add task_type for potential future use
+    problem_description: str
+    test_points: List[TestPointRequest] = []
+    task_type: TaskType = TaskType.EVALUATE
+
+@app.post("/evaluate", response_model=EvaluateResult)
+async def evaluate_code(request: AnalyzeRequest):
+    try:
+        submission = CodeSubmission(
+            code=request.code,
+            problem_description=request.problem_description,
+            test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
+            task_type=TaskType.EVALUATE
+        )
+        result = await evaluator.evaluate(submission)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"评价失败，请联系老师或管理员: {str(e)}")
 
 @app.post("/analyze")
-async def analyze_code(item: CodeItem):
-    """
-    接收代码并进行 AI 分析，返回结果。
-    """
-    # 1. 静态分析：检查是否有语法错误、潜在问题
+async def analyze_code(request: AnalyzeRequest):
+    """通用分析接口，根据task_type自动路由"""
+    try:
+        submission = CodeSubmission(
+            code=request.code,
+            problem_description=request.problem_description,
+            test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
+            task_type=request.task_type
+        )
+        
+        if request.task_type == TaskType.EVALUATE:
+            result = await evaluator.evaluate(submission)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析失败，请联系老师或管理员: {str(e)}")
 
-    # 2. 调用大模型
-    mock_chunks = [
-        "这是对代码的初步分析。",
-        "看起来你在处理一个循环问题。",
-        "建议检查边界条件。",
-        "如果有更多的上下文，我可以提供更具体的帮助。"
-    ]
-    full_analysis = "\n".join(mock_chunks)
-
-    # TODO: 替换为实际的大模型调用逻辑
-    # response = llm(prompt=f"分析这段代码: {item.code}")
-    # full_analysis = response.content  # 假设返回对象有 content 属性
-
-    return {"analysis": full_analysis}
+@app.get("/health")
+async def health_check():
+    """健康检查"""
+    return {"status": "healthy", "service": "ai-teaching-assistant"}
 
 if __name__ == "__main__":
     import uvicorn
