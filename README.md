@@ -22,7 +22,7 @@
 
 1.  **安装 Python**: 确保您的系统已安装 Python 3.8 或更高版本。
     [下载地址](https://www.python.org/downloads/)
-2.  **创建并激活虚拟环境** (推荐):
+2.  **创建并激活虚拟环境(本地中注意请在python文件夹目录内激活）** (推荐):
     ```bash
     python -m venv venv
     # Windows
@@ -53,13 +53,14 @@
 
 ## 3. TODO List
 
+### ai-python
+
+#### 任务1：
+
 - [ ] 在 Go 后端实现身份验证（YOJ Token 校验）。
 - [ ] 在 Go 后端实现频率限制（Rate Limiting）。
 - [ ] 在 Go 后端实现 SSE 长连接维护及实时结果推送。
 - [ ] 在 Go 后端实现任务队列和 Worker 协程，用于向 Python AI 引擎分发任务。
-- [ ] 在 Python AI 引擎中实现 AST 静态分析。
-- [ ] 在 Python AI 引擎中集成大语言模型（LLM）进行代码分析。
-- [ ] 在 Python AI 引擎中集成大语言模型（LLM）进行学生画像构建与题目推送。
 - [ ] 开发前端页面，支持学生输入代码、提交并展示 AI 分析结果。
 - [ ] 编写 `docker-compose.yml` 以实现统一部署。
 - [ ] 集成 PostgreSQL 实现数据持久化。
