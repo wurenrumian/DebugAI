@@ -27,7 +27,7 @@ class CodeEvaluator:
                     for error_type, count in error_types.items():
                         test_stats += f"{error_type}({count}) "
         
-        # 可以展示一个示例测试点的输入（截断以避免过长的提示）
+        # 展示一个示例测试点的输入
         sample_input = ""
         if submission.test_points and len(submission.test_points) > 0:
             sample_test = submission.test_points[0]
@@ -44,7 +44,7 @@ class CodeEvaluator:
         {self.llm_client.sanitize_input(submission.problem_description)}
         {test_stats}{sample_input}
         
-        学生代码：
+        学生代码（C/C++）：
         ```C/C++
         {self.llm_client.sanitize_input(submission.code)}
         ```

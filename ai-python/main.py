@@ -1,15 +1,15 @@
 # ai-python/main.py
-
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict
-from data import CodeSubmission, TaskType, EvaluateResult, TestPoint
+from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint
 from evaluator import CodeEvaluator
-
+from debugger import CodeDebugger
 
 app = FastAPI(title="AI教学辅助平台")
 
 evaluator = CodeEvaluator()
+debugger = CodeDebugger()
 
 class TestPointRequest(BaseModel):
     input: str
@@ -35,6 +35,20 @@ async def evaluate_code(request: AnalyzeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"评价失败，请联系老师或管理员: {str(e)}")
 
+@app.post("/debug", response_model=DebugResult)
+async def debug_code(request: AnalyzeRequest):
+    try:
+        submission = CodeSubmission(
+            code=request.code,
+            problem_description=request.problem_description,
+            test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
+            task_type=TaskType.DEBUG
+        )
+        result = await debugger.debug(submission)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"调试失败，请联系老师或管理员: {str(e)}")
+
 @app.post("/analyze")
 async def analyze_code(request: AnalyzeRequest):
     """通用分析接口，根据task_type自动路由"""
@@ -48,14 +62,11 @@ async def analyze_code(request: AnalyzeRequest):
         
         if request.task_type == TaskType.EVALUATE:
             result = await evaluator.evaluate(submission)
+        else:
+            result = await debugger.debug(submission)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"分析失败，请联系老师或管理员: {str(e)}")
-
-@app.get("/health")
-async def health_check():
-    """健康检查"""
-    return {"status": "healthy", "service": "ai-teaching-assistant"}
 
 if __name__ == "__main__":
     import uvicorn

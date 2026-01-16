@@ -4,6 +4,7 @@ from enum import Enum
 
 class TaskType(str, Enum):
     EVALUATE = "evaluate"  # 评价打分
+    DEBUG = "debug"        # 代码调试
 
 class TestPoint(BaseModel):
     input: str = Field(..., description="测试点输入文件内容")
@@ -25,3 +26,8 @@ class EvaluateResult(BaseModel):
     logical_rigor: Dict[str, str] = Field(..., description="逻辑严谨性分析")
     algorithm_quality: Dict[str, str] = Field(..., description="算法合理性分析")
     efficiency: Dict[str, str] = Field(..., description="运行效率分析")
+
+class DebugResult(BaseModel):
+    debug_analysis: str = Field(..., description="总体分析")
+    problems: List[Dict[str, str]] = Field(..., description="具体问题")
+    suggestions: List[str] = Field(..., description="修改建议")
