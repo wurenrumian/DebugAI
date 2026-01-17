@@ -25,3 +25,4 @@ logs/
 *.backup
 *.swp
 
+*.db

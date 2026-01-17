@@ -73,13 +73,21 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	// Set HttpOnly cookie
+	c.SetCookie("auth_token", token, 24*3600, "/", "", false, true)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "登录成功",
 		"data": gin.H{
 			"username":   user.Username,
 			"user_type":  user.UserType,
 			"student_id": user.StudentID,
-			"token":      token,
 		},
 	})
+}
+
+// Logout 用户登出
+func Logout(c *gin.Context) {
+	c.SetCookie("auth_token", "", -1, "/", "", false, true)
+	c.JSON(http.StatusOK, gin.H{"message": "登出成功"})
 }
