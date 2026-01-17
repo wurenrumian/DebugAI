@@ -18,19 +18,18 @@
 ## API接口
 
 ### POST /evaluate
-**评价打分接口**
 
 - 请求体：
 ```json
 {
-    "code": "def add(a, b): return a + b",
-    "problem_description": "实现加法函数",
-    "test_points": [{"input": "2,3", "expected": "5"}],
+    "code": "学生代码",
+    "problem_description": "题目描述",
+    "test_points": [{"input": "测试点输入内容", "status": "通过状态"}],
     "task_type": "evaluate"
 }
 ```
 
-- 响应：
+- 响应示例：
 ```json
 {
     "score": 95,
@@ -53,12 +52,42 @@
     }
 }
 ```
+### POST /debug
+
+- 请求体：
+
+```json
+{
+    "code": "def factorial(n): result = 1; for i in range(n): result *= i; return result",
+    "problem_description": "计算n的阶乘",
+    "test_points": [{"input": "5", "expected": "120"}],
+    "submission_result": {"status": "failed", "passed_count": 0, "total_count": 1},
+    "task_type": "debug"
+}
+```
+- 响应示例：
+
+```json
+{
+    "debug_analysis": "代码存在逻辑错误，循环变量起始值不正确",
+    "problems": [
+        {
+            "location": "第3行的for循环",
+            "description": "循环变量i从0开始，导致第一次乘法结果为0",
+            "root_cause": "range(n)生成0到n-1的序列，应该从1开始"
+        }
+    ],
+    "suggestions": [
+        "将range(n)改为range(1, n+1)",
+        "添加对输入n=0的特殊情况处理"
+    ]
+}
+```
 
 ### POST /analyze
 **通用分析接口**（根据task_type自动路由到evaluate或debug）
 
-### GET /health
-**健康检查接口**
+
 
 
 ## Todos
