@@ -12,19 +12,29 @@ func main() {
 	config.InitDB()
 	r := gin.Default()
 
+	// CORS middleware
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
 	// 公开路由
 	r.POST("/auth/register", controller.Register)
 	r.POST("/auth/login", controller.Login)
+	r.POST("/auth/logout", controller.Logout)
 
 	// 受保护路由组
 	api := r.Group("/api/v1")
 	api.Use(middleware.AuthMiddleware()) // 使用中间件
 	{
-		api.GET("/profile", func(c *gin.Context) {
-			// 从上下文中获取中间件存入的数据
-			id, _ := c.Get("student_id")
-			c.JSON(200, gin.H{"message": "访问成功", "your_id": id})
-		})
+		api.GET("/profile", controller.GetProfile)
 	}
 
 	r.Run(":8080")
