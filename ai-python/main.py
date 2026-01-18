@@ -1,7 +1,6 @@
-# ai-python/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Dict
+from typing import List
 from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint
 from evaluator import CodeEvaluator
 from debugger import CodeDebugger
