@@ -22,6 +22,8 @@
 - 请求体：
 ```json
 {
+    "student_id": "学生ID",
+    "conversation_id": "对话ID",
     "code": "学生代码",
     "problem_description": "题目描述",
     "test_points": [{"input": "测试点输入内容", "status": "通过状态"}],
@@ -32,6 +34,8 @@
 - 响应示例：
 ```json
 {
+    "student_id": "学生ID",
+    "conversation_id": "对话ID",
     "score": 95,
     "overall_evaluation": "代码实现正确，但可读性有待提高",
     "readability": {
@@ -58,6 +62,8 @@
 
 ```json
 {
+    "student_id": "学生ID",
+    "conversation_id": "对话ID",
     "code": "def factorial(n): result = 1; for i in range(n): result *= i; return result",
     "problem_description": "计算n的阶乘",
     "test_points": [{"input": "5", "expected": "120"}],
@@ -69,6 +75,8 @@
 
 ```json
 {
+    "student_id": "学生ID",
+    "conversation_id": "对话ID",
     "debug_analysis": "代码存在逻辑错误，循环变量起始值不正确",
     "problems": [
         {

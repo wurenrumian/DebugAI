@@ -108,14 +108,21 @@ class CodeDebugger:
         
         # 验证和转换响应
         try:
-            return DebugResult(**response)
+            response_with_identity = {
+                "student_id": submission.student_id,
+                "conversation_id": submission.conversation_id,
+                **response
+            }
+            return DebugResult(**response_with_identity)
         except Exception as e:
             return DebugResult(
+                student_id=submission.student_id,
+                conversation_id=submission.conversation_id,
                 debug_analysis="解析响应失败",
                 problems=[{
                     "location": "未知",
-                    "description": "AI响应格式错误",
-                    "root_cause": "JSON解析失败"
+                    "description": "AI响应错误",
+                    "root_cause": "解析失败"
                 }],
                 suggestions=["请联系老师或管理员"]
             )

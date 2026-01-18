@@ -11,6 +11,8 @@ class TestPoint(BaseModel):
     status: str = Field(..., description="测试点通过情况，如Accepted, Time Limit Exceeded等")
 
 class CodeSubmission(BaseModel):
+    student_id: str = Field(default="", description="学生ID")
+    conversation_id: str = Field(default="", description="对话ID")
     code: str = Field(..., description="学生代码")
     problem_description: str = Field(..., description="题目描述")
     test_points: List[TestPoint] = Field(
@@ -20,6 +22,8 @@ class CodeSubmission(BaseModel):
     task_type: TaskType = Field(default=TaskType.EVALUATE, description="任务类型")
 
 class EvaluateResult(BaseModel):
+    student_id: str = Field(default="", description="学生ID")
+    conversation_id: str = Field(default="", description="对话ID")
     score: int = Field(..., ge=0, le=100, description="分数(0-100)")
     overall_evaluation: str = Field(..., description="整体评价")
     readability: Dict[str, str] = Field(..., description="可读性分析")
@@ -28,6 +32,8 @@ class EvaluateResult(BaseModel):
     efficiency: Dict[str, str] = Field(..., description="运行效率分析")
 
 class DebugResult(BaseModel):
+    student_id: str = Field(default="", description="学生ID")
+    conversation_id: str = Field(default="", description="对话ID")
     debug_analysis: str = Field(..., description="总体分析")
     problems: List[Dict[str, str]] = Field(..., description="具体问题")
     suggestions: List[str] = Field(..., description="修改建议")

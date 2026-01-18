@@ -87,6 +87,8 @@ class CodeEvaluator:
         
         if "error" in response:
             return EvaluateResult(
+                student_id=submission.student_id,
+                conversation_id=submission.conversation_id,
                 score=0,
                 overall_evaluation=f"分析失败，请联系老师或管理员: {response['error']}",
                 readability={"score": "0/10", "analysis": "分析失败"},
@@ -97,9 +99,16 @@ class CodeEvaluator:
         
         # 验证和转换响应
         try:
-            return EvaluateResult(**response)
+            response_with_identity = {
+                "student_id": submission.student_id,
+                "conversation_id": submission.conversation_id,
+                **response
+            }
+            return EvaluateResult(**response_with_identity)
         except Exception as e:
             return EvaluateResult(
+                student_id=submission.student_id,
+                conversation_id=submission.conversation_id,
                 score=0,
                 overall_evaluation="解析响应失败，请联系老师或管理员",
                 readability={"score": "0/10", "analysis": "解析失败"},

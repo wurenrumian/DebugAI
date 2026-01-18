@@ -16,6 +16,8 @@ class TestPointRequest(BaseModel):
     status: str
 
 class AnalyzeRequest(BaseModel):
+    student_id: str = ""
+    conversation_id: str = ""
     code: str
     problem_description: str
     test_points: List[TestPointRequest] = []
@@ -25,6 +27,8 @@ class AnalyzeRequest(BaseModel):
 async def evaluate_code(request: AnalyzeRequest):
     try:
         submission = CodeSubmission(
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
             test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
@@ -39,6 +43,8 @@ async def evaluate_code(request: AnalyzeRequest):
 async def debug_code(request: AnalyzeRequest):
     try:
         submission = CodeSubmission(
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
             test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
@@ -54,6 +60,8 @@ async def analyze_code(request: AnalyzeRequest):
     """通用分析接口，根据task_type自动路由"""
     try:
         submission = CodeSubmission(
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
             test_points=[TestPoint(**tp.dict()) for tp in request.test_points],

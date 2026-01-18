@@ -1,4 +1,3 @@
-# ai-python/tests/test_debugger.py
 import pytest
 import asyncio
 import sys
@@ -10,6 +9,8 @@ from debugger import CodeDebugger
 @pytest.mark.asyncio
 async def test_debug_runtime_error():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <stdio.h>
 int findMax(int arr[], int n) {
@@ -35,6 +36,8 @@ int findMax(int arr[], int n) {
     result = await debugger.debug(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert len(result.problems) > 0
     assert len(result.suggestions) > 0
     print("C代码调试（运行时错误）测试通过！")
@@ -42,6 +45,8 @@ int findMax(int arr[], int n) {
 @pytest.mark.asyncio
 async def test_debug_time_limit_exceeded():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <iostream>
 #include <vector>
@@ -71,6 +76,8 @@ int findMax(vector<int>& nums) {
     result = await debugger.debug(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert len(result.problems) > 0
     assert len(result.suggestions) > 0
     # 应提到时间复杂度或递归深度问题
@@ -79,6 +86,8 @@ int findMax(vector<int>& nums) {
 @pytest.mark.asyncio
 async def test_debug_memory_limit_exceeded():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,6 +122,8 @@ int* findMaxAndCreateArray(int arr[], int n) {
     result = await debugger.debug(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert len(result.problems) > 0
     assert len(result.suggestions) > 0
     print("C代码调试（内存超限）测试通过！")
@@ -120,6 +131,8 @@ int* findMaxAndCreateArray(int arr[], int n) {
 @pytest.mark.asyncio
 async def test_debug_compile_error():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <iostream>
 #include <vector>
@@ -148,6 +161,8 @@ int findMax(vector<int>& nums) {
     result = await debugger.debug(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert len(result.problems) > 0
     assert len(result.suggestions) > 0
     print("C++代码调试（编译错误）测试通过！")
