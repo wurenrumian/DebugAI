@@ -300,9 +300,9 @@ function clearForm() {
 function resetResults() {
     elements.scoreValue.textContent = '--';
     elements.readabilityScore.textContent = '0/10';
-    elements.logicScore.textContent = '0/35';
+    elements.logicScore.textContent = '0/40';
     elements.algorithmScore.textContent = '0/25';
-    elements.efficiencyScore.textContent = '0/20';
+    elements.efficiencyScore.textContent = '0/25';
     elements.overallEvaluationText.textContent = '等待分析结果...';
     elements.readabilityDetail.textContent = '等待分析结果...';
     elements.logicDetail.textContent = '等待分析结果...';

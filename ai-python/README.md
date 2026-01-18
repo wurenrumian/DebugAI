@@ -1,16 +1,16 @@
 <!--未来更改python代码后，请在这里描述项目功能和接口-->
 ## 功能
 
-### 1. 评价打分 (Evaluation)
+### 1. 评价打分 (Evaluate)
 - 输入：学生代码、题目描述、测试点（可选）
 - 输出：分数(0-100)、多维评价
 - 评价维度：
     - 代码可读性 (10分)
-    - 逻辑严谨性 (35分)
+    - 逻辑严谨性 (40分)
     - 算法合理性 (25分)
-    - 运行效率 (20分)
+    - 运行效率 (25分)
 
-### 2. 代码调试 (Debugging)
+### 2. 代码调试 (Debug)
 - 输入：学生代码、题目描述、测试点（可选）、提交结果（可选）
 - 输出：调试分析、具体问题、修改建议
 - 特点：不直接给出修改代码，引导学生思考
@@ -43,7 +43,7 @@
         "analysis": "函数命名不够清晰"
     },
     "logical_rigor": {
-        "score": "35/35",
+        "score": "40/40",
         "analysis": "逻辑正确，考虑了边界情况"
     },
     "algorithm_quality": {
@@ -51,7 +51,7 @@
         "analysis": "算法简单直接，符合题目要求"
     },
     "efficiency": {
-        "score": "20/20",
+        "score": "25/25",
         "analysis": "时间复杂度O(1)，空间复杂度O(1)"
     }
 }
@@ -66,7 +66,7 @@
     "conversation_id": "对话ID",
     "code": "def factorial(n): result = 1; for i in range(n): result *= i; return result",
     "problem_description": "计算n的阶乘",
-    "test_points": [{"input": "5", "expected": "120"}],
+    "test_points": [{"input": "测试点输入内容", "status": "通过状态"}],
     "submission_result": {"status": "failed", "passed_count": 0, "total_count": 1},
     "task_type": "debug"
 }

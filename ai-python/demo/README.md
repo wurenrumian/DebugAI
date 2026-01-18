@@ -12,7 +12,7 @@
 
 ## 使用方法
 1. 确保 AI Python 服务正在运行：`uvicorn main:app --host 0.0.0.0 --port 8000`
-2. 在浏览器中打开 `demo-frontend/index.html`
+2. 在浏览器中打开 `demo/index.html`
 3. 输入或修改示例代码和题目描述
 4. 选择任务类型（评价/调试）
 5. 点击"提交分析"按钮
