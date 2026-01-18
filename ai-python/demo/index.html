@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 代码分析演示</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-robot"></i> AI 代码分析平台</h1>
+            <p class="subtitle">输入代码和题目描述，获取AI的专业评价和调试建议</p>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <div class="form-group">
+                    <label for="studentId">
+                        <i class="fas fa-user"></i> 学生ID
+                    </label>
+                    <input type="text" id="studentId" placeholder="请输入学号" value="2025001">
+                </div>
+
+                <div class="form-group">
+                    <label for="conversationId">
+                        <i class="fas fa-comment"></i> 会话ID
+                    </label>
+                    <input type="text" id="conversationId" placeholder="自动生成会话ID" value="conv_001" readonly>
+                </div>
+
+                <div class="form-group">
+                    <label for="problemType">
+                        <i class="fas fa-tasks"></i> 任务类型
+                    </label>
+                    <select id="problemType">
+                        <option value="evaluate">代码评价</option>
+                        <option value="debug">代码调试</option>
+                    </select>
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="problemDescription">
+                        <i class="fas fa-question-circle"></i> 题目描述
+                    </label>
+                    <textarea id="problemDescription" rows="3" placeholder="请输入题目要求...">
+编写一个C程序，计算两个整数的最大公约数（GCD）。
+输入：两个整数a和b
+输出：它们的最大公约数
+要求：使用欧几里得算法实现
+                    </textarea>
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="codeEditor">
+                        <i class="fas fa-code"></i> 学生代码 (C/C++)
+                    </label>
+                    <div class="code-editor-container">
+                        <textarea id="codeEditor" rows="15" placeholder="请输入C/C++代码...">
+#include <stdio.h>
+
+int gcd(int a, int b) {
+    if (b == 0)
+        return a;
+    return gcd(b, a % b);
+}
+
+int main() {
+    int a, b;
+    printf("请输入两个整数: ");
+    scanf("%d %d", &a, &b);
+    
+    int result = gcd(a, b);
+    printf("最大公约数是: %d\n", result);
+    
+    return 0;
+}
+                        </textarea>
+                        <div class="line-numbers" id="lineNumbers"></div>
+                    </div>
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="testPoints">
+                        <i class="fas fa-vial"></i> 测试点 (JSON格式，可选)
+                    </label>
+                    <textarea id="testPoints" rows="4" placeholder='[{"input": "测试输入", "status": "Accepted/Wrong Answer/Time Limit Exceeded"}]'>
+[
+  {"input": "12 18", "status": "Accepted"},
+  {"input": "0 5", "status": "Accepted"},
+  {"input": "7 0", "status": "Runtime Error"}
+]
+                    </textarea>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="submitBtn" class="btn primary">
+                        <i class="fas fa-paper-plane"></i> 提交分析
+                    </button>
+                    <button id="clearBtn" class="btn secondary">
+                        <i class="fas fa-broom"></i> 清空
+                    </button>
+                    <button id="exampleBtn" class="btn tertiary">
+                        <i class="fas fa-magic"></i> 加载示例
+                    </button>
+                </div>
+            </div>
+
+            <div class="result-section">
+                <h2><i class="fas fa-chart-line"></i> 分析结果</h2>
+                
+                <div class="result-tabs">
+                    <button class="tab-btn active" data-tab="overview">概览</button>
+                    <button class="tab-btn" data-tab="detailed">详细分析</button>
+                    <button class="tab-btn" data-tab="raw">原始数据</button>
+                </div>
+
+                <div class="tab-content">
+                    <div id="overviewTab" class="tab-pane active">
+                        <div class="score-display">
+                            <div class="score-circle">
+                                <span id="scoreValue">--</span>
+                                <span class="score-label">总分</span>
+                            </div>
+                            <div class="score-breakdown">
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">可读性</span>
+                                    <div class="breakdown-bar">
+                                        <div class="breakdown-fill" style="width: 0%"></div>
+                                    </div>
+                                    <span class="breakdown-value" id="readabilityScore">0/10</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">逻辑严谨性</span>
+                                    <div class="breakdown-bar">
+                                        <div class="breakdown-fill" style="width: 0%"></div>
+                                    </div>
+                                    <span class="breakdown-value" id="logicScore">0/35</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">算法合理性</span>
+                                    <div class="breakdown-bar">
+                                        <div class="breakdown-fill" style="width: 0%"></div>
+                                    </div>
+                                    <span class="breakdown-value" id="algorithmScore">0/25</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">运行效率</span>
+                                    <div class="breakdown-bar">
+                                        <div class="breakdown-fill" style="width: 0%"></div>
+                                    </div>
+                                    <span class="breakdown-value" id="efficiencyScore">0/20</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="overall-evaluation">
+                            <h3><i class="fas fa-comment-dots"></i> 整体评价</h3>
+                            <p id="overallEvaluationText">等待分析结果...</p>
+                        </div>
+                    </div>
+
+                    <div id="detailedTab" class="tab-pane">
+                        <div class="detail-category">
+                            <h3><i class="fas fa-eye"></i> 可读性分析</h3>
+                            <p id="readabilityDetail">等待分析结果...</p>
+                        </div>
+                        <div class="detail-category">
+                            <h3><i class="fas fa-brain"></i> 逻辑严谨性分析</h3>
+                            <p id="logicDetail">等待分析结果...</p>
+                        </div>
+                        <div class="detail-category">
+                            <h3><i class="fas fa-cogs"></i> 算法合理性分析</h3>
+                            <p id="algorithmDetail">等待分析结果...</p>
+                        </div>
+                        <div class="detail-category">
+                            <h3><i class="fas fa-tachometer-alt"></i> 运行效率分析</h3>
+                            <p id="efficiencyDetail">等待分析结果...</p>
+                        </div>
+                    </div>
+
+                    <div id="rawTab" class="tab-pane">
+                        <pre id="rawData">{"status": "等待请求数据..."}</pre>
+                    </div>
+                </div>
+
+                <div class="debug-section" id="debugSection" style="display: none;">
+                    <h3><i class="fas fa-bug"></i> 调试分析</h3>
+                    <p id="debugAnalysisText">等待调试结果...</p>
+                    
+                    <div class="problems-list" id="problemsList">
+                        <!-- 调试问题会动态插入到这里 -->
+                    </div>
+                    
+                    <div class="suggestions">
+                        <h4><i class="fas fa-lightbulb"></i> 修改建议</h4>
+                        <ul id="suggestionsList">
+                            <!-- 建议会动态插入到这里 -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>AI 教学辅助平台演示版 | 后端服务: <span id="apiStatus">未连接</span></p>
+            <p class="api-url">API端点: <code id="apiEndpoint">http://localhost:8000</code></p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
