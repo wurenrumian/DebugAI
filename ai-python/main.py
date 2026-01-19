@@ -36,7 +36,15 @@ async def evaluate_code(request: AnalyzeRequest):
         result = await evaluator.evaluate(submission)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"评价失败，请联系老师或管理员: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "评价失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id,
+                "conversation_id": request.conversation_id
+            }
+        )
 
 @app.post("/debug", response_model=DebugResult)
 async def debug_code(request: AnalyzeRequest):
@@ -52,7 +60,15 @@ async def debug_code(request: AnalyzeRequest):
         result = await debugger.debug(submission)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调试失败，请联系老师或管理员: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "调试失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id,
+                "conversation_id": request.conversation_id
+            }
+        )
 
 @app.post("/analyze")
 async def analyze_code(request: AnalyzeRequest):
@@ -73,7 +89,15 @@ async def analyze_code(request: AnalyzeRequest):
             result = await debugger.debug(submission)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"分析失败，请联系老师或管理员: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "分析失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id,
+                "conversation_id": request.conversation_id
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn

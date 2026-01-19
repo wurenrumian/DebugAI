@@ -58,35 +58,72 @@ class CodeDebugger:
         {self.llm_client.sanitize_input(submission.code)}
         ```
         
-        请分析代码中的问题并提供调试帮助。注意：
-
-        1. 基于测试点的通过情况（如Time Limit Exceeded, Wrong Answer等）分析可能的原因
-        2. 用自然语言描述问题所在
-        3. 指出问题出现在代码的哪一部分，并提供具体的修改建议
-        4. 不要直接给出修改后的代码！
+        请分析代码中的问题并提供调试帮助。
         
-        请返回以下JSON格式：
+        ### 特别要求：
+        1. 问题分析：基于测试点的通过情况分析问题
+        2. 薄弱点识别：每一处问题从以下规范的关键词中选取1个作为薄弱点：
+        
+        ### 薄弱点关键词规范（必须使用以下关键词）：
+        
+        **语法类**：
+        - 语法错误
+        - 类型不匹配
+        - 头文件缺失
+        - 未声明变量
+        
+        **逻辑类**：
+        - 边界条件错误
+        - 条件判断错误
+        - 循环条件错误
+        - 逻辑顺序错误
+        - 状态处理错误
+        
+        **算法类**：
+        - 算法选择不当
+        - 时间复杂度高
+        - 空间复杂度高
+        - 递归深度过大
+        - 未优化算法
+        
+        **内存类**：
+        - 数组越界
+        - 空指针访问
+        - 内存泄漏
+        - 栈溢出
+        
+        **其他类**：
+        - 输入处理错误
+        - 输出格式错误
+        - 文件操作错误
+        - 其他
+
+        ### 返回JSON格式要求：
         {{
-            "debug_analysis": "<总体分析>",
+            "debug_analysis": "<总体分析，不超过50字>",
             "problems": [
                 {{
                     "location": "<问题位置，如'第10-15行的循环'>",
-                    "description": "<问题描述>",
-                    "root_cause": "<根本原因>"
+                    "description": "<问题描述，不超过50字>",
+                    "root_cause": "<根本原因，不超过50字>"
                 }}
             ],
             "suggestions": [
-                "<具体建议1>",
-                "<具体建议2>"
+                "<具体建议1，不要提供完整代码>",
+                "<具体建议2，不要提供完整代码>"
+            ],
+            "weak_points": [
+                "<薄弱点关键词1>",
+                "<薄弱点关键词2>"
             ]
         }}
         
-        注意：建议要具体但不要提供完整代码，引导学生自己思考解决问题。
-        根据不同的错误类型给出针对性建议：
-        - Time Limit Exceeded: 算法时间复杂度优化、循环优化等
-        - Wrong Answer: 逻辑错误、边界条件处理等
-        - Runtime Error: 数组越界、空指针等
-        - Memory Limit Exceeded: 空间复杂度优化
+        ### 注意事项：
+        1. 不要直接给出修改后的代码
+        2. 用自然语言描述问题所在
+        3. 薄弱点关键词必须从上述规范列表中选择
+        4. 每个问题至少对应一个薄弱点关键词
+        5. 建议要具体但不要提供完整代码，引导学生自己思考解决问题。
         """
         return prompt
     
@@ -102,7 +139,8 @@ class CodeDebugger:
                     "description": "AI服务暂时不可用",
                     "root_cause": "服务连接失败"
                 }],
-                suggestions=["请稍后重试或联系管理员"]
+                suggestions=["请稍后重试或联系管理员"],
+                weak_points=["服务连接失败"]
             )
         
         # 验证和转换响应
@@ -112,6 +150,10 @@ class CodeDebugger:
                 "conversation_id": submission.conversation_id,
                 **response
             }
+            if "weak_points" not in response:
+                response_with_identity["weak_points"] = []
+            elif not isinstance(response_with_identity["weak_points"], list):
+                response_with_identity["weak_points"] = []
             return DebugResult(**response_with_identity)
         except Exception as e:
             return DebugResult(
@@ -123,5 +165,6 @@ class CodeDebugger:
                     "description": "AI响应错误",
                     "root_cause": "解析失败"
                 }],
-                suggestions=["请联系老师或管理员"]
+                suggestions=["请联系老师或管理员"],
+                weak_points=["响应格式错误"]
             )

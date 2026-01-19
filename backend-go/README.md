@@ -174,3 +174,33 @@
 - **数据库连接失败**：检查权限，确保可写目录。
 - **依赖安装失败**：运行 `go clean -modcache` 后重试 `go mod tidy`。
 - **端口占用**：修改 `main.go` 中的 `r.Run(":8080")` 为其他端口。
+
+
+## AI引擎对数据库的需求
+### 学生画像构建
+1. 思路：在Go后端维护学生画像
+- AI返回分析结果（评分/问题），Go后端负责：存储历史数据到PostgreSQL，定期统计分析，更新画像，提供画像查询接口给前端。
+2. 数据结构：
+- evaluate功能
+```json
+{
+  "student_id": "stu_001",
+  "submission_id": "sub_20240115_001",
+  "readability_score": 8.5,
+  "logical_rigor_score": 32.0,
+  "algorithm_quality_score": 20.0,
+  "efficiency_score": 24.5
+}
+```
+- debug功能
+```json
+{
+  "student_id": "stu_001",
+  "submission_id": "sub_20240115_001",
+  "weak_points": ["数组越界", "算法选择不当"]
+}
+```
+
+### 个性化题目推荐
+1. 思路：前端请求推荐 -> Go后端 -> 获取学生画像 -> 调用AI推荐 -> AI分析薄弱点 -> 返回推荐要求 -> Go后端根据要求查询YOJ题库 -> 返回推荐题目列表给前端
+2. 要求：需要给YOJ题库公开题目加tag并存储在数据库中，以查询并返回推荐题目列表

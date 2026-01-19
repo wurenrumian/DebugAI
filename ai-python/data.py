@@ -37,3 +37,4 @@ class DebugResult(BaseModel):
     debug_analysis: str = Field(..., description="总体分析")
     problems: List[Dict[str, str]] = Field(..., description="具体问题")
     suggestions: List[str] = Field(..., description="修改建议")
+    weak_points: List[str] = Field(default_factory=list, description="薄弱点列表，使用规范的关键词")
