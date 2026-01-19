@@ -1,30 +1,40 @@
-# ai-python/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Dict
-from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint
+from typing import List, Dict
+from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint, RecommendRequest, RecommendResult
 from evaluator import CodeEvaluator
 from debugger import CodeDebugger
+from recommender import ProblemRecommender
 
 app = FastAPI(title="AI教学辅助平台")
 
 evaluator = CodeEvaluator()
 debugger = CodeDebugger()
+recommender = ProblemRecommender()
 
 class TestPointRequest(BaseModel):
     input: str
     status: str
 
 class AnalyzeRequest(BaseModel):
+    student_id: str = ""
+    conversation_id: str = ""
     code: str
     problem_description: str
     test_points: List[TestPointRequest] = []
     task_type: TaskType = TaskType.EVALUATE
 
+class RecommendRequestModel(BaseModel):
+    student_id: str
+    weak_points: Dict[str, int] = {}
+    max_recommendations: int = 5
+
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
     try:
         submission = CodeSubmission(
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
             test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
@@ -33,12 +43,22 @@ async def evaluate_code(request: AnalyzeRequest):
         result = await evaluator.evaluate(submission)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"评价失败，请联系老师或管理员: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "评价失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id,
+                "conversation_id": request.conversation_id
+            }
+        )
 
 @app.post("/debug", response_model=DebugResult)
 async def debug_code(request: AnalyzeRequest):
     try:
         submission = CodeSubmission(
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
             test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
@@ -47,13 +67,23 @@ async def debug_code(request: AnalyzeRequest):
         result = await debugger.debug(submission)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调试失败，请联系老师或管理员: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "调试失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id,
+                "conversation_id": request.conversation_id
+            }
+        )
 
 @app.post("/analyze")
 async def analyze_code(request: AnalyzeRequest):
     """通用分析接口，根据task_type自动路由"""
     try:
         submission = CodeSubmission(
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
             test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
@@ -66,7 +96,35 @@ async def analyze_code(request: AnalyzeRequest):
             result = await debugger.debug(submission)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"分析失败，请联系老师或管理员: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "分析失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id,
+                "conversation_id": request.conversation_id
+            }
+        )
+
+@app.post("/recommend", response_model=RecommendResult)
+async def recommend_problems(request: RecommendRequestModel):
+    try:
+        recommend_request = RecommendRequest(
+            student_id=request.student_id,
+            weak_points=request.weak_points,
+            max_recommendations=request.max_recommendations
+        )
+        result = await recommender.recommend(recommend_request)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "题目推荐失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn

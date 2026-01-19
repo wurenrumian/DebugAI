@@ -9,6 +9,8 @@ from evaluator import CodeEvaluator
 @pytest.mark.asyncio
 async def test_evaluate_code():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <stdio.h>
 
@@ -47,12 +49,16 @@ int main() {
     result = await evaluator.evaluate(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert 0 <= result.score <= 100
     print(f"C语言代码评价测试通过！得分: {result.score}")
 
 @pytest.mark.asyncio  
 async def test_evaluate_cpp_with_edge_cases():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <iostream>
 #include <vector>
@@ -86,22 +92,24 @@ int findMax(vector<int>& nums) {
     result = await evaluator.evaluate(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert 0 <= result.score <= 100
     print(f"C++边界情况测试通过！得分: {result.score}")
 
 @pytest.mark.asyncio
 async def test_evaluate_cpp_with_time_limit_exceeded():
     submission = CodeSubmission(
+        student_id="2025001",
+        conversation_id="001",
         code="""
 #include <iostream>
 #include <vector>
 using namespace std;
 
-// 低效的实现（故意低效）
 int findMax(vector<int>& nums) {
     if (nums.empty()) return -1;
     
-    // 使用冒泡排序找最大值（低效）
     for (int i = 0; i < nums.size(); i++) {
         for (int j = 0; j < nums.size() - 1; j++) {
             if (nums[j] > nums[j+1]) {
@@ -125,8 +133,9 @@ int findMax(vector<int>& nums) {
     result = await evaluator.evaluate(submission)
     
     assert result is not None
+    assert result.student_id == "2025001"
+    assert result.conversation_id == "001"
     assert 0 <= result.score <= 100
-    # 由于代码效率低，分数应该不会太高
     print(f"C++效率测试通过！得分: {result.score}")
 
 if __name__ == "__main__":

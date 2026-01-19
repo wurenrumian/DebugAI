@@ -24,5 +24,6 @@ logs/
 *.log
 *.backup
 *.swp
-
+.vscode
+.conda
 *.db
