@@ -1,14 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List
-from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint
+from typing import List, Dict
+from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint, RecommendRequest, RecommendResult
 from evaluator import CodeEvaluator
 from debugger import CodeDebugger
+from recommender import ProblemRecommender
 
 app = FastAPI(title="AI教学辅助平台")
 
 evaluator = CodeEvaluator()
 debugger = CodeDebugger()
+recommender = ProblemRecommender()
 
 class TestPointRequest(BaseModel):
     input: str
@@ -21,6 +23,11 @@ class AnalyzeRequest(BaseModel):
     problem_description: str
     test_points: List[TestPointRequest] = []
     task_type: TaskType = TaskType.EVALUATE
+
+class RecommendRequestModel(BaseModel):
+    student_id: str
+    weak_points: Dict[str, int] = {}
+    max_recommendations: int = 5
 
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
@@ -96,6 +103,26 @@ async def analyze_code(request: AnalyzeRequest):
                 "error": str(e),
                 "student_id": request.student_id,
                 "conversation_id": request.conversation_id
+            }
+        )
+
+@app.post("/recommend", response_model=RecommendResult)
+async def recommend_problems(request: RecommendRequestModel):
+    try:
+        recommend_request = RecommendRequest(
+            student_id=request.student_id,
+            weak_points=request.weak_points,
+            max_recommendations=request.max_recommendations
+        )
+        result = await recommender.recommend(recommend_request)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "题目推荐失败，请联系老师或管理员",
+                "error": str(e),
+                "student_id": request.student_id
             }
         )
 

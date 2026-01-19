@@ -15,6 +15,8 @@
 - 输出：调试分析、具体问题、修改建议
 - 特点：不直接给出修改代码，引导学生思考
 
+### 3. 个性化题目推荐 (Recommend)
+
 ## API接口
 
 ### POST /evaluate
@@ -95,6 +97,39 @@
 ### POST /analyze
 **通用分析接口**（根据task_type自动路由到evaluate或debug）
 
+### POST /recommend
+
+- 请求体：
+```json
+{
+    "student_id": "学生ID",
+    "weak_points": {
+        "数组越界": 3,//薄弱点类型和出现次数
+        "时间复杂度高": 2,
+        "边界条件错误": 4
+    },
+    "max_recommendations": 5
+}
+```
+- 响应体：
+```json
+{
+    "student_id": "2025001",
+    "recommendations": [
+        {
+            "tag": "数组操作",
+            "relevance": 0.9,
+            "reason": "针对数组越界问题，建议加强数组边界处理练习"
+        },
+        {
+            "tag": "动态规划",
+            "relevance": 0.7,
+            "reason": "针对时间复杂度问题，建议学习优化算法"
+        }
+    ],
+    "analysis": "学生主要问题集中在数组操作和算法效率，建议从基础数组题目开始，逐步过渡到算法优化"
+}
+```
 
 
 

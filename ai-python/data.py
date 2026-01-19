@@ -38,3 +38,21 @@ class DebugResult(BaseModel):
     problems: List[Dict[str, str]] = Field(..., description="具体问题")
     suggestions: List[str] = Field(..., description="修改建议")
     weak_points: List[str] = Field(default_factory=list, description="薄弱点列表，使用规范的关键词")
+
+class RecommendRequest(BaseModel):
+    student_id: str = Field(..., description="学生ID")
+    weak_points: Dict[str, int] = Field(
+        default_factory=dict,
+        description="学生薄弱点统计，格式为{'薄弱点关键词': 出现次数}"
+    )
+    max_recommendations: int = Field(default=5, description="最多推荐数量")
+
+class ProblemTag(BaseModel):
+    tag: str = Field(..., description="题目标签")
+    relevance: float = Field(..., ge=0.0, le=1.0, description="相关度分数")
+    reason: str = Field(..., description="推荐理由")
+
+class RecommendResult(BaseModel):
+    student_id: str = Field(..., description="学生ID")
+    recommendations: List[ProblemTag] = Field(..., description="推荐题目标签列表")
+    analysis: str = Field(..., description="推荐分析总结")
