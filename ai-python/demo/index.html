@@ -31,13 +31,23 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="problemType">
-                        <i class="fas fa-tasks"></i> 任务类型
+                    <label>
+                        <i class="fas fa-tasks"></i> 选择分析功能
                     </label>
-                    <select id="problemType">
-                        <option value="evaluate">代码评价</option>
-                        <option value="debug">代码调试</option>
-                    </select>
+                    <div class="task-checkboxes">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="enableEvaluate" checked>
+                            <label for="enableEvaluate">代码评价打分</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="enableDebug">
+                            <label for="enableDebug">代码调试分析</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="enableRecommend">
+                            <label for="enableRecommend">题目推荐</label>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group full-width">
@@ -45,11 +55,7 @@
                         <i class="fas fa-question-circle"></i> 题目描述
                     </label>
                     <textarea id="problemDescription" rows="3" placeholder="请输入题目要求...">
-编写一个C程序，计算两个整数的最大公约数（GCD）。
-输入：两个整数a和b
-输出：它们的最大公约数
-要求：使用欧几里得算法实现
-                    </textarea>
+</textarea>
                 </div>
 
                 <div class="form-group full-width">
@@ -58,25 +64,7 @@
                     </label>
                     <div class="code-editor-container">
                         <textarea id="codeEditor" rows="15" placeholder="请输入C/C++代码...">
-#include <stdio.h>
-
-int gcd(int a, int b) {
-    if (b == 0)
-        return a;
-    return gcd(b, a % b);
-}
-
-int main() {
-    int a, b;
-    printf("请输入两个整数: ");
-    scanf("%d %d", &a, &b);
-    
-    int result = gcd(a, b);
-    printf("最大公约数是: %d\n", result);
-    
-    return 0;
-}
-                        </textarea>
+</textarea>
                         <div class="line-numbers" id="lineNumbers"></div>
                     </div>
                 </div>
@@ -86,12 +74,39 @@ int main() {
                         <i class="fas fa-vial"></i> 测试点 (JSON格式，可选)
                     </label>
                     <textarea id="testPoints" rows="4" placeholder='[{"input": "测试输入", "status": "Accepted/Wrong Answer/Time Limit Exceeded"}]'>
-[
-  {"input": "12 18", "status": "Accepted"},
-  {"input": "0 5", "status": "Accepted"},
-  {"input": "7 0", "status": "Runtime Error"}
-]
-                    </textarea>
+</textarea>
+                </div>
+
+                <div class="recommend-input-section" id="recommendInputSection" style="display: none;">
+                    <div class="form-group full-width">
+                        <label for="weakPoints">
+                            <i class="fas fa-exclamation-triangle"></i> 学生薄弱点信息 (JSON格式)
+                        </label>
+                        <textarea id="weakPoints" rows="4" placeholder='{"数组越界": 3, "时间复杂度高": 2, "边界条件错误": 4}'>
+{
+    "数组越界": 3,
+    "时间复杂度高": 2,
+    "边界条件错误": 4
+}
+</textarea>
+                    </div>
+                
+                    <div class="form-group full-width">
+                        <label for="yojDatabase">
+                            <i class="fas fa-database"></i> YOJ题库信息 (JSON格式，可选)
+                        </label>
+                        <textarea id="yojDatabase" rows="6" placeholder='{"total_problems": 1000, "tags": ["数组", "字符串", "动态规划"]}'>
+{
+    "total_problems": 1000,
+    "tags": ["数组", "字符串", "动态规划", "贪心算法", "递归", "排序", "查找"],
+    "difficulty_distribution": {
+        "easy": 300,
+        "medium": 500,
+        "hard": 200
+    }
+}
+</textarea>
+                    </div>
                 </div>
 
                 <div class="action-buttons">
@@ -109,10 +124,12 @@ int main() {
 
             <div class="result-section">
                 <h2><i class="fas fa-chart-line"></i> 分析结果</h2>
-                
+            
                 <div class="result-tabs">
                     <button class="tab-btn active" data-tab="overview">概览</button>
                     <button class="tab-btn" data-tab="detailed">详细分析</button>
+                    <button class="tab-btn" data-tab="debug">调试分析</button>
+                    <button class="tab-btn" data-tab="recommend">题目推荐</button>
                     <button class="tab-btn" data-tab="raw">原始数据</button>
                 </div>
 
@@ -180,24 +197,36 @@ int main() {
                         </div>
                     </div>
 
+                    <div id="debugTab" class="tab-pane">
+                        <div class="debug-section">
+                            <h3><i class="fas fa-bug"></i> 调试分析</h3>
+                            <p id="debugAnalysisText">等待调试结果...</p>
+                            <div class="problems-list" id="problemsList">
+                            </div>
+                            <div class="suggestions">
+                                <h4><i class="fas fa-lightbulb"></i> 修改建议</h4>
+                                <ul id="suggestionsList">
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="recommendTab" class="tab-pane">
+                        <div class="recommendation-results">
+                            <h3><i class="fas fa-star"></i> 个性化题目推荐</h3>
+                            <div class="recommendation-summary">
+                                <p id="recommendationSummary">等待推荐结果...</p>
+                            </div>
+                            <div class="recommendation-list" id="recommendationList">
+                            </div>
+                            <div class="analysis-section">
+                                <h4><i class="fas fa-chart-bar"></i> 推荐分析</h4>
+                                <p id="recommendationAnalysis">等待分析结果...</p>
+                            </div>
+                        </div>
+                    </div>
                     <div id="rawTab" class="tab-pane">
                         <pre id="rawData">{"status": "等待请求数据..."}</pre>
-                    </div>
-                </div>
-
-                <div class="debug-section" id="debugSection" style="display: none;">
-                    <h3><i class="fas fa-bug"></i> 调试分析</h3>
-                    <p id="debugAnalysisText">等待调试结果...</p>
-                    
-                    <div class="problems-list" id="problemsList">
-                        <!-- 调试问题会动态插入到这里 -->
-                    </div>
-                    
-                    <div class="suggestions">
-                        <h4><i class="fas fa-lightbulb"></i> 修改建议</h4>
-                        <ul id="suggestionsList">
-                            <!-- 建议会动态插入到这里 -->
-                        </ul>
                     </div>
                 </div>
             </div>
