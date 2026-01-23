@@ -5,6 +5,7 @@ from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoin
 from evaluator import CodeEvaluator
 from debugger import CodeDebugger
 from recommender import ProblemRecommender
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="AI教学辅助平台")
 
@@ -28,6 +29,15 @@ class RecommendRequestModel(BaseModel):
     student_id: str
     weak_points: Dict[str, int] = {}
     max_recommendations: int = 5
+
+
+app.add_middleware( # 进入生产环境时应该调整
+    CORSMiddleware,
+    allow_origins=["*"],      # 修改点：允许所有来源 (解决 Origin 'null' 报错)
+    allow_credentials=True,
+    allow_methods=["*"],      # 修改点：允许所有请求动作 (解决 POST 报错)
+    allow_headers=["*"],      # 修改点：允许所有请求头 (解决 Preflight 报错)
+)   
 
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
