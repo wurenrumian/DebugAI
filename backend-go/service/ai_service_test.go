@@ -247,3 +247,72 @@ func GetRequestedWeakPointsFromRecommendationRecord(t *testing.T, record *models
 	assert.NoError(t, err)
 	return weakPoints
 }
+
+func TestAIService_GetAIHistory(t *testing.T) {
+	// 设置一个内存SQLite数据库用于测试
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	// 自动迁移所有相关模型
+	db.AutoMigrate(&models.EvaluateRecord{}, &models.DebugRecord{}, &models.RecommendationRecord{})
+
+	aiService := service.NewAIService(db)
+
+	studentID := "test_student_history"
+
+	// 插入测试数据
+	db.Create(&models.EvaluateRecord{
+		StudentID:         studentID,
+		ConversationID:    "conv_eval_1",
+		Code:              "eval code 1",
+		Score:             80,
+		OverallEvaluation: "Good",
+	})
+	db.Create(&models.DebugRecord{
+		StudentID:      studentID,
+		ConversationID: "conv_debug_1",
+		Code:           "debug code 1",
+		DebugAnalysis:  "Bug found",
+		Problems:       "[]",
+		Suggestions:    "[]",
+	})
+	db.Create(&models.RecommendationRecord{
+		StudentID:           studentID,
+		ConversationID:      "conv_rec_1",
+		RequestedWeakPoints: "{}",
+		Recommendations:     "[]",
+		Analysis:            "Recommended some problems",
+	})
+
+	// 调用GetAIHistory
+	history, err := aiService.GetAIHistory(studentID)
+	assert.NoError(t, err)
+	assert.NotNil(t, history)
+
+	// 验证返回数据
+	evalRecords := history["evaluate_records"].([]models.EvaluateRecord)
+	debugRecords := history["debug_records"].([]models.DebugRecord)
+	recRecords := history["recommendation_records"].([]models.RecommendationRecord)
+
+	assert.Len(t, evalRecords, 1)
+	assert.Equal(t, "conv_eval_1", evalRecords[0].ConversationID)
+
+	assert.Len(t, debugRecords, 1)
+	assert.Equal(t, "conv_debug_1", debugRecords[0].ConversationID)
+
+	assert.Len(t, recRecords, 1)
+	assert.Equal(t, "conv_rec_1", recRecords[0].ConversationID)
+
+	// Test non-existent student
+	historyNonExistent, err := aiService.GetAIHistory("non_existent_student")
+	assert.NoError(t, err)
+	assert.NotNil(t, historyNonExistent)
+
+	evalRecordsNonExistent := historyNonExistent["evaluate_records"].([]models.EvaluateRecord)
+	debugRecordsNonExistent := historyNonExistent["debug_records"].([]models.DebugRecord)
+	recRecordsNonExistent := historyNonExistent["recommendation_records"].([]models.RecommendationRecord)
+
+	assert.Len(t, evalRecordsNonExistent, 0)
+	assert.Len(t, debugRecordsNonExistent, 0)
+	assert.Len(t, recRecordsNonExistent, 0)
+}
