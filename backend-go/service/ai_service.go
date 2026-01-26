@@ -152,3 +152,28 @@ func (s *AIService) RecommendProblems(studentID string, req *utils.AIRequest) (*
 
 	return pythonResp, nil
 }
+
+// GetAIHistory 获取学生的AI交互历史记录
+func (s *AIService) GetAIHistory(studentID string) (map[string]interface{}, error) {
+	var evaluateRecords []models.EvaluateRecord
+	if err := s.DB.Where("student_id = ?", studentID).Order("created_at desc").Find(&evaluateRecords).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch evaluate records: %w", err)
+	}
+
+	var debugRecords []models.DebugRecord
+	if err := s.DB.Where("student_id = ?", studentID).Order("created_at desc").Find(&debugRecords).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch debug records: %w", err)
+	}
+
+	var recommendationRecords []models.RecommendationRecord
+	if err := s.DB.Where("student_id = ?", studentID).Order("created_at desc").Find(&recommendationRecords).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch recommendation records: %w", err)
+	}
+
+	history := make(map[string]interface{})
+	history["evaluate_records"] = evaluateRecords
+	history["debug_records"] = debugRecords
+	history["recommendation_records"] = recommendationRecords
+
+	return history, nil
+}

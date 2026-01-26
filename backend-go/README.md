@@ -118,7 +118,55 @@
   **错误示例**：  
   - 未登录：HTTP 401 `{"error": "未登录"}`  
   - 无效 Token：HTTP 401 `{"error": "无效的Token"}`  
-  - Token 格式错误：HTTP 401 `{"error": "Token格式错误"}`
+  - Token 格式错误：HTTP 401 `{\"error\": \"Token格式错误\"}`
+
+- **POST /api/v1/ai/evaluate**
+ AI代码评估接口。将学生代码和题目描述发送给AI服务进行评估，并保存评估结果。
+ **请求体**（JSON）：
+ ```json
+ {
+   "student_id": "12345678",
+   "conversation_id": "conv_001",
+   "problem_description": "题目描述",
+   "code": "int main() { return 0; }",
+   "test_points": [{\"input\": \"1\", \"status\": \"Accepted\"}]
+ }
+ ```
+ **响应**（成功）：取决于AI服务返回的评估结果。
+
+- **POST /api/v1/ai/debug**
+ AI代码调试接口。将学生代码和题目描述发送给AI服务进行调试分析，并保存调试结果。
+ **请求体**（JSON）：同 `/api/v1/ai/evaluate`
+ **响应**（成功）：取决于AI服务返回的调试结果。
+
+- **POST /api/v1/ai/recommend**
+ AI题目推荐接口。根据学生的薄弱点信息，从题库中推荐相关题目，并保存推荐结果。
+ **请求体**（JSON）：
+ ```json
+ {
+   "student_id": "12345678",
+   "conversation_id": "conv_002",
+   "weak_points": {\"数组越界\": 3, \"时间复杂度高\": 2},
+   "max_recommendations": 5
+ }
+ ```
+ **响应**（成功）：取决于AI服务返回的推荐结果。
+
+- **GET /api/v1/ai/history**
+ 获取当前学生所有AI交互历史记录（包括评估、调试和推荐）。
+ **请求头**：`Authorization: Bearer <your_jwt_token>`
+ **响应**（成功）：
+ HTTP 200
+ ```json
+ {
+   "history": {
+     "evaluate_records": [...],
+     "debug_records": [...],
+     "recommendation_records": [...]
+   }
+ }
+ ```
+ **错误示例**：同其他受保护接口。
 
 ## 使用说明
 

@@ -87,3 +87,20 @@ func (ctrl *AIController) RecommendProblems(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// GetAIHistory 获取学生的AI交互历史记录
+func (ctrl *AIController) GetAIHistory(c *gin.Context) {
+	studentID, exists := c.Get("student_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized - student_id not found"})
+		return
+	}
+
+	history, err := ctrl.AIService.GetAIHistory(studentID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"history": history})
+}
