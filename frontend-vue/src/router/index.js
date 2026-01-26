@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Profile from '../views/Profile.vue'
+import AIDebugCore from '../views/AIDebugCore.vue'
+import ConversationHistory from '../views/ConversationHistory.vue'
 
 const routes = [
 	{
@@ -22,6 +24,18 @@ const routes = [
 		path: '/profile',
 		name: 'Profile',
 		component: Profile,
+		meta: { requiresAuth: true }
+	},
+	{
+		path: '/aidebug',
+		name: 'AIDebugCore',
+		component: AIDebugCore,
+		meta: { requiresAuth: true }
+	},
+	{
+		path: '/history',
+		name: 'ConversationHistory',
+		component: ConversationHistory,
 		meta: { requiresAuth: true }
 	}
 ]

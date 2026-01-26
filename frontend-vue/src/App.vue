@@ -5,7 +5,9 @@
         <h1>AI 教学辅助平台</h1>
         <router-link v-if="$route.path !== '/profile' && !isLoggedIn" to="/login">登录</router-link>
         <router-link v-if="$route.path !== '/register' && !isLoggedIn" to="/register">注册</router-link>
-        <router-link v-if="$route.path !== '/profile' && isLoggedIn" to="/profile">个人主页</router-link>
+        <router-link v-if="isLoggedIn" to="/profile">个人主页</router-link>
+        <router-link v-if="isLoggedIn" to="/aidebug">AI Debug</router-link>
+        <router-link v-if="isLoggedIn" to="/history">对话历史</router-link>
       </nav>
     </header>
     <main>
