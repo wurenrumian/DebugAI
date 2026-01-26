@@ -4,12 +4,17 @@ import (
 	"backend-go/config"
 	"backend-go/controller"
 	"backend-go/middleware"
+	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	config.InitDB()
+
+	aiService := service.NewAIService(config.DB)          // 初始化 AI Service
+	aiController := controller.NewAIController(aiService) // 初始化 AI Controller
+
 	r := gin.Default()
 
 	// CORS middleware
@@ -35,6 +40,10 @@ func main() {
 	api.Use(middleware.AuthMiddleware()) // 使用中间件
 	{
 		api.GET("/profile", controller.GetProfile)
+		// AI 관련 라우터 추가
+		api.POST("/ai/evaluate", aiController.EvaluateCode)
+		api.POST("/ai/debug", aiController.DebugCode)
+		api.POST("/ai/recommend", aiController.RecommendProblems)
 	}
 
 	r.Run(":8080")

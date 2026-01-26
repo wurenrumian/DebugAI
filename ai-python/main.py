@@ -37,7 +37,11 @@ app.add_middleware( # 进入生产环境时应该调整
     allow_credentials=True,
     allow_methods=["*"],      # 修改点：允许所有请求动作 (解决 POST 报错)
     allow_headers=["*"],      # 修改点：允许所有请求头 (解决 Preflight 报错)
-)   
+)
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "message": "AI service is running"}
 
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
