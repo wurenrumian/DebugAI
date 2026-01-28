@@ -37,6 +37,18 @@ const routes = [
 		name: 'ConversationHistory',
 		component: ConversationHistory,
 		meta: { requiresAuth: true }
+	},
+	{
+    	path: '/aidebugv2',
+    	name: 'AIDebugV2',
+    	component: () => import('../views/AIDebugV2.vue'),
+    	meta: { requiresAuth: true }
+	},
+	{
+    	path: '/debugv2-test',
+    	name: 'DebugV2Test',
+    	component: () => import('../views/DebugV2Test.vue'),
+    	meta: { requiresAuth: false }  // 测试页面不需要登录
 	}
 ]
 

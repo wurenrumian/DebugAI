@@ -7,6 +7,8 @@ from evaluator import CodeEvaluator
 from debugger import CodeDebugger
 from recommender import ProblemRecommender
 from fastapi.middleware.cors import CORSMiddleware
+from data import CodeSubmissionV2
+from debugger_v2 import CodeDebuggerV2
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,6 +17,7 @@ app = FastAPI(title="AI教学辅助平台")
 evaluator = CodeEvaluator()
 debugger = CodeDebugger()
 recommender = ProblemRecommender()
+debugger_v2 = CodeDebuggerV2()
 
 class TestPointRequest(BaseModel):
     input: str
@@ -48,14 +51,14 @@ async def health_check():
 
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
-    logging.info(f"Received /evaluate request: {request.dict()}")
+    logging.info(f"Received /evaluate request: {request.model_dump()}")
     try:
         submission = CodeSubmission(
             student_id=request.student_id,
             conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
-            test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
+            test_points=[TestPoint(**tp.model_dump()) for tp in request.test_points],
             task_type=TaskType.EVALUATE
         )
         result = await evaluator.evaluate(submission)
@@ -75,14 +78,14 @@ async def evaluate_code(request: AnalyzeRequest):
 
 @app.post("/debug", response_model=DebugResult)
 async def debug_code(request: AnalyzeRequest):
-    logging.info(f"Received /debug request: {request.dict()}")
+    logging.info(f"Received /debug request: {request.model_dump()}")
     try:
         submission = CodeSubmission(
             student_id=request.student_id,
             conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
-            test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
+            test_points=[TestPoint(**tp.model_dump()) for tp in request.test_points],
             task_type=TaskType.DEBUG
         )
         result = await debugger.debug(submission)
@@ -103,14 +106,14 @@ async def debug_code(request: AnalyzeRequest):
 @app.post("/analyze")
 async def analyze_code(request: AnalyzeRequest):
     """通用分析接口，根据task_type自动路由"""
-    logging.info(f"Received /analyze request: {request.dict()}")
+    logging.info(f"Received /analyze request: {request.model_dump()}")
     try:
         submission = CodeSubmission(
             student_id=request.student_id,
             conversation_id=request.conversation_id,
             code=request.code,
             problem_description=request.problem_description,
-            test_points=[TestPoint(**tp.dict()) for tp in request.test_points],
+            test_points=[TestPoint(**tp.model_dump()) for tp in request.test_points],
             task_type=request.task_type
         )
         
@@ -134,7 +137,7 @@ async def analyze_code(request: AnalyzeRequest):
 
 @app.post("/recommend", response_model=RecommendResult)
 async def recommend_problems(request: RecommendRequestModel):
-    logging.info(f"Received /recommend request: {request.dict()}")
+    logging.info(f"Received /recommend request: {request.model_dump()}")
     try:
         recommend_request = RecommendRequest(
             student_id=request.student_id,
@@ -152,6 +155,45 @@ async def recommend_problems(request: RecommendRequestModel):
                 "message": "题目推荐失败，请联系老师或管理员",
                 "error": str(e),
                 "student_id": request.student_id
+            }
+        )
+
+@app.post("/debug_v2")
+async def debug_code_v2(request: Request):
+    try:
+        data = await request.json()
+        
+        # 创建V2提交对象
+        submission = CodeSubmissionV2(
+            student_id=data.get("student_id", ""),
+            conversation_id=data.get("conversation_id", ""),
+            code=data.get("code", ""),
+            problem_description=data.get("problem_description", ""),
+            test_points=[TestPoint(**tp) for tp in data.get("test_points", [])],
+            current_round=data.get("current_round", 1),
+            dialogue_history=data.get("dialogue_history", []),
+            student_response=data.get("student_response")
+        )
+        
+        result = await debugger_v2.debug(submission)
+        
+        # 添加对话历史记录（Go后端应保存这部分）
+        if not result.get("error"):
+            result["dialogue_turn"] = {
+                "round_number": submission.current_round,
+                "role": "assistant",
+                "content": str(result.get("ai_response", {})),
+                "metadata": result.get("ai_response")
+            }
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error in /debug_v2: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "V2调试失败，请联系老师或管理员",
+                "error": str(e)
             }
         )
 

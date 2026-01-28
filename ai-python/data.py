@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -56,3 +56,20 @@ class RecommendResult(BaseModel):
     student_id: str = Field(..., description="学生ID")
     recommendations: List[ProblemTag] = Field(..., description="推荐题目标签列表")
     analysis: str = Field(..., description="推荐分析总结")
+
+class DialogueTurn(BaseModel):
+    round_number: int = Field(..., description="轮次编号 1-4")
+    role: str = Field(..., description="角色: student / assistant")
+    content: str = Field(..., description="对话内容")
+    metadata: Optional[Dict] = Field(default=None, description="元数据，如AI返回的JSON")
+
+class CodeSubmissionV2(CodeSubmission):
+    current_round: int = Field(default=1, description="当前轮次 (1-4)")
+    dialogue_history: List[DialogueTurn] = Field(
+        default_factory=list,
+        description="对话历史记录"
+    )
+    student_response: Optional[str] = Field(
+        default=None, 
+        description="学生的最新回应（用于第2-4轮）"
+    )

@@ -8,6 +8,8 @@
         <router-link v-if="isLoggedIn" to="/profile">个人主页</router-link>
         <router-link v-if="isLoggedIn" to="/aidebug">AI Debug</router-link>
         <router-link v-if="isLoggedIn" to="/history">对话历史</router-link>
+        <router-link v-if="isLoggedIn" to="/aidebugv2">AI Debug V2</router-link>
+        <router-link v-if="isLoggedIn" to="/debugv2-test">Debug V2 测试</router-link>
       </nav>
     </header>
     <main>
