@@ -69,7 +69,6 @@
     "code": "def factorial(n): result = 1; for i in range(n): result *= i; return result",
     "problem_description": "计算n的阶乘",
     "test_points": [{"input": "测试点输入内容", "status": "通过状态"}],
-    "submission_result": {"status": "failed", "passed_count": 0, "total_count": 1},
     "task_type": "debug"
 }
 ```
@@ -93,9 +92,6 @@
     ]
 }
 ```
-
-### POST /analyze
-**通用分析接口**（根据task_type自动路由到evaluate或debug）
 
 ### POST /recommend
 
@@ -130,8 +126,3 @@
     "analysis": "学生主要问题集中在数组操作和算法效率，建议从基础数组题目开始，逐步过渡到算法优化"
 }
 ```
-
-
-
-## Todos
-
