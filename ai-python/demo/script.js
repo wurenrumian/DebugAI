@@ -336,28 +336,28 @@ function displayEvaluationResults(result) {
     if (result.readability) {
         const readabilityScore = parseScore(result.readability.score);
         elements.readabilityScore.textContent = result.readability.score;
-        updateBreakdownBar('readability', readabilityScore.percentage);
+        updateBreakdownBar(0, readabilityScore.percentage);
         elements.readabilityDetail.textContent = result.readability.analysis || '无分析';
     }
 
     if (result.logical_rigor) {
         const logicScore = parseScore(result.logical_rigor.score);
         elements.logicScore.textContent = result.logical_rigor.score;
-        updateBreakdownBar('logic', logicScore.percentage);
+        updateBreakdownBar(1, logicScore.percentage);
         elements.logicDetail.textContent = result.logical_rigor.analysis || '无分析';
     }
 
     if (result.algorithm_quality) {
         const algorithmScore = parseScore(result.algorithm_quality.score);
         elements.algorithmScore.textContent = result.algorithm_quality.score;
-        updateBreakdownBar('algorithm', algorithmScore.percentage);
+        updateBreakdownBar(2, algorithmScore.percentage);
         elements.algorithmDetail.textContent = result.algorithm_quality.analysis || '无分析';
     }
 
     if (result.efficiency) {
         const efficiencyScore = parseScore(result.efficiency.score);
         elements.efficiencyScore.textContent = result.efficiency.score;
-        updateBreakdownBar('efficiency', efficiencyScore.percentage);
+        updateBreakdownBar(3, efficiencyScore.percentage);
         elements.efficiencyDetail.textContent = result.efficiency.analysis || '无分析';
     }
 
@@ -452,7 +452,7 @@ function updateBreakdownBar(type, percentage) {
     const bars = document.querySelectorAll(`.breakdown-fill`);
     if (bars.length > 0) {
         // 简单实现：更新第一个匹配的进度条
-        bars[0].style.width = `${Math.min(percentage, 100)}%`;
+        bars[type].style.width = `${Math.min(percentage, 100)}%`;
     }
 }
 

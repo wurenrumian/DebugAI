@@ -129,7 +129,7 @@
    "conversation_id": "conv_001",
    "problem_description": "题目描述",
    "code": "int main() { return 0; }",
-   "test_points": [{\"input\": \"1\", \"status\": \"Accepted\"}]
+   "test_points": [{"input": "1", "status": "Accepted"}]
  }
  ```
  **响应**（成功）：取决于AI服务返回的评估结果。
@@ -146,7 +146,7 @@
  {
    "student_id": "12345678",
    "conversation_id": "conv_002",
-   "weak_points": {\"数组越界\": 3, \"时间复杂度高\": 2},
+   "weak_points": {"数组越界": 3, "时间复杂度高": 2},
    "max_recommendations": 5
  }
  ```
@@ -225,10 +225,7 @@
 
 
 ## AI引擎对数据库的需求
-### 学生画像构建
-1. 思路：在Go后端维护学生画像
-- AI返回分析结果（评分/问题），Go后端负责：存储历史数据到PostgreSQL，定期统计分析，更新画像，提供画像查询接口给前端。
-2. 数据结构：
+### 1. 需存储的数据结构
 - evaluate功能
 ```json
 {
@@ -241,7 +238,8 @@
   "time": "2024-01-15T10:30:00Z"
 }
 ```
-- debug功能
+  - 建议code, problem_description, test_points从YOJ实时获取，不进行存储
+- debug功能（计划删除）
 ```json
 {
   "student_id": "stu_001",
@@ -250,8 +248,27 @@
   "time": "2024-01-15T10:30:00Z"
 }
 ```
+- debug_v2
+- 对话历史：
+  - 按conversation_id存储完整的dialogue_history
+  - 每轮对话的round_number, role, content
+- 状态跟踪：
+  - 当前轮次current_round
+  - 每个会话的调试进度
+- 薄弱点收集：第2轮返回的weak_points
+- time
+
+### 2. 学生画像构建
+- 思路：在Go后端维护学生画像
+- AI返回分析结果（评分/问题），Go后端负责：存储历史评分和薄弱点数据到PostgreSQL，定期统计分析，更新画像，提供画像查询接口给前端。
 - 学生画像关于薄弱点的统计，统计每个薄弱点的出现次数，是否需要设定查询时间范围
 
-### 个性化题目推荐
+### 3. debug_v2要求
+- 第1-3轮对话后均会出现选项供学生选择，其中2、3轮后的对话，若学生选择无需继续指导，则标记对话结束。第4轮对话结束后也标记对话结束。
+- 每次请求需提供对话历史dialogue_history
+
+### 4. 个性化题目推荐
 1. 思路：前端请求推荐 -> Go后端 -> 获取学生画像 -> 调用AI推荐 -> AI分析薄弱点 -> 返回推荐要求 -> Go后端根据要求查询YOJ题库 -> 返回推荐题目列表给前端
 2. 要求：需要给YOJ题库公开题目加tag并存储在数据库中，以查询并返回推荐题目列表。查询返回时注意去重（不要是最近做过的）
+
+### 5. 可参考ai-python的README
