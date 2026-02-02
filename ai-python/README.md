@@ -69,7 +69,6 @@
     "code": "def factorial(n): result = 1; for i in range(n): result *= i; return result",
     "problem_description": "计算n的阶乘",
     "test_points": [{"input": "测试点输入内容", "status": "通过状态"}],
-    "submission_result": {"status": "failed", "passed_count": 0, "total_count": 1},
     "task_type": "debug"
 }
 ```
@@ -93,9 +92,6 @@
     ]
 }
 ```
-
-### POST /analyze
-**通用分析接口**（根据task_type自动路由到evaluate或debug）
 
 ### POST /recommend
 
@@ -131,7 +127,46 @@
 }
 ```
 
+### POST /debug_v2
 
-
-## Todos
-
+- 请求体：
+```json
+{
+  "student_id": "string",
+  "conversation_id": "string",
+  "code": "string",
+  "problem_description": "string",
+  "test_points": [...], // 同上
+  "current_round": "int (1-4)",
+  "dialogue_history": [
+    {
+      "round_number": "int",
+      "role": "string (student/assistant)",
+      "content": "string"
+    }
+  ],
+  "student_response": "string (学生的最新回答)"
+}
+```
+- 响应体：
+```json
+{
+  "student_id": "string",
+  "conversation_id": "string",
+  "current_round": "int",
+  "ai_response": {
+    // 根据轮次不同结构不同
+  },
+  "message": "string (一般没有, 错误信息)",
+  "dialogue_turn": {
+    "round_number": "int",
+    "role": "assistant",
+    "content": "string (AI回复的JSON字符串)"
+  }
+}
+```
+- 各轮次ai_response结构：
+    - 第1轮：{"student_thought": "string", "suggested_correction": "string"}
+    - 第2轮：{"problem_summary": "string", "key_issues": [...], "weak_points": [...], "ask_for_help": "string"}
+    - 第3轮：{"debug_guidance": "string", "ask_for_detail": "string"}
+    - 第4轮：{"suggestions": ["string", "string"]}

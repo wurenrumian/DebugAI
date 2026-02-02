@@ -20,17 +20,16 @@ class DeepSeekClient:
     async def call_llm(self, prompt: str, json_mode: bool = True) -> Dict[str, Any]:
         try:
             messages = [
-                {"role": "system", "content": "你是一个专业的编程教学助手，专门对学生代码进行评价和调试。"},
                 {"role": "user", "content": prompt}
             ]
             
             response_format = {"type": "json_object"} if json_mode else None
             
             response = await self.client.chat.completions.create(
-                model="deepseek-reasoner",
+                model="deepseek-chat",
                 messages=messages,
                 temperature=0.3,
-                max_tokens=10000,
+                max_tokens=8192,
                 response_format=response_format
             )
             

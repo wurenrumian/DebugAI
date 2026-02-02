@@ -61,7 +61,6 @@ class DialogueTurn(BaseModel):
     round_number: int = Field(..., description="轮次编号 1-4")
     role: str = Field(..., description="角色: student / assistant")
     content: str = Field(..., description="对话内容")
-    metadata: Optional[Dict] = Field(default=None, description="元数据，如AI返回的JSON")
 
 class CodeSubmissionV2(CodeSubmission):
     current_round: int = Field(default=1, description="当前轮次 (1-4)")
@@ -73,3 +72,11 @@ class CodeSubmissionV2(CodeSubmission):
         default=None, 
         description="学生的最新回应（用于第2-4轮）"
     )
+
+class DebugV2Response(BaseModel):
+    student_id: str = Field(default="", description="学生ID")
+    conversation_id: str = Field(default="", description="对话ID")
+    current_round: int = Field(..., description="当前轮次 (1-4)")
+    ai_response: Dict = Field(..., description="AI返回的JSON响应")
+    message: Optional[str] = Field(default=None, description="错误信息")
+    dialogue_turn: Optional[DialogueTurn] = Field(default=None, description="本轮对话记录")

@@ -7,7 +7,7 @@ from evaluator import CodeEvaluator
 from debugger import CodeDebugger
 from recommender import ProblemRecommender
 from fastapi.middleware.cors import CORSMiddleware
-from data import CodeSubmissionV2
+from data import CodeSubmissionV2, DebugV2Response
 from debugger_v2 import CodeDebuggerV2
 
 logging.basicConfig(level=logging.INFO)
@@ -103,38 +103,6 @@ async def debug_code(request: AnalyzeRequest):
             }
         )
 
-@app.post("/analyze")
-async def analyze_code(request: AnalyzeRequest):
-    """通用分析接口，根据task_type自动路由"""
-    logging.info(f"Received /analyze request: {request.model_dump()}")
-    try:
-        submission = CodeSubmission(
-            student_id=request.student_id,
-            conversation_id=request.conversation_id,
-            code=request.code,
-            problem_description=request.problem_description,
-            test_points=[TestPoint(**tp.model_dump()) for tp in request.test_points],
-            task_type=request.task_type
-        )
-        
-        if request.task_type == TaskType.EVALUATE:
-            result = await evaluator.evaluate(submission)
-        else:
-            result = await debugger.debug(submission)
-        logging.info(f"Returning /analyze response: {result.model_dump_json()}")
-        return result
-    except Exception as e:
-        logging.error(f"Error in /analyze: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": "分析失败，请联系老师或管理员",
-                "error": str(e),
-                "student_id": request.student_id,
-                "conversation_id": request.conversation_id
-            }
-        )
-
 @app.post("/recommend", response_model=RecommendResult)
 async def recommend_problems(request: RecommendRequestModel):
     logging.info(f"Received /recommend request: {request.model_dump()}")
@@ -158,12 +126,11 @@ async def recommend_problems(request: RecommendRequestModel):
             }
         )
 
-@app.post("/debug_v2")
+@app.post("/debug_v2", response_model=DebugV2Response)
 async def debug_code_v2(request: Request):
     try:
         data = await request.json()
         
-        # 创建V2提交对象
         submission = CodeSubmissionV2(
             student_id=data.get("student_id", ""),
             conversation_id=data.get("conversation_id", ""),
@@ -176,15 +143,6 @@ async def debug_code_v2(request: Request):
         )
         
         result = await debugger_v2.debug(submission)
-        
-        # 添加对话历史记录（Go后端应保存这部分）
-        if not result.get("error"):
-            result["dialogue_turn"] = {
-                "round_number": submission.current_round,
-                "role": "assistant",
-                "content": str(result.get("ai_response", {})),
-                "metadata": result.get("ai_response")
-            }
         return result
         
     except Exception as e:
