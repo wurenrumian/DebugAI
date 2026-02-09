@@ -60,13 +60,30 @@
                     <p>对话将在这里显示...</p>
                 </div>
                 
+                <!-- 选项选择区域 -->
                 <div v-if="showOptions && !conversationEnded" class="options">
                     <h4>请选择：</h4>
                     <div class="option-buttons">
                         <button v-for="(option, idx) in currentOptions" :key="idx" 
                                 @click="selectOption(option.value)"
-                                :class="{'btn-primary': option.type === 'positive', 'btn-secondary': option.type === 'negative'}">
+                                :class="getButtonClass(option)">
                             {{ option.text }}
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 输入框区域（当用户选择需要进一步帮助时显示） -->
+                <div v-if="showInputBox && !conversationEnded" class="input-box">
+                    <h4>{{ inputBoxTitle }}</h4>
+                    <div class="form-group">
+                        <textarea v-model="userRequest" rows="4" :placeholder="inputBoxPlaceholder"></textarea>
+                    </div>
+                    <div class="input-actions">
+                        <button @click="submitUserRequest" class="btn-submit">
+                            提交请求
+                        </button>
+                        <button @click="cancelUserRequest" class="btn-cancel">
+                            取消
                         </button>
                     </div>
                 </div>
@@ -107,6 +124,11 @@ const isTesting = ref(false);
 const isValidating = ref(false);
 const weakPoints = ref([]);
 
+// 新增的状态
+const showInputBox = ref(false);
+const userRequest = ref('');
+const selectedOptionType = ref(''); // 记录用户选择的选项类型
+
 // 轮次选项配置
 const roundOptions = {
     1: [], // 第1轮不需要用户选项
@@ -124,6 +146,22 @@ const roundOptions = {
     ]
 };
 
+// 输入框配置
+const inputBoxConfig = {
+    '需要修正思路': {
+        title: '请描述您需要修正的思路',
+        placeholder: '请详细说明您认为需要修正的地方或您的疑问...'
+    },
+    '需要调试帮助': {
+        title: '请描述您需要的调试帮助',
+        placeholder: '请详细说明您在调试过程中遇到的问题...'
+    },
+    '需要详细指导': {
+        title: '请描述您需要的详细指导',
+        placeholder: '请详细说明您希望获得哪些方面的指导...'
+    }
+};
+
 // 计算属性
 const passedTestPoints = computed(() => {
     return testPoints.value.filter(tp => tp.status === 'Accepted').length;
@@ -137,6 +175,14 @@ const totalRounds = computed(() => {
     return conversation.value.filter(msg => msg.role === 'assistant').length;
 });
 
+const inputBoxTitle = computed(() => {
+    return inputBoxConfig[selectedOptionType.value]?.title || '请输入您的请求';
+});
+
+const inputBoxPlaceholder = computed(() => {
+    return inputBoxConfig[selectedOptionType.value]?.placeholder || '请输入...';
+});
+
 // 方法
 const getRoleName = (role) => {
     const roleMap = {
@@ -145,6 +191,16 @@ const getRoleName = (role) => {
         'system': '系统'
     };
     return roleMap[role] || role;
+};
+
+// 修改：动态获取按钮类名
+const getButtonClass = (option) => {
+    if (option.type === 'positive') {
+        return 'btn-primary';
+    } else if (option.type === 'negative') {
+        return 'btn-secondary';
+    }
+    return '';
 };
 
 const isJson = (str) => {
@@ -263,29 +319,24 @@ const sendRequest = async (studentResponse) => {
         });
         conversationEnded.value = true;
         showOptions.value = false;
+        showInputBox.value = false;
     }
 };
 
 const extractWeakPoints = (aiResponse) => {
     if (aiResponse && aiResponse.weak_points) {
         weakPoints.value = aiResponse.weak_points;
-    } else if (aiResponse && typeof aiResponse === 'object') {
-        // 尝试从不同可能的字段中提取薄弱点
-        for (const key in aiResponse) {
-            if (Array.isArray(aiResponse[key]) && 
-                aiResponse[key].some(item => typeof item === 'string' && 
-                (item.includes('错误') || item.includes('不足') || item.includes('不当')))) {
-                weakPoints.value = [...new Set([...weakPoints.value, ...aiResponse[key]])];
-            }
-        }
     }
 };
 
 const checkConversationEnd = (studentResponse) => {
+    // 第3、4轮：如果学生选择"不需要"类的选项，结束对话
+    
     // 第3轮：如果学生选择"不需要调试帮助"，结束对话
     if (currentRound.value === 3 && studentResponse === '不需要调试帮助') {
         conversationEnded.value = true;
         showOptions.value = false;
+        showInputBox.value = false;
         conversation.value.push({
             round: currentRound.value,
             role: 'system',
@@ -294,10 +345,12 @@ const checkConversationEnd = (studentResponse) => {
         return;
     }
     
-    // 第4轮：AI响应后都结束对话
-    if (currentRound.value === 4) {
+    // 第4轮：如果学生选择"不需要详细指导"，结束对话（已在selectOption中处理）
+    // 第4轮正常AI响应后都结束对话
+    if (currentRound.value === 4 && !studentResponse?.includes('不需要详细指导')) {
         conversationEnded.value = true;
         showOptions.value = false;
+        showInputBox.value = false;
         conversation.value.push({
             round: currentRound.value,
             role: 'system',
@@ -313,7 +366,7 @@ const checkConversationEnd = (studentResponse) => {
 };
 
 const selectOption = async (option) => {
-    // 特殊处理：第4轮选择"不需要详细指导"时，直接结束，不发送请求
+    // 第4轮选择"不需要详细指导"时，直接结束，不发送请求
     if (currentRound.value === 4 && option === '不需要详细指导') {
         conversation.value.push({
             round: currentRound.value,
@@ -327,18 +380,71 @@ const selectOption = async (option) => {
         });
         conversationEnded.value = true;
         showOptions.value = false;
+        showInputBox.value = false;
         return;
     }
     
-    // 添加用户选择到对话历史
+    // 第3轮选择"不需要调试帮助"时，直接结束，不发送请求
+    if (currentRound.value === 3 && option === '不需要调试帮助') {
+        conversation.value.push({
+            round: currentRound.value,
+            role: 'user',
+            content: option
+        });
+        conversation.value.push({
+            round: currentRound.value,
+            role: 'system',
+            content: '对话结束：学生选择不需要调试帮助'
+        });
+        conversationEnded.value = true;
+        showOptions.value = false;
+        showInputBox.value = false;
+        return;
+    }
+
+    // 第2轮选择"确认理解正确"时，发送请求给AI
+    if (currentRound.value === 2 && option === '确认理解正确') {
+        conversation.value.push({
+            round: currentRound.value,
+            role: 'user',
+            content: option
+        });
+        showOptions.value = false;
+        await sendRequest(option);
+        return;
+    }
+    
+    // 如果是"需要"类的选项（需要修正思路、需要调试帮助、需要详细指导），显示输入框
+    if (option === '需要修正思路' || option === '需要调试帮助' || option === '需要详细指导') {
+        selectedOptionType.value = option;
+        showOptions.value = false;
+        showInputBox.value = true;
+        userRequest.value = '';
+        return;
+    }
+};
+
+const submitUserRequest = async () => {
+    // 将用户请求添加到对话历史
+    const requestText = `${selectedOptionType.value}: ${userRequest.value}`;
     conversation.value.push({
         round: currentRound.value,
         role: 'user',
-        content: option
+        content: requestText
     });
     
-    showOptions.value = false;
-    await sendRequest(option);
+    // 隐藏输入框，发送请求
+    showInputBox.value = false;
+    userRequest.value = '';
+    await sendRequest(requestText);
+};
+
+const cancelUserRequest = () => {
+    // 取消输入，重新显示选项
+    showInputBox.value = false;
+    showOptions.value = true;
+    userRequest.value = '';
+    selectedOptionType.value = '';
 };
 
 const resetConversation = () => {
@@ -346,51 +452,29 @@ const resetConversation = () => {
     currentRound.value = 1;
     conversationEnded.value = false;
     showOptions.value = false;
+    showInputBox.value = false;
     currentOptions.value = [];
     weakPoints.value = [];
+    userRequest.value = '';
+    selectedOptionType.value = '';
     // 注意：不清除conversationId，以便同一测试可以继续
 };
 
 // 示例数据
 const loadExample = () => {
-    problem.value = `编写一个C++程序，计算两个整数的和。
-输入：两个整数a和b
-输出：a + b的和
-示例：
-输入：3 4
-输出：7`;
+    problem.value = ``;
     
-    code.value = `#include <iostream>
-using namespace std;
-
-int main() {
-    int a, b;
-    cin >> a >> b;
-    
-    if (a > 100) {
-        cout << "a is too large" << endl;
-    }
-    
-    int sum = a + b;
-    cout << "Sum: " << sum << endl;
-    
-    return 0;
-}`;
+    code.value = ``;
     
     testPointsJson.value = `[
     {"input": "3 4", "status": "Accepted"},
-    {"input": "0 0", "status": "Accepted"},
-    {"input": "-5 10", "status": "Accepted"},
-    {"input": "101 5", "status": "Wrong Answer"},
-    {"input": "2147483647 1", "status": "Time Limit Exceeded"}
+    {"input": "0 0", "status": "Accepted"}
 ]`;
-    
-    validateTestPoints();
 };
 
 onMounted(() => {
     // 可以加载示例数据，方便测试
-    // loadExample();
+    loadExample();
 });
 </script>
 
@@ -636,6 +720,66 @@ pre {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 15px;
+}
+
+/* 输入框区域样式 */
+.input-box {
+    margin-top: 20px;
+    padding: 20px;
+    border: 2px solid #f39c12;
+    border-radius: 10px;
+    background-color: #fff9e6;
+}
+
+.input-box h4 {
+    margin-bottom: 15px;
+    color: #e67e22;
+    text-align: center;
+}
+
+.input-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.btn-submit {
+    padding: 12px 20px;
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    flex: 1;
+    transition: all 0.3s;
+}
+
+.btn-submit:hover:not(:disabled) {
+    background-color: #27ae60;
+    transform: translateY(-2px);
+}
+
+.btn-submit:disabled {
+    background-color: #95a5a6;
+    cursor: not-allowed;
+}
+
+.btn-cancel {
+    padding: 12px 20px;
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    flex: 1;
+    transition: all 0.3s;
+}
+
+.btn-cancel:hover {
+    background-color: #c0392b;
+    transform: translateY(-2px);
 }
 
 button[class^="btn-"] {

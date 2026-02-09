@@ -63,7 +63,7 @@ class CodeDebuggerV2:
 
 ### 注意事项：
 1. 重点理解学生的整体思路
-2. 只分析思路，不要调试代码
+2. 该轮只分析学生思路是否符合题意，不要调试代码，不用点出学生的逻辑错误
         """
         return prompt
     
@@ -186,7 +186,7 @@ class CodeDebuggerV2:
         if not history:
             return "无对话历史"
         
-        history_text = ""
+        history_text = "学生（第1轮）：前述题目要求及学生代码"
         for turn in history:
             role = "学生" if turn.role == "user" else "助手"
             history_text += f"\n{role}（第{turn.round_number}轮）: {turn.content}"
