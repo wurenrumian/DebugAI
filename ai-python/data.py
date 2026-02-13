@@ -24,12 +24,11 @@ class CodeSubmission(BaseModel):
 class EvaluateResult(BaseModel):
     student_id: str = Field(default="", description="学生ID")
     conversation_id: str = Field(default="", description="对话ID")
-    score: int = Field(..., ge=0, le=100, description="分数(0-100)")
     overall_evaluation: str = Field(..., description="整体评价")
-    readability: Dict[str, str] = Field(..., description="可读性分析")
-    logical_rigor: Dict[str, str] = Field(..., description="逻辑严谨性分析")
-    algorithm_quality: Dict[str, str] = Field(..., description="算法合理性分析")
-    efficiency: Dict[str, str] = Field(..., description="运行效率分析")
+    functional_correctness: Dict[str, str] = Field(..., description="功能正确")
+    logical_rigor: Dict[str, str] = Field(..., description="逻辑严谨")
+    algorithm_quality: Dict[str, str] = Field(..., description="算法效率")
+    structural_normativity: Dict[str, str] = Field(..., description="结构规范")
 
 class DebugResult(BaseModel):
     student_id: str = Field(default="", description="学生ID")

@@ -38,23 +38,22 @@
 {
     "student_id": "学生ID",
     "conversation_id": "对话ID",
-    "score": 95,
     "overall_evaluation": "代码实现正确，但可读性有待提高",
-    "readability": {
-        "score": "5/10",
-        "analysis": "函数命名不够清晰"
+    "functional_correctness": {
+        "grade": "<优秀/合格/待改进>",
+        "analysis": "<具体分析>"
     },
     "logical_rigor": {
-        "score": "40/40",
-        "analysis": "逻辑正确，考虑了边界情况"
+        "grade": "<优秀/合格/待改进>",
+        "analysis": "<具体分析>"
     },
     "algorithm_quality": {
-        "score": "25/25",
-        "analysis": "算法简单直接，符合题目要求"
+        "grade": "<优秀/合格/待改进>",
+        "analysis": "<具体分析>"
     },
-    "efficiency": {
-        "score": "25/25",
-        "analysis": "时间复杂度O(1)，空间复杂度O(1)"
+    "structural_normativity": {
+        "grade": "<优秀/合格/待改进>",
+        "analysis": "<具体分析>"
     }
 }
 ```
