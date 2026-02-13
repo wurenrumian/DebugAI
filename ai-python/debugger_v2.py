@@ -14,9 +14,9 @@ class CodeDebuggerV2:
         failed_count = 0
         
         for i, test_point in enumerate(test_points):
-            if i < 3:
-                truncated_input = test_point.input[:100]
-                if len(test_point.input) > 100:
+            if i < 20:
+                truncated_input = test_point.input[:80]
+                if len(test_point.input) > 80:
                     truncated_input += "... [已截断]"
                 
                 test_info += f"\n测试点 {i+1}: 状态={test_point.status}"
