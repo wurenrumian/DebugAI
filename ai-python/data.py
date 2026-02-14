@@ -30,14 +30,6 @@ class EvaluateResult(BaseModel):
     algorithm_quality: Dict[str, str] = Field(..., description="算法效率")
     structural_normativity: Dict[str, str] = Field(..., description="结构规范")
 
-class DebugResult(BaseModel):
-    student_id: str = Field(default="", description="学生ID")
-    conversation_id: str = Field(default="", description="对话ID")
-    debug_analysis: str = Field(..., description="总体分析")
-    problems: List[Dict[str, str]] = Field(..., description="具体问题")
-    suggestions: List[str] = Field(..., description="修改建议")
-    weak_points: List[str] = Field(default_factory=list, description="薄弱点列表，使用规范的关键词")
-
 class RecommendRequest(BaseModel):
     student_id: str = Field(..., description="学生ID")
     weak_points: Dict[str, int] = Field(
