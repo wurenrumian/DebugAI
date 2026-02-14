@@ -5,9 +5,6 @@ import (
 	"backend-go/controller"
 	"backend-go/middleware"
 	"backend-go/service"
-	"bytes"
-	"io"
-	"log"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,8 +12,10 @@ import (
 func main() {
 	config.InitDB()
 
-	aiService := service.NewAIService(config.DB)          // 初始化 AI Service
-	aiController := controller.NewAIController(aiService) // 初始化 AI Controller
+	// Initialize AI Proxy Service and Controller
+	pythonServiceURL := "http://localhost:8000/debug_v2" // Python AI service URL
+	aiProxyService := service.NewAIProxyService(config.DB, pythonServiceURL)
+	aiProxyController := controller.NewAIProxyController(aiProxyService)
 
 	r := gin.Default()
 
@@ -41,25 +40,16 @@ func main() {
 	// 受保护路由组
 	api := r.Group("/api/v1")
 	api.Use(middleware.AuthMiddleware())
-	api.Use(func(c *gin.Context) {
-		if c.Request.Method == "POST" && (c.Request.URL.Path == "/api/v1/ai/evaluate" || c.Request.URL.Path == "/api/v1/ai/debug" || c.Request.URL.Path == "/api/v1/ai/recommend") {
-			bodyBytes, err := io.ReadAll(c.Request.Body)
-			if err != nil {
-				log.Printf("Error reading request body: %v", err)
-			} else {
-				log.Printf("AI Request Body to %s: %s", c.Request.URL.Path, string(bodyBytes))
-			}
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-		}
-		c.Next()
-	}) // 使用中间件
 	{
 		api.GET("/profile", controller.GetProfile)
-		// AI 관련 라우터 추가
-		api.POST("/ai/evaluate", aiController.EvaluateCode)
-		api.POST("/ai/debug", aiController.DebugCode)
-		api.POST("/ai/recommend", aiController.RecommendProblems)
-		api.GET("/ai/history", aiController.GetAIHistory) // New endpoint for conversation history
+		// AI Debug V2 代理路由
+		api.POST("/ai/debug_v2", aiProxyController.HandleDebugV2)
+		// 获取AI交互历史记录
+		api.GET("/ai/records", aiProxyController.GetAIRecords)
+		// 获取轮次信息
+		api.GET("/ai/round_info", aiProxyController.GetRoundInfo)
+		// 开始新对话
+		api.POST("/ai/start", aiProxyController.StartConversation)
 	}
 
 	r.Run(":8080")
