@@ -158,7 +158,7 @@ const formData = ref({
 const testPointsText = ref('')
 
 // 对话状态
-const currentRound = ref(0)
+const currentRound = ref(1)
 const conversationId = ref('')
 const dialogueHistory = ref([])
 const studentResponse = ref('')
