@@ -15,6 +15,7 @@
 /frontend-vue/dist/
 /frontend-vue/.vite/
 
+
 # General
 .DS_Store
 .env
@@ -27,3 +28,4 @@ logs/
 .vscode
 .conda
 *.db
+/test_data

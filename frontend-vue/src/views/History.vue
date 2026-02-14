@@ -2,7 +2,29 @@
   <div class="history-container">
     <div class="history-header">
       <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
-      <h1>📜 AI 交互历史</h1>
+      <h1>📜 历史记录</h1>
+    </div>
+    
+    <!-- 导航栏 -->
+    <div class="history-tabs">
+      <button
+        :class="['tab-btn', { active: activeTab === 'debug' }]"
+        @click="activeTab = 'debug'"
+      >
+        🤖 AI调试
+      </button>
+      <button
+        :class="['tab-btn', { active: activeTab === 'evaluate' }]"
+        @click="activeTab = 'evaluate'"
+      >
+        📝 代码评价
+      </button>
+      <button
+        :class="['tab-btn', { active: activeTab === 'recommend' }]"
+        @click="activeTab = 'recommend'"
+      >
+        📚 题目推荐
+      </button>
     </div>
     
     <div class="history-content">
@@ -16,44 +38,104 @@
         <button @click="fetchRecords" class="btn btn-primary">重试</button>
       </div>
       
-      <div v-else-if="records.length === 0" class="empty-container">
+      <div v-else-if="displayRecords.length === 0" class="empty-container">
         <div class="empty-icon">📭</div>
-        <h3>暂无历史记录</h3>
-        <p>你还没有与 AI 进行过调试交互</p>
-        <router-link to="/ai-debug" class="btn btn-primary">开始调试</router-link>
+        <h3>暂无{{ tabTitle }}记录</h3>
+        <p>{{ emptyHint }}</p>
+        <router-link :to="emptyLink" class="btn btn-primary">{{ emptyBtnText }}</router-link>
       </div>
       
       <div v-else class="records-list">
-        <!-- 按会话分组 -->
-        <div 
-          v-for="group in groupedRecords" 
-          :key="group.conversation_id" 
-          class="record-group card"
-        >
-          <div class="group-header">
-            <div class="group-info">
-              <h3>会话: {{ group.conversation_id.substring(0, 15) }}...</h3>
-              <span class="group-time">{{ formatDate(group.latest_time) }}</span>
+        <!-- 调试历史 -->
+        <template v-if="activeTab === 'debug'">
+          <div
+            v-for="group in groupedRecords"
+            :key="group.conversation_id"
+            class="record-group card"
+          >
+            <div class="group-header">
+              <div class="group-info">
+                <h3>会话: {{ group.conversation_id.substring(0, 15) }}...</h3>
+                <span class="group-time">{{ formatDate(group.latest_time) }}</span>
+              </div>
+              <button
+                @click="viewDetails(group)"
+                class="btn btn-secondary btn-sm"
+              >
+                查看详情
+              </button>
             </div>
-            <button 
-              @click="viewDetails(group)" 
-              class="btn btn-secondary btn-sm"
-            >
-              查看详情
-            </button>
+            
+            <div class="group-stats">
+              <span class="stat">
+                <span class="stat-icon">💬</span>
+                {{ group.records.length }} 条记录
+              </span>
+              <span class="stat">
+                <span class="stat-icon">🔄</span>
+                轮次: {{ group.max_round }}
+              </span>
+            </div>
           </div>
-          
-          <div class="group-stats">
-            <span class="stat">
-              <span class="stat-icon">💬</span>
-              {{ group.records.length }} 条记录
-            </span>
-            <span class="stat">
-              <span class="stat-icon">🔄</span>
-              轮次: {{ group.max_round }}
-            </span>
+        </template>
+        
+        <!-- 评价历史 -->
+        <template v-else-if="activeTab === 'evaluate'">
+          <div
+            v-for="record in displayRecords"
+            :key="record.id"
+            class="record-group card"
+          >
+            <div class="group-header">
+              <div class="group-info">
+                <h3>评价: {{ record.conversation_id?.substring(0, 15) || 'N/A' }}...</h3>
+                <span class="group-time">{{ formatDate(record.created_at) }}</span>
+              </div>
+              <button
+                @click="viewEvaluateDetails(record)"
+                class="btn btn-secondary btn-sm"
+              >
+                查看详情
+              </button>
+            </div>
+            
+            <div class="group-stats">
+              <span class="stat">
+                <span class="stat-icon">📝</span>
+                代码评价
+              </span>
+            </div>
           </div>
-        </div>
+        </template>
+        
+        <!-- 推荐历史 -->
+        <template v-else-if="activeTab === 'recommend'">
+          <div
+            v-for="record in displayRecords"
+            :key="record.id"
+            class="record-group card"
+          >
+            <div class="group-header">
+              <div class="group-info">
+                <h3>推荐记录</h3>
+                <span class="group-time">{{ formatDate(record.created_at) }}</span>
+              </div>
+              <button
+                @click="viewRecommendDetails(record)"
+                class="btn btn-secondary btn-sm"
+              >
+                查看详情
+              </button>
+            </div>
+            
+            <div class="group-stats">
+              <span class="stat">
+                <span class="stat-icon">📚</span>
+                题目推荐
+              </span>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
     
@@ -102,24 +184,83 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { aiAPI } from '../api'
 
 const authStore = useAuthStore()
 
 // 状态
+const activeTab = ref('debug')
 const records = ref([])
 const loading = ref(false)
 const errorMessage = ref('')
 const showModal = ref(false)
 const selectedRecords = ref([])
 
+// 计算属性：根据 tab 筛选记录
+const displayRecords = computed(() => {
+  if (activeTab.value === 'debug') {
+    // 调试记录：round_number > 0
+    return records.value.filter(r => r.round_number > 0)
+  } else if (activeTab.value === 'evaluate') {
+    // 评价记录：conversation_id 以 eval_ 开头
+    return records.value.filter(r => r.conversation_id?.startsWith('eval_'))
+  } else if (activeTab.value === 'recommend') {
+    // 推荐记录：TODO - 需要后端支持
+    return []
+  }
+  return records.value
+})
+
+// Tab 标题和提示
+const tabTitle = computed(() => {
+  const titles = {
+    debug: '调试',
+    evaluate: '评价',
+    recommend: '推荐'
+  }
+  return titles[activeTab.value] || ''
+})
+
+const emptyHint = computed(() => {
+  const hints = {
+    debug: '你还没有与 AI 进行过调试交互',
+    evaluate: '你还没有进行过代码评价',
+    recommend: '你还没有进行过题目推荐'
+  }
+  return hints[activeTab.value] || ''
+})
+
+const emptyLink = computed(() => {
+  const links = {
+    debug: '/ai-debug',
+    evaluate: '/evaluate',
+    recommend: '/recommend'
+  }
+  return links[activeTab.value] || '/ai-debug'
+})
+
+const emptyBtnText = computed(() => {
+  const texts = {
+    debug: '开始调试',
+    evaluate: '开始评价',
+    recommend: '开始推荐'
+  }
+  return texts[activeTab.value] || '开始'
+})
+
+// 监听 tab 变化重新获取记录
+watch(activeTab, () => {
+  fetchRecords()
+})
+
 // 按会话分组的记录
 const groupedRecords = computed(() => {
+  const debugRecords = records.value.filter(r => r.round_number > 0)
   const groups = {}
   
-  records.value.forEach(record => {
+  debugRecords.forEach(record => {
     const convId = record.conversation_id
     if (!groups[convId]) {
       groups[convId] = {
@@ -156,6 +297,18 @@ const fetchRecords = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 查看评价详情
+const viewEvaluateDetails = (record) => {
+  selectedRecords.value = [record]
+  showModal.value = true
+}
+
+// 查看推荐详情
+const viewRecommendDetails = (record) => {
+  selectedRecords.value = [record]
+  showModal.value = true
 }
 
 // 查看详情
@@ -250,8 +403,40 @@ onMounted(() => {
   text-decoration: underline;
 }
 
+/* Tab 导航 */
+.history-tabs {
+  max-width: 1200px;
+  margin: 0 auto 20px;
+  display: flex;
+  gap: 10px;
+  padding: 0 20px;
+}
+
+.tab-btn {
+  padding: 12px 24px;
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.tab-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: transparent;
+  color: white;
+}
+
 .history-content {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
