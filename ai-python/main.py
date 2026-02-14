@@ -2,11 +2,10 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Dict
 import logging
-from data import CodeSubmission, TaskType, EvaluateResult, DebugResult, TestPoint, RecommendRequest, RecommendResult
+from data import CodeSubmission, TaskType, EvaluateResult, TestPoint, RecommendRequest, RecommendResult, CodeSubmissionV2, DebugV2Response
 from evaluator import CodeEvaluator
 from recommender import ProblemRecommender
 from fastapi.middleware.cors import CORSMiddleware
-from data import CodeSubmissionV2, DebugV2Response
 from debugger_v2 import CodeDebuggerV2
 
 logging.basicConfig(level=logging.INFO)
