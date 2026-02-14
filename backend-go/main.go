@@ -12,10 +12,18 @@ import (
 func main() {
 	config.InitDB()
 
-	// Initialize AI Proxy Service and Controller
-	pythonServiceURL := "http://localhost:8000/debug_v2" // Python AI service URL
-	aiProxyService := service.NewAIProxyService(config.DB, pythonServiceURL)
+	// Initialize AI Proxy Service and Controller (for debug_v2)
+	pythonDebugURL := "http://localhost:8000/debug_v2" // Python AI debug service URL
+	aiProxyService := service.NewAIProxyService(config.DB, pythonDebugURL)
 	aiProxyController := controller.NewAIProxyController(aiProxyService)
+
+	// Initialize AI Service and Controller (for evaluate and recommend)
+	pythonBaseURL := "http://localhost:8000" // Python AI service base URL
+	aiService := service.NewAIService(config.DB, pythonBaseURL)
+	aiController := controller.NewAIController(aiService)
+
+	// Seed default weak point keywords
+	aiService.SeedWeakPointKeywords()
 
 	r := gin.Default()
 
@@ -42,6 +50,7 @@ func main() {
 	api.Use(middleware.AuthMiddleware())
 	{
 		api.GET("/profile", controller.GetProfile)
+
 		// AI Debug V2 代理路由
 		api.POST("/ai/debug_v2", aiProxyController.HandleDebugV2)
 		// 获取AI交互历史记录
@@ -50,6 +59,15 @@ func main() {
 		api.GET("/ai/round_info", aiProxyController.GetRoundInfo)
 		// 开始新对话
 		api.POST("/ai/start", aiProxyController.StartConversation)
+
+		// AI Evaluate 代理路由
+		api.POST("/ai/evaluate", aiController.HandleEvaluate)
+		// AI Recommend 代理路由
+		api.POST("/ai/recommend", aiController.HandleRecommend)
+		// 获取用户薄弱点
+		api.GET("/ai/weak_points", aiController.GetUserWeakPoints)
+		// 获取用户前5个薄弱点（用于推荐）
+		api.GET("/ai/weak_points/top", aiController.GetTopWeakPoints)
 	}
 
 	r.Run(":8080")
