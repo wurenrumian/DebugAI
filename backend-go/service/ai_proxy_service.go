@@ -124,13 +124,69 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 		fmt.Printf("Failed to save AI response record: %v\n", err)
 	}
 
-	// 4. 解析AI响应并返回
+	// 4. 如果是第2轮，提取并保存 weak_points
+	if roundNumber == 2 {
+		s.saveWeakPointsFromResponse(studentID, responseBody)
+	}
+
+	// 5. 解析AI响应并返回
 	var result map[string]interface{}
 	if err := json.Unmarshal(responseBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
 	}
 
 	return result, nil
+}
+
+// saveWeakPointsFromResponse extracts weak_points from AI response and saves them
+func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBody []byte) {
+	var response map[string]interface{}
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return
+	}
+
+	// 提取 weak_points
+	aiResponse, ok := response["ai_response"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	weakPointsRaw, ok := aiResponse["weak_points"]
+	if !ok {
+		return
+	}
+
+	// weak_points 可以是数组或 interface{}
+	var weakPoints []interface{}
+	switch v := weakPointsRaw.(type) {
+	case []interface{}:
+		weakPoints = v
+	case []string:
+		for _, wp := range v {
+			weakPoints = append(weakPoints, wp)
+		}
+	default:
+		return
+	}
+
+	if len(weakPoints) == 0 {
+		return
+	}
+
+	// 转换为 map[string]int 并保存
+	weakPointsMap := make(map[string]int)
+	for _, wp := range weakPoints {
+		switch v := wp.(type) {
+		case string:
+			weakPointsMap[v] = 1
+		case float64:
+			// 如果是数字，忽略
+		}
+	}
+
+	// 使用 AIService 的方法来保存
+	aiService := NewAIService(s.DB, "")
+	_ = aiService.UpdateUserWeakPoints(studentID, weakPointsMap)
 }
 
 // GetAIRecordsByStudentID fetches all AI interaction records for a given student ID

@@ -35,6 +35,18 @@ const routes = [
 		name: 'History',
 		component: () => import('../views/History.vue'),
 		meta: { requiresAuth: true }
+	},
+	{
+		path: '/evaluate',
+		name: 'Evaluate',
+		component: () => import('../views/Evaluate.vue'),
+		meta: { requiresAuth: true }
+	},
+	{
+		path: '/recommend',
+		name: 'Recommend',
+		component: () => import('../views/Recommend.vue'),
+		meta: { requiresAuth: true }
 	}
 ]
 

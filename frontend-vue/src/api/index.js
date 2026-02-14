@@ -78,6 +78,22 @@ export const aiAPI = {
 	// 开始新对话
 	startConversation(data) {
 		return api.post('/api/v1/ai/start', data)
+	},
+	// 代码评价
+	evaluate(data) {
+		return api.post('/api/v1/ai/evaluate', data)
+	},
+	// 题目推荐
+	recommend(data) {
+		return api.post('/api/v1/ai/recommend', data)
+	},
+	// 获取用户薄弱点
+	getWeakPoints() {
+		return api.get('/api/v1/ai/weak_points')
+	},
+	// 获取前5个薄弱点
+	getTopWeakPoints() {
+		return api.get('/api/v1/ai/weak_points/top')
 	}
 }
 

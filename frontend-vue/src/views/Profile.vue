@@ -33,25 +33,45 @@
       </div>
       
       <div class="card actions-card">
-        <h2 class="subtitle">快捷操作</h2>
+        <h2 class="subtitle">AI 功能</h2>
         
         <div class="action-buttons">
           <router-link to="/ai-debug" class="action-btn">
             <div class="action-icon">🤖</div>
             <div class="action-text">
               <h3>AI 调试</h3>
-              <p>开始智能代码调试</p>
+              <p>多轮代码调试</p>
             </div>
           </router-link>
           
-          <router-link to="/history" class="action-btn">
-            <div class="action-icon">📜</div>
+          <router-link to="/evaluate" class="action-btn">
+            <div class="action-icon">📝</div>
             <div class="action-text">
-              <h3>历史记录</h3>
-              <p>查看 AI 交互历史</p>
+              <h3>代码评价</h3>
+              <p>AI 代码评价打分</p>
+            </div>
+          </router-link>
+          
+          <router-link to="/recommend" class="action-btn">
+            <div class="action-icon">📚</div>
+            <div class="action-text">
+              <h3>题目推荐</h3>
+              <p>智能推荐练习题</p>
             </div>
           </router-link>
         </div>
+      </div>
+      
+      <div class="card history-card">
+        <h2 class="subtitle">历史记录</h2>
+        
+        <router-link to="/history" class="action-btn full-width">
+          <div class="action-icon">📜</div>
+          <div class="action-text">
+            <h3>查看历史</h3>
+            <p>查看评分记录、对话历史、推荐题目</p>
+          </div>
+        </router-link>
       </div>
       
       <div class="card logout-card">
@@ -201,13 +221,13 @@ onMounted(() => {
   font-weight: 500;
 }
 
-.actions-card {
+.actions-card, .history-card {
   margin-bottom: 20px;
 }
 
 .action-buttons {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 15px;
   margin-top: 15px;
 }
@@ -220,11 +240,16 @@ onMounted(() => {
   background: #f5f7fa;
   border-radius: 8px;
   transition: all 0.3s ease;
+  text-decoration: none;
 }
 
 .action-btn:hover {
   background: #ecf5ff;
   transform: translateY(-2px);
+}
+
+.action-btn.full-width {
+  grid-column: 1 / -1;
 }
 
 .action-icon {
