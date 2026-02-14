@@ -108,9 +108,15 @@
             </div>
           </div>
           
-          <div v-if="loading" class="loading-overlay">
-            <div class="spinner"></div>
-            <p>AI 正在评价您的代码...</p>
+          <div v-if="loading" class="loading-item">
+            <div class="dialogue-avatar">🤖</div>
+            <div class="dialogue-bubble">
+              <div class="dialogue-label">AI 助手</div>
+              <div class="dialogue-text loading">
+                <span>正在思考</span>
+                <span class="dots">...</span>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -447,32 +453,42 @@ textarea:focus {
   line-height: 1.5;
 }
 
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.9);
+.loading-item {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #f5f7fa;
   border-radius: 12px;
+  margin-top: 16px;
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #667eea;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+.loading-item .dialogue-avatar {
+  font-size: 32px;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.loading-item .dialogue-bubble {
+  flex: 1;
+}
+
+.loading-item .dialogue-label {
+  font-size: 14px;
+  color: #667eea;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.loading-item .dialogue-text {
+  color: #666;
+}
+
+.loading .dots {
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .error-message {
