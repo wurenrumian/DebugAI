@@ -1,105 +1,143 @@
 <template>
   <div class="login-container">
-    <h2>登录</h2>
-    <form @submit.prevent="handleLogin">
-      <div class="form-group">
-        <label for="studentId">学号:</label>
-        <input
-          v-model="form.studentId"
-          type="text"
-          id="studentId"
-          required
-        />
+    <div class="login-box">
+      <div class="login-header">
+        <h1>AI 教学辅助平台</h1>
+        <p>智能代码调试助手</p>
       </div>
-      <div class="form-group">
-        <label for="password">密码:</label>
-        <input
-          v-model="form.password"
-          type="password"
-          id="password"
-          required
-        />
+      
+      <form @submit.prevent="handleLogin" class="login-form">
+        <div v-if="errorMessage" class="message message-error">
+          {{ errorMessage }}
+        </div>
+        
+        <div class="form-group">
+          <label for="studentId">学号</label>
+          <input 
+            id="studentId"
+            v-model="formData.student_id" 
+            type="text" 
+            placeholder="请输入学号"
+            required
+          />
+        </div>
+        
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input 
+            id="password"
+            v-model="formData.password" 
+            type="password" 
+            placeholder="请输入密码"
+            required
+          />
+        </div>
+        
+        <button type="submit" class="btn btn-primary login-btn" :disabled="loading">
+          {{ loading ? '登录中...' : '登录' }}
+        </button>
+      </form>
+      
+      <div class="login-footer">
+        <span>还没有账号？</span>
+        <router-link to="/register" class="link">立即注册</router-link>
       </div>
-      <button type="submit" :disabled="loading">登录</button>
-    </form>
-    <p v-if="error" class="error">{{ error }}</p>
-    <p>没有账号？<router-link to="/register">注册</router-link></p>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
-const form = ref({
-  studentId: '',
+const authStore = useAuthStore()
+
+const formData = ref({
+  student_id: '',
   password: ''
 })
-const error = ref('')
+
 const loading = ref(false)
+const errorMessage = ref('')
 
 const handleLogin = async () => {
+  errorMessage.value = ''
   loading.value = true
-  error.value = ''
+  
   try {
-    const response = await axios.post('http://localhost:8080/auth/login', {
-      student_id: form.value.studentId,
-      password: form.value.password
-    })
-    const { token, username, user_type, student_id } = response.data.data
-    localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify({ username, user_type, student_id }))
-    router.push('/profile')
-  } catch (err) {
-    error.value = err.response?.data?.error || '登录失败'
+    const result = await authStore.login(formData.value)
+    
+    if (result.success) {
+      router.push('/profile')
+    } else {
+      errorMessage.value = result.error || '登录失败，请检查学号和密码'
+    }
+  } catch (error) {
+    errorMessage.value = '登录失败，请检查网络连接'
   } finally {
     loading.value = false
   }
 }
-
-onMounted(() => {
-  if (localStorage.getItem('user')) {
-    router.push('/profile')
-  }
-})
 </script>
 
 <style scoped>
 .login-container {
-  max-width: 400px;
-  margin: 50px auto;
-  padding: 20px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
-.form-group {
-  margin-bottom: 15px;
+
+.login-box {
+  width: 400px;
+  background: white;
+  border-radius: 12px;
+  padding: 40px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
-label {
-  display: block;
-  margin-bottom: 5px;
+
+.login-header {
+  text-align: center;
+  margin-bottom: 30px;
 }
-input {
+
+.login-header h1 {
+  font-size: 24px;
+  color: #303133;
+  margin-bottom: 8px;
+}
+
+.login-header p {
+  font-size: 14px;
+  color: #909399;
+}
+
+.login-form {
+  margin-bottom: 20px;
+}
+
+.login-btn {
   width: 100%;
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  padding: 12px;
+  font-size: 16px;
+  margin-top: 10px;
 }
-button {
-  width: 100%;
-  padding: 10px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+
+.login-footer {
+  text-align: center;
+  font-size: 14px;
+  color: #606266;
 }
-button:disabled {
-  background-color: #ccc;
+
+.link {
+  color: #409eff;
+  margin-left: 5px;
 }
-.error {
-  color: red;
+
+.link:hover {
+  text-decoration: underline;
 }
 </style>

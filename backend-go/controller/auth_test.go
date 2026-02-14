@@ -18,14 +18,23 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupTestDB() {
+func SetupTestDB() *gorm.DB {
 	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	db.AutoMigrate(&models.User{})
-	config.DB = db
+	config.DB = db // Set the global DB for the application
+	return db
+}
+
+func TeardownTestDB(db *gorm.DB) {
+	db.Migrator().DropTable(&models.User{})
 }
 
 func TestRegister(t *testing.T) {
-	SetupTestDB()
+	db := SetupTestDB()
+	t.Cleanup(func() {
+		TeardownTestDB(db)
+		SetupTestDB() // Prepare for the next test function
+	})
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -56,6 +65,19 @@ func TestRegister(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			TeardownTestDB(db) // Clean up before each sub-test
+			db = SetupTestDB() // Re-initialize DB for each sub-test to ensure isolation and get the current DB instance
+
+			if tt.name == "学号已存在" {
+				// Pre-create user for the "学号已存在" test case
+				db.Create(&models.User{
+					StudentID: tt.input["student_id"].(string),
+					Username:  "ExistingUser",
+					Password:  "password",
+					UserType:  "student",
+				})
+			}
+
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 
@@ -76,17 +98,14 @@ func TestRegister(t *testing.T) {
 }
 
 func TestLogin(t *testing.T) {
-	SetupTestDB()
+	db := SetupTestDB()
+	t.Cleanup(func() {
+		TeardownTestDB(db)
+		SetupTestDB() // Prepare for the next test function
+	})
 	gin.SetMode(gin.TestMode)
 
-	// 预存测试用户
 	hash, _ := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
-	config.DB.Create(&models.User{
-		StudentID: "2024001",
-		Username:  "TestUser",
-		Password:  string(hash),
-		UserType:  "student",
-	})
 
 	tests := []struct {
 		name       string
@@ -101,6 +120,17 @@ func TestLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			TeardownTestDB(db)
+			SetupTestDB()
+
+			// 预存测试用户 for each sub-test
+			db.Create(&models.User{
+				StudentID: "2024001",
+				Username:  "TestUser",
+				Password:  string(hash),
+				UserType:  "student",
+			})
+
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 
@@ -139,11 +169,15 @@ func TestLogout(t *testing.T) {
 }
 
 func TestGetProfile(t *testing.T) {
-	SetupTestDB()
+	db := SetupTestDB()
+	t.Cleanup(func() {
+		TeardownTestDB(db)
+		SetupTestDB() // Prepare for the next test function
+	})
 	gin.SetMode(gin.TestMode)
 
 	// 预存用户
-	config.DB.Create(&models.User{
+	db.Create(&models.User{
 		StudentID: "2024001",
 		Username:  "TestUser",
 		UserType:  "student",

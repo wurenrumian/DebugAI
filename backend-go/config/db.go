@@ -18,5 +18,5 @@ func InitDB() {
 	}
 
 	// 自动同步表结构
-	DB.AutoMigrate(&models.User{}, &models.EvaluateRecord{}, &models.DebugRecord{}, &models.RecommendationRecord{})
+	DB.AutoMigrate(&models.User{}, &models.AIRecord{})
 }
