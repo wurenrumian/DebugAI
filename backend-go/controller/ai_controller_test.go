@@ -14,10 +14,13 @@ import (
 
 // MockAIService is a mock implementation of AIServiceIface for testing
 type MockAIService struct {
-	evaluateFunc         func(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
-	recommendFunc        func(requestBody []byte, studentID string) (map[string]interface{}, error)
-	getWeakPointsFunc    func(studentID string) ([]models.UserWeakPoint, error)
-	getTopWeakPointsFunc func(studentID string, limit int) ([]string, error)
+	evaluateFunc            func(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
+	recommendFunc           func(requestBody []byte, studentID string) (map[string]interface{}, error)
+	getWeakPointsFunc       func(studentID string) ([]models.UserWeakPoint, error)
+	getTopWeakPointsFunc    func(studentID string, limit int) ([]string, error)
+	getDebugRecordsFunc     func(studentID string) ([]models.AIRecord, error)
+	getEvaluateRecordsFunc  func(studentID string) ([]models.AIRecord, error)
+	getRecommendRecordsFunc func(studentID string) ([]models.AIRecord, error)
 }
 
 func (m *MockAIService) ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error) {
@@ -54,6 +57,27 @@ func (m *MockAIService) GetTopWeakPoints(studentID string, limit int) ([]string,
 
 func (m *MockAIService) SeedWeakPointKeywords() error {
 	return nil
+}
+
+func (m *MockAIService) GetDebugRecords(studentID string) ([]models.AIRecord, error) {
+	if m.getDebugRecordsFunc != nil {
+		return m.getDebugRecordsFunc(studentID)
+	}
+	return nil, nil
+}
+
+func (m *MockAIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, error) {
+	if m.getEvaluateRecordsFunc != nil {
+		return m.getEvaluateRecordsFunc(studentID)
+	}
+	return nil, nil
+}
+
+func (m *MockAIService) GetRecommendRecords(studentID string) ([]models.AIRecord, error) {
+	if m.getRecommendRecordsFunc != nil {
+		return m.getRecommendRecordsFunc(studentID)
+	}
+	return nil, nil
 }
 
 // setupTestRouter creates a test router with the mock service

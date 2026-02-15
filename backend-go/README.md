@@ -6,11 +6,12 @@
 
 ## 功能特性
 
-- 用户认证：支持用户注册和登录，采用 JWT 令牌进行身份验证。
+- 用户认证：支持用户注册、登录和登出，采用 JWT 令牌进行身份验证。
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
 - AI Evaluate 代理：代理代码评价请求 (`/api/v1/ai/evaluate`) 给 Python AI 服务。
 - AI Recommend 代理：代理题目推荐请求 (`/api/v1/ai/recommend`) 给 Python AI 服务。
 - AI 交互记录：详细记录每次 AI 调试会话的请求和响应，包括会话 ID、学生 ID、轮次、角色、请求和响应内容。
+- 用户薄弱点分析：自动分析用户的薄弱点并提供排名统计。
 - 受保护的 API 端点：所有 AI 相关接口需要认证才能访问。
 
 ## 先决条件
@@ -95,9 +96,21 @@
     }
   }
   ```
-  **错误示例**：  
-  - 学号或密码错误：HTTP 401 `{"error": "学号或密码错误"}`  
+  **错误示例**：
+  - 学号或密码错误：HTTP 401 `{"error": "学号或密码错误"}`
   - 参数缺失：HTTP 400 `{"error": "请输入学号和密码"}`
+
+- **POST /auth/logout**
+  用户登出。
+  **请求体**（JSON）：
+  ```json
+  {}
+  ```
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"message": "登出成功"}
+  ```
 
 ### 受保护接口（需要认证）
 
@@ -246,14 +259,141 @@
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
 
+- **GET /api/v1/ai/records**
+  获取当前用户的所有AI交互历史记录。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "records": [
+      {
+        "id": 1,
+        "student_id": "12345678",
+        "conversation_id": "string",
+        "task_type": "debug|evaluate|recommend",
+        "round_number": 1,
+        "role": "student|assistant",
+        "request_content": "string",
+        "response_content": "string",
+        "created_at": "2024-01-01T00:00:00Z"
+      }
+    ]
+  }
+  ```
+
+- **GET /api/v1/ai/round_info**
+  获取当前对话的轮次信息。
+  **查询参数**：`conversation_id`
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "conversation_id": "string",
+    "current_round": 1,
+    "round_info": {
+      "round_number": 1,
+      "round_title": "理解学生思路",
+      "round_description": "AI 将分析你的代码，理解你的解题思路",
+      "can_proceed": true,
+      "next_round_hint": "确认 AI 对你思路的理解是否正确",
+      "is_completed": false
+    }
+  }
+  ```
+
+- **POST /api/v1/ai/start**
+  开始一个新的AI对话会话。
+  **请求体**（JSON）：
+  ```json
+  {
+    "student_id": "string",
+    "task_type": "debug|evaluate|recommend"
+  }
+  ```
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "conversation_id": "conv_1234567890",
+    "current_round": 1,
+    "round_info": {...}
+  }
+  ```
+
+- **GET /api/v1/ai/weak_points**
+  获取当前用户的所有薄弱点统计。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "student_id": "12345678",
+    "weak_points": {
+      "循环": 5,
+      "数组": 3,
+      "函数": 2
+    }
+  }
+  ```
+
+- **GET /api/v1/ai/weak_points/top**
+  获取当前用户排名前5的薄弱点（用于推荐功能）。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "student_id": "12345678",
+    "top_weak_points": [
+      {"keyword": "循环", "count": 5},
+      {"keyword": "数组", "count": 3},
+      {"keyword": "函数", "count": 2}
+    ]
+  }
+  ```
+
+- **GET /api/v1/ai/records/debug**
+  获取AI调试历史记录。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"records": [...]}
+  ```
+
+- **GET /api/v1/ai/records/evaluate**
+  获取AI评价历史记录。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"records": [...]}
+  ```
+
+- **GET /api/v1/ai/records/recommend**
+  获取AI推荐历史记录。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"records": [...]}
+  ```
+
 ## 目录结构
 
 - `config/`：数据库初始化和配置（`db.go`）。
-- `controller/`：API 控制器（`auth.go` 处理注册/登录，`profile.go` 处理用户资料，`ai_proxy_controller.go` 处理AI代理）。
+- `controller/`：API 控制器
+  - `auth.go`：处理注册/登录/登出
+  - `profile.go`：处理用户资料
+  - `ai_proxy_controller.go`：处理AI调试代理
+  - `ai_controller.go`：处理AI评价、推荐、薄弱点
 - `middleware/`：认证中间件（`auth.go` 验证 JWT）。
-- `models/`：数据模型（`user.go` 定义 User 结构体，`ai_record.go` 定义 AI 交互记录）。
-- `service/`：业务逻辑服务（`ai_proxy_service.go` 处理AI代理业务）。
-- `utils/`：工具函数（`jwt.go` 处理令牌生成/解析）。
+- `models/`：数据模型
+  - `user.go`：定义 User 结构体
+  - `ai_record.go`：定义 AI 交互记录
+  - `ai.go`：定义 AI 相关数据结构
+  - `debug.go`：定义调试相关数据结构
+- `service/`：业务逻辑服务
+  - `ai_proxy_service.go`：处理AI调试代理业务
+  - `ai_service.go`：处理AI评价、推荐、薄弱点业务
+- `utils/`：工具函数
+  - `jwt.go`：处理令牌生成/解析
+  - `ai_client.go`：Python AI 服务 HTTP 客户端
 - `main.go`：应用入口，路由定义。
 - `go.mod` / `go.sum`：Go 模块依赖。
 
