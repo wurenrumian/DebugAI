@@ -148,35 +148,68 @@
         </div>
         
         <div class="modal-body">
-          <div 
-            v-for="(record, index) in selectedRecords" 
-            :key="index" 
-            :class="['record-detail', record.role]"
-          >
-            <div class="detail-header">
-              <span class="detail-role">
-                {{ record.role === 'student' ? '👤 学生' : '🤖 AI 助手' }}
-              </span>
-              <span class="detail-round">第 {{ record.round_number }} 轮</span>
-            </div>
-            
-            <div class="detail-content">
-              <div v-if="record.role === 'student'" class="detail-payload">
-                <h4>请求内容:</h4>
-                <pre>{{ formatPayload(record.request_payload) }}</pre>
+          <!-- 调试记录显示 -->
+          <template v-if="selectedType === 'debug'">
+            <div
+              v-for="(record, index) in selectedRecords"
+              :key="index"
+              :class="['record-detail', record.role]"
+            >
+              <div class="detail-header">
+                <span class="detail-role">
+                  {{ record.role === 'student' ? '👤 学生' : '🤖 AI 助手' }}
+                </span>
+                <span class="detail-round">第 {{ record.round_number }} 轮</span>
               </div>
               
-              <div v-else-if="record.role === 'assistant'" class="detail-payload">
-                <h4>响应内容:</h4>
-                <pre>{{ formatPayload(record.response_payload) }}</pre>
-              </div>
-              
-              <div v-else class="detail-error">
-                <h4>错误信息:</h4>
-                <pre class="error-text">{{ record.error }}</pre>
+              <div class="detail-content">
+                <div v-if="record.role === 'student'" class="detail-payload">
+                  <h4>请求内容:</h4>
+                  <pre>{{ formatPayload(record.request_payload) }}</pre>
+                </div>
+                
+                <div v-else-if="record.role === 'assistant'" class="detail-payload">
+                  <h4>响应内容:</h4>
+                  <pre>{{ formatPayload(record.response_payload) }}</pre>
+                </div>
+                
+                <div v-else class="detail-error">
+                  <h4>错误信息:</h4>
+                  <pre class="error-text">{{ record.error }}</pre>
+                </div>
               </div>
             </div>
-          </div>
+          </template>
+          
+          <!-- 评价记录显示 -->
+          <template v-else-if="selectedType === 'evaluate'">
+            <div class="record-detail evaluate">
+              <div class="detail-header">
+                <span class="detail-role">📝 代码评价</span>
+              </div>
+              <div class="detail-content" v-if="selectedRecords[0]">
+                <div class="detail-payload">
+                  <h4>响应内容:</h4>
+                  <pre>{{ formatPayload(selectedRecords[0].response_payload) }}</pre>
+                </div>
+              </div>
+            </div>
+          </template>
+          
+          <!-- 推荐记录显示 -->
+          <template v-else-if="selectedType === 'recommend'">
+            <div class="record-detail recommend">
+              <div class="detail-header">
+                <span class="detail-role">📚 题目推荐</span>
+              </div>
+              <div class="detail-content" v-if="selectedRecords[0]">
+                <div class="detail-payload">
+                  <h4>响应内容:</h4>
+                  <pre>{{ formatPayload(selectedRecords[0].response_payload) }}</pre>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -197,19 +230,10 @@ const loading = ref(false)
 const errorMessage = ref('')
 const showModal = ref(false)
 const selectedRecords = ref([])
+const selectedType = ref('debug')
 
-// 计算属性：根据 tab 筛选记录
+// 计算属性：后端已按类型过滤，直接返回记录
 const displayRecords = computed(() => {
-  if (activeTab.value === 'debug') {
-    // 调试记录：round_number > 0
-    return records.value.filter(r => r.round_number > 0)
-  } else if (activeTab.value === 'evaluate') {
-    // 评价记录：conversation_id 以 eval_ 开头
-    return records.value.filter(r => r.conversation_id?.startsWith('eval_'))
-  } else if (activeTab.value === 'recommend') {
-    // 推荐记录：TODO - 需要后端支持
-    return []
-  }
   return records.value
 })
 
@@ -281,13 +305,26 @@ const groupedRecords = computed(() => {
   return Object.values(groups).sort((a, b) => b.latest_time - a.latest_time)
 })
 
-// 获取记录
+// 获取记录 - 根据 tab 类型获取对应记录
 const fetchRecords = async () => {
   loading.value = true
   errorMessage.value = ''
   
   try {
-    const response = await aiAPI.getRecords()
+    let response
+    switch (activeTab.value) {
+      case 'debug':
+        response = await aiAPI.getDebugRecords()
+        break
+      case 'evaluate':
+        response = await aiAPI.getEvaluateRecords()
+        break
+      case 'recommend':
+        response = await aiAPI.getRecommendRecords()
+        break
+      default:
+        response = await aiAPI.getRecords()
+    }
     if (response && response.data) {
       records.value = response.data
     }
@@ -302,18 +339,21 @@ const fetchRecords = async () => {
 // 查看评价详情
 const viewEvaluateDetails = (record) => {
   selectedRecords.value = [record]
+  selectedType.value = 'evaluate'
   showModal.value = true
 }
 
 // 查看推荐详情
 const viewRecommendDetails = (record) => {
   selectedRecords.value = [record]
+  selectedType.value = 'recommend'
   showModal.value = true
 }
 
 // 查看详情
 const viewDetails = (group) => {
   selectedRecords.value = group.records.sort((a, b) => a.round_number - b.round_number)
+  selectedType.value = 'debug'
   showModal.value = true
 }
 

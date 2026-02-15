@@ -68,6 +68,10 @@ func main() {
 		api.GET("/ai/weak_points", aiController.GetUserWeakPoints)
 		// 获取用户前5个薄弱点（用于推荐）
 		api.GET("/ai/weak_points/top", aiController.GetTopWeakPoints)
+		// 分类型获取历史记录
+		api.GET("/ai/records/debug", aiController.GetDebugRecords)
+		api.GET("/ai/records/evaluate", aiController.GetEvaluateRecords)
+		api.GET("/ai/records/recommend", aiController.GetRecommendRecords)
 	}
 
 	r.Run(":8080")

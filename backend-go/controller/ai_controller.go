@@ -122,6 +122,45 @@ func (ctrl *AIController) GetTopWeakPoints(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Top weak points fetched successfully", "data": weakPoints})
 }
 
+// GetDebugRecords handles the /api/v1/ai/records/debug endpoint
+func (ctrl *AIController) GetDebugRecords(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	records, err := ctrl.AIService.GetDebugRecords(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch debug records"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Debug records fetched successfully", "data": records})
+}
+
+// GetEvaluateRecords handles the /api/v1/ai/records/evaluate endpoint
+func (ctrl *AIController) GetEvaluateRecords(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	records, err := ctrl.AIService.GetEvaluateRecords(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch evaluate records"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Evaluate records fetched successfully", "data": records})
+}
+
+// GetRecommendRecords handles the /api/v1/ai/records/recommend endpoint
+func (ctrl *AIController) GetRecommendRecords(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	records, err := ctrl.AIService.GetRecommendRecords(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommend records"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Recommend records fetched successfully", "data": records})
+}
+
 // generateConversationID generates a unique conversation ID
 func generateConversationID() string {
 	return fmt.Sprintf("eval_%d", time.Now().UnixNano())
