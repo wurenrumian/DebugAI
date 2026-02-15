@@ -1,6 +1,6 @@
 <template>
-  <div class="history-container">
-    <div class="history-header">
+  <div class="page-container">
+    <div class="page-header">
       <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
       <h1>📜 历史记录</h1>
     </div>
@@ -27,7 +27,7 @@
       </button>
     </div>
     
-    <div class="history-content">
+    <div class="content-wrapper">
       <div v-if="loading" class="loading-container">
         <div class="loading"></div>
         <p>加载中...</p>
@@ -417,75 +417,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.history-container {
-  min-height: 100vh;
-  background-color: #f5f7fa;
-}
-
-.history-header {
-  background: white;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.history-header h1 {
-  font-size: 24px;
-  color: #303133;
-  margin-top: 10px;
-}
-
-.back-link {
-  color: #409eff;
-  font-size: 14px;
-}
-
-.back-link:hover {
-  text-decoration: underline;
-}
-
-/* Tab 导航 */
-.history-tabs {
-  max-width: 1200px;
-  margin: 0 auto 20px;
-  display: flex;
-  gap: 10px;
-  padding: 0 20px;
-}
-
-.tab-btn {
-  padding: 12px 24px;
-  background: white;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 15px;
-  font-weight: 500;
-  color: #666;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.tab-btn:hover {
-  border-color: #667eea;
-  color: #667eea;
-}
-
-.tab-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: transparent;
-  color: white;
-}
-
-.history-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
 .loading-container,
 .error-container,
 .empty-container {
+  max-width: 800px;
+  margin: 0 auto;
   text-align: center;
   padding: 60px 20px;
+  background: white;
+  border-radius: 12px;
 }
 
 .loading-container .loading {
@@ -508,12 +448,18 @@ onMounted(() => {
 }
 
 .records-list {
+  max-width: 800px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 15px;
 }
 
 .record-group {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;
 }
 

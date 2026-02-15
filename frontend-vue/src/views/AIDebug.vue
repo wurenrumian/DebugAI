@@ -1,11 +1,11 @@
 <template>
-  <div class="ai-debug-container">
-    <div class="ai-debug-header">
+  <div class="page-container">
+    <div class="page-header">
       <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
       <h1>🤖 AI 代码调试</h1>
     </div>
     
-    <div class="ai-debug-content">
+    <div class="content-wrapper ai-debug-content">
       <!-- 左侧：问题描述和代码输入 -->
       <div class="left-panel">
         <div class="card">
@@ -97,7 +97,7 @@
               <div class="dialogue-avatar">🤖</div>
               <div class="dialogue-bubble">
                 <div class="dialogue-label">AI 助手</div>
-                <div class="dialogue-text loading">
+                <div class="dialogue-text loading-dots">
                   <span>正在思考</span>
                   <span class="dots">...</span>
                 </div>
@@ -339,69 +339,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-debug-container {
-  min-height: 100vh;
-  background-color: #f5f7fa;
-}
-
-.ai-debug-header {
-  background: white;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.ai-debug-header h1 {
-  font-size: 24px;
-  color: #303133;
-  margin-top: 10px;
-}
-
-.back-link {
-  color: #409eff;
-  font-size: 14px;
-}
-
-.back-link:hover {
-  text-decoration: underline;
-}
-
 .ai-debug-content {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 20px;
 }
 
 .left-panel .card {
   margin-bottom: 15px;
-}
-
-.left-panel textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  resize: vertical;
-  font-family: inherit;
-}
-
-.left-panel textarea:focus {
-  border-color: #409eff;
-  outline: none;
-}
-
-.left-panel textarea:disabled {
-  background-color: #f5f7fa;
-  cursor: not-allowed;
-}
-
-.code-input {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-  background-color: #f8f9fa;
 }
 
 .start-btn {
@@ -484,96 +429,7 @@ onMounted(() => {
   max-height: 400px;
 }
 
-.empty-dialogue {
-  text-align: center;
-  padding: 40px;
-  color: #909399;
-}
-
-.empty-dialogue .hint {
-  font-size: 12px;
-  margin-top: 10px;
-}
-
-.dialogue-item {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.dialogue-item.student {
-  flex-direction: row-reverse;
-}
-
-.dialogue-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #f0f0f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.dialogue-item.assistant .dialogue-avatar {
-  background: #e6f7ff;
-}
-
-.dialogue-bubble {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: #f5f7fa;
-}
-
-.dialogue-item.student .dialogue-bubble {
-  background: #409eff;
-  color: white;
-}
-
-.dialogue-label {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 5px;
-}
-
-.dialogue-item.student .dialogue-label {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.dialogue-text {
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.dialogue-text pre {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 10px 0;
-}
-
-.dialogue-text code {
-  background: #f0f0f0;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-}
-
-.dialogue-item.student .dialogue-text code {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.loading-item {
-  opacity: 0.7;
-}
-
-.loading .dots {
+.loading-dots .dots {
   animation: blink 1.5s infinite;
 }
 
@@ -595,44 +451,12 @@ onMounted(() => {
 }
 
 .student-input-area textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
   resize: none;
   margin-bottom: 10px;
 }
 
 .student-input-area .btn {
   width: 100%;
-}
-
-.completion-notice {
-  text-align: center;
-  padding: 15px;
-  background: #f0f9eb;
-  border: 1px solid #e1f3d8;
-  border-radius: 6px;
-  margin-top: 15px;
-}
-
-.completion-notice p {
-  color: #67c23a;
-  font-size: 14px;
-}
-
-.error-toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #f56c6c;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 6px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(245, 108, 108, 0.3);
 }
 
 @media (max-width: 900px) {
