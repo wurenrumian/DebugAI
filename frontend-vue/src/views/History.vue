@@ -89,7 +89,7 @@
             <div class="group-header">
               <div class="group-info">
                 <h3>评价: {{ record.conversation_id?.substring(0, 15) || 'N/A' }}...</h3>
-                <span class="group-time">{{ formatDate(record.created_at) }}</span>
+                  <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
               </div>
               <button
                 @click="viewEvaluateDetails(record)"
@@ -118,7 +118,7 @@
             <div class="group-header">
               <div class="group-info">
                 <h3>推荐记录</h3>
-                <span class="group-time">{{ formatDate(record.created_at) }}</span>
+                <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
               </div>
               <button
                 @click="viewRecommendDetails(record)"
@@ -266,7 +266,7 @@ const groupedRecords = computed(() => {
       groups[convId] = {
         conversation_id: convId,
         records: [],
-        latest_time: new Date(record.created_at).getTime(),
+        latest_time: new Date(record.CreatedAt).getTime(),
         max_round: 0
       }
     }
@@ -274,7 +274,7 @@ const groupedRecords = computed(() => {
     groups[convId].max_round = Math.max(groups[convId].max_round, record.round_number)
     groups[convId].latest_time = Math.max(
       groups[convId].latest_time,
-      new Date(record.created_at).getTime()
+      new Date(record.CreatedAt).getTime()
     )
   })
   
