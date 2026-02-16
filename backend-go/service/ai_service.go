@@ -41,6 +41,11 @@ func NewAIService(db *gorm.DB, pythonServiceURL string) *AIService {
 	}
 }
 
+// GetDB returns the database connection
+func (s *AIService) GetDB() *gorm.DB {
+	return s.DB
+}
+
 // ProxyEvaluate proxies the evaluate request to the Python AI service
 func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error) {
 	// 1. Save request record

@@ -48,7 +48,7 @@ async def health_check():
 
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
-    logging.info(f"Received /evaluate request: {request.model_dump()}")
+    logging.info(f"Received /evaluate request from student: {request.student_id}")
     try:
         submission = CodeSubmission(
             student_id=request.student_id,
@@ -59,7 +59,7 @@ async def evaluate_code(request: AnalyzeRequest):
             task_type=TaskType.EVALUATE
         )
         result = await evaluator.evaluate(submission)
-        logging.info(f"Returning /evaluate response: {result.model_dump_json()}")
+        logging.info(f"Returning /evaluate response for student: {request.student_id}")
         return result
     except Exception as e:
         logging.error(f"Error in /evaluate: {e}")
@@ -75,7 +75,7 @@ async def evaluate_code(request: AnalyzeRequest):
 
 @app.post("/recommend", response_model=RecommendResult)
 async def recommend_problems(request: RecommendRequestModel):
-    logging.info(f"Received /recommend request: {request.model_dump()}")
+    logging.info(f"Received /recommend request from student: {request.student_id}")
     try:
         recommend_request = RecommendRequest(
             student_id=request.student_id,
@@ -83,7 +83,7 @@ async def recommend_problems(request: RecommendRequestModel):
             max_recommendations=request.max_recommendations
         )
         result = await recommender.recommend(recommend_request)
-        logging.info(f"Returning /recommend response: {result.model_dump_json()}")
+        logging.info(f"Returning /recommend response for student: {request.student_id}")
         return result
     except Exception as e:
         logging.error(f"Error in /recommend: {e}")

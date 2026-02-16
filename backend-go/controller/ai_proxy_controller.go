@@ -16,12 +16,14 @@ import (
 // AIProxyController handles AI debug v2 requests
 type AIProxyController struct {
 	AIProxyService service.AIProxyServiceIface
+	Dispatcher     DispatcherIface
 }
 
 // NewAIProxyController creates a new AIProxyController
-func NewAIProxyController(aiProxyService service.AIProxyServiceIface) *AIProxyController {
+func NewAIProxyController(aiProxyService service.AIProxyServiceIface, dispatcher DispatcherIface) *AIProxyController {
 	return &AIProxyController{
 		AIProxyService: aiProxyService,
+		Dispatcher:     dispatcher,
 	}
 }
 
@@ -54,7 +56,78 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		return
 	}
 
-	// Call the AI proxy service
+	// Use dispatcher if available, otherwise fall back to direct service call
+	if ctrl.Dispatcher != nil {
+		// Save request record to DB first
+		requestRecord := models.AIRecord{
+			ConversationID: req.ConversationID,
+			StudentID:      req.StudentID,
+			RoundNumber:    req.CurrentRound,
+			Role:           "student",
+			RequestPayload: string(requestBody),
+		}
+		if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
+			proxyService.GetDB().Create(&requestRecord)
+		}
+
+		// Create job - pass the parsed struct, not raw bytes
+		job := service.NewAIJob(models.JobTypeDebug, req, req.StudentID, req.ConversationID)
+
+		// Try to submit job (non-blocking)
+		if !ctrl.Dispatcher.SubmitJob(job) {
+			// Queue is full, return 429
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Server busy, please try again later"})
+			return
+		}
+
+		// Wait for result with timeout
+		select {
+		case result := <-job.ResultChan:
+			if result.Err != nil {
+				// Save error record
+				if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
+					errorRecord := models.AIRecord{
+						ConversationID: req.ConversationID,
+						StudentID:      req.StudentID,
+						RoundNumber:    req.CurrentRound,
+						Role:           "system_error",
+						RequestPayload: string(requestBody),
+						Error:          result.Err.Error(),
+					}
+					proxyService.GetDB().Create(&errorRecord)
+				}
+				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
+				return
+			}
+			// Save response record
+			if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
+				responseData, _ := json.Marshal(result.Data)
+				responseRecord := models.AIRecord{
+					ConversationID:  req.ConversationID,
+					StudentID:       req.StudentID,
+					RoundNumber:     req.CurrentRound,
+					Role:            "assistant",
+					RequestPayload:  string(requestBody),
+					ResponsePayload: string(responseData),
+				}
+				proxyService.GetDB().Create(&responseRecord)
+			}
+			// Add round info to the response
+			if result.Data != nil {
+				if respMap, ok := result.Data.(map[string]interface{}); ok {
+					respMap["round_info"] = roundInfo
+					c.JSON(http.StatusOK, respMap)
+					return
+				}
+			}
+			c.JSON(http.StatusOK, result.Data)
+		case <-time.After(60 * time.Second):
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
+		}
+		return
+	}
+
+	// Fallback: direct service call
 	aiResponse, err := ctrl.AIProxyService.ProxyDebugV2(requestBody, req.StudentID, req.ConversationID, req.CurrentRound)
 	if err != nil {
 		// If the error contains a partial AI response (e.g., from non-200 status), return that

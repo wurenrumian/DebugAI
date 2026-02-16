@@ -13,6 +13,11 @@
 - AI 交互记录：详细记录每次 AI 调试会话的请求和响应，包括会话 ID、学生 ID、轮次、角色、请求和响应内容。
 - 用户薄弱点分析：自动分析用户的薄弱点并提供排名统计。
 - 受保护的 API 端点：所有 AI 相关接口需要认证才能访问。
+- **异步 Worker Pool 架构**：使用 Worker Pool 处理 AI 请求，实现并发限流和资源隔离。
+  - Evaluate 池：3 workers，队列大小 50
+  - Debug 池：5 workers，队列大小 100
+  - Recommend 池：2 workers，队列大小 30
+- **超时与熔断保护**：各接口配置独立超时时间，队列满时返回 429 错误
 
 ## 先决条件
 
@@ -176,6 +181,8 @@
   ```
   **错误示例**：
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
+  - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
+  - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
 
 - **POST /api/v1/ai/evaluate**
@@ -224,6 +231,8 @@
   ```
   **错误示例**：
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
+  - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
+  - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
 
 - **POST /api/v1/ai/recommend**
@@ -257,6 +266,8 @@
   ```
   **错误示例**：
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
+  - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
+  - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
 
 - **GET /api/v1/ai/records**
@@ -388,9 +399,11 @@
   - `ai_record.go`：定义 AI 交互记录
   - `ai.go`：定义 AI 相关数据结构
   - `debug.go`：定义调试相关数据结构
+  - `job.go`：定义 Worker Pool 任务模型
 - `service/`：业务逻辑服务
   - `ai_proxy_service.go`：处理AI调试代理业务
   - `ai_service.go`：处理AI评价、推荐、薄弱点业务
+  - `dispatcher.go`：Worker Pool 调度器
 - `utils/`：工具函数
   - `jwt.go`：处理令牌生成/解析
   - `ai_client.go`：Python AI 服务 HTTP 客户端
@@ -401,6 +414,7 @@
 
 - 运行单元测试：`go test ./...`
 - 包含控制器测试（`controller/auth_test.go`）和 JWT 测试（`utils/jwt_test.go`），以及AI代理服务和控制器的单元测试 (`service/ai_proxy_service_test.go`, `controller/ai_proxy_controller_test.go`)。
+- 包含调度器单元测试 (`service/dispatcher_test.go`)，测试 Worker Pool 功能。
 - 包含AI代理服务的集成测试 (`service/ai_integration_test.go`)，需要Python AI服务运行。
 
 ## 注意事项

@@ -35,6 +35,11 @@ func NewAIProxyService(db *gorm.DB, pythonServiceURL string) *AIProxyService {
 	}
 }
 
+// GetDB returns the database connection
+func (s *AIProxyService) GetDB() *gorm.DB {
+	return s.DB
+}
+
 // GetRoundInfo returns information about the specified round
 func (s *AIProxyService) GetRoundInfo(roundNumber int, studentResponse string) *models.RoundInfo {
 	return models.GetRoundInfo(roundNumber, studentResponse)
