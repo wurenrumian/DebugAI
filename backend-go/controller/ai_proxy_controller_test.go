@@ -61,6 +61,16 @@ func (m *MockAIProxyService) ValidateDebugRequest(req *models.DebugV2Request) er
 	return nil
 }
 
+func (m *MockAIProxyService) CloseConversation(conversationID, studentID string) error {
+	args := m.Called(conversationID, studentID)
+	return args.Error(0)
+}
+
+func (m *MockAIProxyService) IsConversationClosed(conversationID string) (bool, error) {
+	args := m.Called(conversationID)
+	return args.Bool(0), args.Error(1)
+}
+
 func TestAIProxyController_HandleDebugV2_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -81,6 +91,7 @@ func TestAIProxyController_HandleDebugV2_Success(t *testing.T) {
 	}
 
 	// Mock the new methods
+	mockService.On("IsConversationClosed", "test_conv").Return(false, nil).Once()
 	mockService.On("ValidateDebugRequest", mock.Anything).Return(nil).Once()
 	mockService.On("GetRoundInfo", 1, "").Return(&models.RoundInfo{
 		RoundNumber:      1,
@@ -141,6 +152,7 @@ func TestAIProxyController_HandleDebugV2_MissingFields(t *testing.T) {
 	requestBody := []byte(`{"student_id": "", "conversation_id": "test_conv", "current_round": 1}`)
 
 	// Mock validation to return error
+	mockService.On("IsConversationClosed", "test_conv").Return(false, nil).Once()
 	mockService.On("ValidateDebugRequest", mock.Anything).Return(&models.ValidationError{Field: "student_id", Message: "学生ID不能为空"}).Once()
 
 	rr := httptest.NewRecorder()
@@ -166,6 +178,7 @@ func TestAIProxyController_HandleDebugV2_ServiceError(t *testing.T) {
 	requestBody := []byte(`{"student_id": "test_student", "conversation_id": "test_conv", "current_round": 1, "code": "test", "problem_description": "test"}`)
 
 	// Mock the new methods
+	mockService.On("IsConversationClosed", "test_conv").Return(false, nil).Once()
 	mockService.On("ValidateDebugRequest", mock.Anything).Return(nil).Once()
 	mockService.On("GetRoundInfo", 1, "").Return(&models.RoundInfo{RoundNumber: 1}).Once()
 	mockService.On("ProxyDebugV2", requestBody, "test_student", "test_conv", 1).Return(nil, errors.New("service internal error")).Once()
@@ -194,6 +207,7 @@ func TestAIProxyController_HandleDebugV2_ServiceErrorWithPartialAIResponse(t *te
 	partialAIResponse := map[string]interface{}{"error": "AI returned bad data"}
 
 	// Mock the new methods
+	mockService.On("IsConversationClosed", "test_conv").Return(false, nil).Once()
 	mockService.On("ValidateDebugRequest", mock.Anything).Return(nil).Once()
 	mockService.On("GetRoundInfo", 1, "").Return(&models.RoundInfo{RoundNumber: 1}).Once()
 	mockService.On("ProxyDebugV2", requestBody, "test_student", "test_conv", 1).Return(partialAIResponse, errors.New("non-200 status")).Once()
@@ -209,5 +223,104 @@ func TestAIProxyController_HandleDebugV2_ServiceErrorWithPartialAIResponse(t *te
 	var resp map[string]string
 	json.Unmarshal(rr.Body.Bytes(), &resp)
 	assert.Equal(t, "AI returned bad data", resp["error"])
+	mockService.AssertExpectations(t)
+}
+
+// Test HandleCloseConversation
+func TestAIProxyController_HandleCloseConversation_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockService := new(MockAIProxyService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
+
+	// Set up the mock to expect CloseConversation call
+	mockService.On("CloseConversation", "test_conv", "test_student").Return(nil).Once()
+
+	// Set up the gin context with student_id
+	rr := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rr)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/api/v1/ai/debug/close", bytes.NewBuffer([]byte(`{"conversation_id": "test_conv"}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	// Set the student_id in context (simulating auth middleware)
+	c.Set("student_id", "test_student")
+
+	ctrl.HandleCloseConversation(c)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var resp map[string]string
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.Equal(t, "Conversation closed successfully", resp["message"])
+	mockService.AssertExpectations(t)
+}
+
+func TestAIProxyController_HandleCloseConversation_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockService := new(MockAIProxyService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
+
+	// Set up the mock to return error
+	mockService.On("CloseConversation", "invalid_conv", "test_student").Return(errors.New("conversation not found or already closed")).Once()
+
+	// Set up the gin context with student_id
+	rr := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rr)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/api/v1/ai/debug/close", bytes.NewBuffer([]byte(`{"conversation_id": "invalid_conv"}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("student_id", "test_student")
+
+	ctrl.HandleCloseConversation(c)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	var resp map[string]string
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.Contains(t, resp["error"], "conversation not found or already closed")
+	mockService.AssertExpectations(t)
+}
+
+func TestAIProxyController_HandleCloseConversation_MissingParam(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockService := new(MockAIProxyService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
+
+	// Set up the gin context with student_id
+	rr := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rr)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/api/v1/ai/debug/close", bytes.NewBuffer([]byte(`{}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("student_id", "test_student")
+
+	ctrl.HandleCloseConversation(c)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	var resp map[string]string
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.Equal(t, "Invalid request body", resp["error"])
+}
+
+// Test HandleDebugV2 with closed conversation
+func TestAIProxyController_HandleDebugV2_ConversationClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockService := new(MockAIProxyService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
+
+	requestBody := []byte(`{"student_id": "test_student", "conversation_id": "closed_conv", "current_round": 1, "code": "test", "problem_description": "test"}`)
+
+	// Mock IsConversationClosed to return true (conversation is closed)
+	mockService.On("IsConversationClosed", "closed_conv").Return(true, nil).Once()
+
+	rr := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rr)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/api/v1/ai/debug_v2", bytes.NewBuffer(requestBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	ctrl.HandleDebugV2(c)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	var resp map[string]string
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.Equal(t, "Conversation already closed", resp["error"])
 	mockService.AssertExpectations(t)
 }

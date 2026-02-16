@@ -8,6 +8,9 @@
 
 - 用户认证：支持用户注册、登录和登出，采用 JWT 令牌进行身份验证。
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
+- **Debug 对话关闭机制**：为多轮调试对话添加显式关闭状态，防止对话结束后被继续使用
+  - 关闭接口：`POST /api/v1/ai/debug/close`
+  - 防护检查：`debug_v2` 接口自动检测已关闭对话，返回 400 错误
 - AI Evaluate 代理：代理代码评价请求 (`/api/v1/ai/evaluate`) 给 Python AI 服务。
 - AI Recommend 代理：代理题目推荐请求 (`/api/v1/ai/recommend`) 给 Python AI 服务。
 - AI 交互记录：详细记录每次 AI 调试会话的请求和响应，包括会话 ID、学生 ID、轮次、角色、请求和响应内容。
@@ -191,11 +194,30 @@
   }
   ```
   **错误示例**：
+  - 对话已关闭：HTTP 400 `{"error": "Conversation already closed"}`
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
   - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
   - 时间窗口限流：HTTP 429 `{"error": "Rate limit exceeded, please try again later"}`
   - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
+
+- **POST /api/v1/ai/debug/close**
+  关闭一个AI调试对话。关闭后该对话将不能再继续使用。
+  **请求头**：`Authorization: Bearer <your_jwt_token>`
+  **请求体**（JSON）：
+  ```json
+  {
+    "conversation_id": "string"
+  }
+  ```
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"message": "Conversation closed successfully"}
+  ```
+  **错误示例**：
+  - 对话不存在或已关闭：HTTP 400 `{"error": "conversation not found or already closed"}`
+  - 参数缺失：HTTP 400 `{"error": "Invalid request body"}`
 
 - **POST /api/v1/ai/evaluate**
   AI代码评价代理接口。将前端的代码评价请求转发给Python AI服务。

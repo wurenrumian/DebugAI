@@ -59,6 +59,8 @@ func main() {
 
 		// AI Debug V2 代理路由
 		api.POST("/ai/debug_v2", aiProxyController.HandleDebugV2)
+		// 关闭对话
+		api.POST("/ai/debug/close", aiProxyController.HandleCloseConversation)
 		// 获取AI交互历史记录
 		api.GET("/ai/records", aiProxyController.GetAIRecords)
 		// 获取轮次信息

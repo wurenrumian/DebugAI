@@ -14,6 +14,7 @@ type AIRecord struct {
 	RequestPayload  string `json:"request_payload" gorm:"type:text"`  // 存储发送给AI服务的原始请求JSON
 	ResponsePayload string `json:"response_payload" gorm:"type:text"` // 存储从AI服务接收到的原始响应JSON
 	Error           string `json:"error,omitempty" gorm:"type:text"`  // 如果发生错误，存储错误信息
+	IsClosed        bool   `json:"is_closed" gorm:"default:false"`    // 对话是否已关闭（仅对debug功能生效）
 }
 
 // EvaluateRecord 存储AI代码评估结果
