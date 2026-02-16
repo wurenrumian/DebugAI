@@ -99,7 +99,7 @@ func TestAIProxyController_HandleDebugV2_Success(t *testing.T) {
 	c.Request, _ = http.NewRequest(http.MethodPost, "/api/v1/ai/debug_v2", bytes.NewBuffer(requestBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	ctrl := controller.NewAIProxyController(mockService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
 	ctrl.HandleDebugV2(c)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -114,7 +114,7 @@ func TestAIProxyController_HandleDebugV2_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockAIProxyService)
-	ctrl := controller.NewAIProxyController(mockService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
 
 	requestBody := []byte(`invalid json`)
 
@@ -136,7 +136,7 @@ func TestAIProxyController_HandleDebugV2_MissingFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockAIProxyService)
-	ctrl := controller.NewAIProxyController(mockService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
 
 	requestBody := []byte(`{"student_id": "", "conversation_id": "test_conv", "current_round": 1}`)
 
@@ -161,7 +161,7 @@ func TestAIProxyController_HandleDebugV2_ServiceError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockAIProxyService)
-	ctrl := controller.NewAIProxyController(mockService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
 
 	requestBody := []byte(`{"student_id": "test_student", "conversation_id": "test_conv", "current_round": 1, "code": "test", "problem_description": "test"}`)
 
@@ -188,7 +188,7 @@ func TestAIProxyController_HandleDebugV2_ServiceErrorWithPartialAIResponse(t *te
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockAIProxyService)
-	ctrl := controller.NewAIProxyController(mockService)
+	ctrl := controller.NewAIProxyController(mockService, nil)
 
 	requestBody := []byte(`{"student_id": "test_student", "conversation_id": "test_conv", "current_round": 1, "code": "test", "problem_description": "test"}`)
 	partialAIResponse := map[string]interface{}{"error": "AI returned bad data"}

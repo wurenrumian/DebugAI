@@ -79,7 +79,7 @@
                 <div class="eval-score" :class="getScoreClass(result.functional_correctness?.grade)">
                   {{ result.functional_correctness?.grade || 'N/A' }}
                 </div>
-                <div class="eval-comment">{{ result.functional_correctness?.comment }}</div>
+                <div class="eval-analysis">{{ result.functional_correctness?.analysis }}</div>
               </div>
               
               <div class="eval-item">
@@ -87,7 +87,7 @@
                 <div class="eval-score" :class="getScoreClass(result.logical_rigor?.grade)">
                   {{ result.logical_rigor?.grade || 'N/A' }}
                 </div>
-                <div class="eval-comment">{{ result.logical_rigor?.comment }}</div>
+                <div class="eval-analysis">{{ result.logical_rigor?.analysis }}</div>
               </div>
               
               <div class="eval-item">
@@ -95,7 +95,7 @@
                 <div class="eval-score" :class="getScoreClass(result.algorithm_quality?.grade)">
                   {{ result.algorithm_quality?.grade || 'N/A' }}
                 </div>
-                <div class="eval-comment">{{ result.algorithm_quality?.comment }}</div>
+                <div class="eval-analysis">{{ result.algorithm_quality?.analysis }}</div>
               </div>
               
               <div class="eval-item">
@@ -103,7 +103,7 @@
                 <div class="eval-score" :class="getScoreClass(result.structural_normativity?.grade)">
                   {{ result.structural_normativity?.grade || 'N/A' }}
                 </div>
-                <div class="eval-comment">{{ result.structural_normativity?.comment }}</div>
+                <div class="eval-analysis">{{ result.structural_normativity?.analysis }}</div>
               </div>
             </div>
           </div>
@@ -317,6 +317,18 @@ const getScoreClass = (score) => {
   font-size: 24px;
   font-weight: bold;
   margin-bottom: 8px;
+}
+
+.eval-analysis {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+  background: #fff;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .score-excellent {

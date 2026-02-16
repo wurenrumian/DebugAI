@@ -13,15 +13,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// DispatcherIface defines the interface for dispatcher operations
+type DispatcherIface interface {
+	SubmitAndWait(job *models.AIJob, timeout time.Duration) (interface{}, error)
+	SubmitJob(job *models.AIJob) bool
+}
+
 // AIController handles AI evaluate and recommend requests
 type AIController struct {
-	AIService service.AIServiceIface
+	AIService  service.AIServiceIface
+	Dispatcher DispatcherIface
 }
 
 // NewAIController creates a new AIController
-func NewAIController(aiService service.AIServiceIface) *AIController {
+func NewAIController(aiService service.AIServiceIface, dispatcher DispatcherIface) *AIController {
 	return &AIController{
-		AIService: aiService,
+		AIService:  aiService,
+		Dispatcher: dispatcher,
 	}
 }
 
@@ -52,7 +60,70 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		req.ConversationID = generateConversationID()
 	}
 
-	// Call AI proxy service
+	// Use dispatcher if available, otherwise fall back to direct service call
+	if ctrl.Dispatcher != nil {
+		// Save request record to DB first
+		requestRecord := models.AIRecord{
+			ConversationID: req.ConversationID,
+			StudentID:      req.StudentID,
+			RoundNumber:    0,
+			Role:           "student",
+			RequestPayload: string(requestBody),
+		}
+		if db, ok := ctrl.AIService.(*service.AIService); ok {
+			db.GetDB().Create(&requestRecord)
+		}
+
+		// Create job - pass the parsed struct, not raw bytes
+		job := service.NewAIJob(models.JobTypeEvaluate, req, req.StudentID, req.ConversationID)
+
+		// Try to submit job (non-blocking)
+		if !ctrl.Dispatcher.SubmitJob(job) {
+			// Queue is full, return 429
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Server busy, please try again later"})
+			return
+		}
+
+		// Wait for result with timeout
+		select {
+		case result := <-job.ResultChan:
+			if result.Err != nil {
+				// Save error record
+				if db, ok := ctrl.AIService.(*service.AIService); ok {
+					errorRecord := models.AIRecord{
+						ConversationID: req.ConversationID,
+						StudentID:      req.StudentID,
+						RoundNumber:    0,
+						Role:           "system_error",
+						RequestPayload: string(requestBody),
+						Error:          result.Err.Error(),
+					}
+					db.GetDB().Create(&errorRecord)
+				}
+				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
+				return
+			}
+			// Save response record
+			if db, ok := ctrl.AIService.(*service.AIService); ok {
+				responseData, _ := json.Marshal(result.Data)
+				responseRecord := models.AIRecord{
+					ConversationID:  req.ConversationID,
+					StudentID:       req.StudentID,
+					RoundNumber:     0,
+					Role:            "assistant",
+					RequestPayload:  string(requestBody),
+					ResponsePayload: string(responseData),
+				}
+				db.GetDB().Create(&responseRecord)
+			}
+			c.JSON(http.StatusOK, result.Data)
+		case <-time.After(30 * time.Second):
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
+		}
+		return
+	}
+
+	// Fallback: direct service call
 	aiResponse, err := ctrl.AIService.ProxyEvaluate(requestBody, req.StudentID, req.ConversationID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
@@ -85,7 +156,73 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		return
 	}
 
-	// Call AI proxy service
+	// Use dispatcher if available, otherwise fall back to direct service call
+	if ctrl.Dispatcher != nil {
+		// Generate conversation ID for recommend
+		conversationID := fmt.Sprintf("rec_%d", time.Now().UnixNano())
+
+		// Save request record to DB first
+		requestRecord := models.AIRecord{
+			ConversationID: conversationID,
+			StudentID:      req.StudentID,
+			RoundNumber:    0,
+			Role:           "student",
+			RequestPayload: string(requestBody),
+		}
+		if db, ok := ctrl.AIService.(*service.AIService); ok {
+			db.GetDB().Create(&requestRecord)
+		}
+
+		// Create job - pass the parsed struct, not raw bytes
+		job := service.NewAIJob(models.JobTypeRecommend, req, req.StudentID, conversationID)
+
+		// Try to submit job (non-blocking)
+		if !ctrl.Dispatcher.SubmitJob(job) {
+			// Queue is full, return 429
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Server busy, please try again later"})
+			return
+		}
+
+		// Wait for result with timeout
+		select {
+		case result := <-job.ResultChan:
+			if result.Err != nil {
+				// Save error record
+				if db, ok := ctrl.AIService.(*service.AIService); ok {
+					errorRecord := models.AIRecord{
+						ConversationID: conversationID,
+						StudentID:      req.StudentID,
+						RoundNumber:    0,
+						Role:           "system_error",
+						RequestPayload: string(requestBody),
+						Error:          result.Err.Error(),
+					}
+					db.GetDB().Create(&errorRecord)
+				}
+				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
+				return
+			}
+			// Save response record
+			if db, ok := ctrl.AIService.(*service.AIService); ok {
+				responseData, _ := json.Marshal(result.Data)
+				responseRecord := models.AIRecord{
+					ConversationID:  conversationID,
+					StudentID:       req.StudentID,
+					RoundNumber:     0,
+					Role:            "assistant",
+					RequestPayload:  string(requestBody),
+					ResponsePayload: string(responseData),
+				}
+				db.GetDB().Create(&responseRecord)
+			}
+			c.JSON(http.StatusOK, result.Data)
+		case <-time.After(20 * time.Second):
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
+		}
+		return
+	}
+
+	// Fallback: direct service call
 	aiResponse, err := ctrl.AIService.ProxyRecommend(requestBody, req.StudentID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})

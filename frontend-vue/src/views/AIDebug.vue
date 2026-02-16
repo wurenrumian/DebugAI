@@ -62,7 +62,8 @@
           <div class="dialogue-header">
             <h2 class="subtitle">对话记录</h2>
             <div class="round-info">
-              <span class="round-badge">第 {{ currentRound }} / 4 轮</span>
+              <span v-if="currentRound<=4" class="round-badge">第 {{ currentRound }} / 4 轮</span>
+              <span v-else class="round-badge">已完成</span>
               <span v-if="roundInfo" class="round-title">{{ roundInfo.round_title }}</span>
             </div>
           </div>
@@ -127,7 +128,7 @@
           </div>
           
           <!-- 对话完成提示 -->
-          <div v-if="currentRound > 4 || (roundInfo && roundInfo.is_completed)" class="completion-notice">
+          <div v-if="currentRound > 4 && (roundInfo && roundInfo.is_completed)" class="completion-notice">
             <p>🎉 对话已完成！如需继续调试，请新建对话。</p>
           </div>
         </div>

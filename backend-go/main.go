@@ -4,6 +4,7 @@ import (
 	"backend-go/config"
 	"backend-go/controller"
 	"backend-go/middleware"
+	"backend-go/models"
 	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
@@ -12,15 +13,20 @@ import (
 func main() {
 	config.InitDB()
 
+	// Initialize Python AI service URL
+	pythonBaseURL := "http://localhost:8000"
+
+	// Initialize Dispatcher with worker pools
+	dispatcher := service.NewDispatcher(pythonBaseURL, config.DB, models.PoolConfigs())
+	dispatcher.Start()
+
 	// Initialize AI Proxy Service and Controller (for debug_v2)
-	pythonDebugURL := "http://localhost:8000/debug_v2" // Python AI debug service URL
-	aiProxyService := service.NewAIProxyService(config.DB, pythonDebugURL)
-	aiProxyController := controller.NewAIProxyController(aiProxyService)
+	aiProxyService := service.NewAIProxyService(config.DB, pythonBaseURL+"/debug_v2")
+	aiProxyController := controller.NewAIProxyController(aiProxyService, dispatcher)
 
 	// Initialize AI Service and Controller (for evaluate and recommend)
-	pythonBaseURL := "http://localhost:8000" // Python AI service base URL
 	aiService := service.NewAIService(config.DB, pythonBaseURL)
-	aiController := controller.NewAIController(aiService)
+	aiController := controller.NewAIController(aiService, dispatcher)
 
 	// Seed default weak point keywords
 	aiService.SeedWeakPointKeywords()
