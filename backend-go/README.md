@@ -8,6 +8,9 @@
 
 - 用户认证：支持用户注册、登录和登出，采用 JWT 令牌进行身份验证。
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
+- **Debug 对话关闭机制**：为多轮调试对话添加显式关闭状态，防止对话结束后被继续使用
+  - 关闭接口：`POST /api/v1/ai/debug/close`
+  - 防护检查：`debug_v2` 接口自动检测已关闭对话，返回 400 错误
 - AI Evaluate 代理：代理代码评价请求 (`/api/v1/ai/evaluate`) 给 Python AI 服务。
 - AI Recommend 代理：代理题目推荐请求 (`/api/v1/ai/recommend`) 给 Python AI 服务。
 - AI 交互记录：详细记录每次 AI 调试会话的请求和响应，包括会话 ID、学生 ID、轮次、角色、请求和响应内容。
@@ -18,6 +21,17 @@
   - Debug 池：5 workers，队列大小 100
   - Recommend 池：2 workers，队列大小 30
 - **超时与熔断保护**：各接口配置独立超时时间，队列满时返回 429 错误
+- **用户级限流**：防止单个用户占用过多资源
+  - Debug：每用户最多 2 个并发任务
+  - Evaluate：每用户最多 1 个并发任务
+  - Recommend：每用户最多 1 个并发任务
+  - 超限返回 HTTP 429，错误消息："User task limit exceeded"
+- **时间窗口限流（滑动窗口）**：基于时间窗口的请求频率限制
+  - Debug：每用户每分钟最多 10 次请求
+  - Evaluate：每用户每分钟最多 5 次请求
+  - Recommend：每用户每分钟最多 5 次请求
+  - 超限返回 HTTP 429，错误消息："Rate limit exceeded, please try again later"
+  - 实现：滑动窗口算法，维护最近1分钟内的请求时间戳
 
 ## 先决条件
 
@@ -180,10 +194,30 @@
   }
   ```
   **错误示例**：
+  - 对话已关闭：HTTP 400 `{"error": "Conversation already closed"}`
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
   - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
+  - 时间窗口限流：HTTP 429 `{"error": "Rate limit exceeded, please try again later"}`
   - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
+
+- **POST /api/v1/ai/debug/close**
+  关闭一个AI调试对话。关闭后该对话将不能再继续使用。
+  **请求头**：`Authorization: Bearer <your_jwt_token>`
+  **请求体**（JSON）：
+  ```json
+  {
+    "conversation_id": "string"
+  }
+  ```
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"message": "Conversation closed successfully"}
+  ```
+  **错误示例**：
+  - 对话不存在或已关闭：HTTP 400 `{"error": "conversation not found or already closed"}`
+  - 参数缺失：HTTP 400 `{"error": "Invalid request body"}`
 
 - **POST /api/v1/ai/evaluate**
   AI代码评价代理接口。将前端的代码评价请求转发给Python AI服务。
@@ -232,6 +266,7 @@
   **错误示例**：
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
   - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
+  - 时间窗口限流：HTTP 429 `{"error": "Rate limit exceeded, please try again later"}`
   - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
 
@@ -267,6 +302,7 @@
   **错误示例**：
   - Python AI服务通信错误：HTTP 502 `{"error": "AI service communication error: ..."}`
   - 队列满（限流）：HTTP 429 `{"error": "Server busy, please try again later"}`
+  - 时间窗口限流：HTTP 429 `{"error": "Rate limit exceeded, please try again later"}`
   - 超时：HTTP 504 `{"error": "AI response timeout"}`
   - 其他内部错误：HTTP 500 `{"error": "Internal server error"}`
 

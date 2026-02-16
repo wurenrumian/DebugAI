@@ -43,6 +43,17 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		return
 	}
 
+	// Check if conversation is already closed
+	isClosed, err := ctrl.AIProxyService.IsConversationClosed(req.ConversationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check conversation status"})
+		return
+	}
+	if isClosed {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation already closed"})
+		return
+	}
+
 	// Validate request
 	if err := ctrl.AIProxyService.ValidateDebugRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -74,9 +85,18 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		job := service.NewAIJob(models.JobTypeDebug, req, req.StudentID, req.ConversationID)
 
 		// Try to submit job (non-blocking)
-		if !ctrl.Dispatcher.SubmitJob(job) {
-			// Queue is full, return 429
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Server busy, please try again later"})
+		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
+			// Return appropriate error message based on the reason
+			errorMsg := "Server busy, please try again later"
+			if err != nil {
+				switch err.Error() {
+				case "User task limit exceeded":
+					errorMsg = "User task limit exceeded"
+				case "Rate limit exceeded, please try again later":
+					errorMsg = "Rate limit exceeded, please try again later"
+				}
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
 			return
 		}
 
@@ -217,4 +237,28 @@ func (ctrl *AIProxyController) StartConversation(c *gin.Context) {
 			"test_points":         req.TestPoints,
 		},
 	})
+}
+
+// HandleCloseConversation handles the /api/v1/ai/debug/close endpoint
+func (ctrl *AIProxyController) HandleCloseConversation(c *gin.Context) {
+	var req struct {
+		ConversationID string `json:"conversation_id" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Get student ID from authenticated user
+	studentID := c.MustGet("student_id").(string)
+
+	// Close the conversation
+	err := ctrl.AIProxyService.CloseConversation(req.ConversationID, studentID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Conversation closed successfully"})
 }

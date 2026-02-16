@@ -19,6 +19,8 @@ type AIProxyServiceIface interface {
 	GetAIRecordsByStudentID(studentID string) ([]models.AIRecord, error)
 	GetRoundInfo(roundNumber int, studentResponse string) *models.RoundInfo
 	ValidateDebugRequest(req *models.DebugV2Request) error
+	CloseConversation(conversationID, studentID string) error
+	IsConversationClosed(conversationID string) (bool, error)
 }
 
 // AIProxyService handles communication with the AI Python backend and database operations
@@ -201,4 +203,34 @@ func (s *AIProxyService) GetAIRecordsByStudentID(studentID string) ([]models.AIR
 		return nil, fmt.Errorf("failed to get AI records for student %s: %w", studentID, err)
 	}
 	return records, nil
+}
+
+// CloseConversation closes a debug conversation by setting IsClosed to true
+func (s *AIProxyService) CloseConversation(conversationID, studentID string) error {
+	result := s.DB.Model(&models.AIRecord{}).
+		Where("conversation_id = ? AND student_id = ?", conversationID, studentID).
+		Update("is_closed", true)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to close conversation: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("conversation not found or already closed")
+	}
+
+	return nil
+}
+
+// IsConversationClosed checks if a conversation is already closed
+func (s *AIProxyService) IsConversationClosed(conversationID string) (bool, error) {
+	var record models.AIRecord
+	err := s.DB.Where("conversation_id = ?", conversationID).First(&record).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return false, nil // 如果对话不存在，视为未关闭
+		}
+		return false, fmt.Errorf("failed to check conversation status: %w", err)
+	}
+	return record.IsClosed, nil
 }

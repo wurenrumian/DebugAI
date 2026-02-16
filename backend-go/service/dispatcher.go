@@ -23,8 +23,10 @@ type Dispatcher struct {
 	DebugPool     *WorkerPool
 	RecommendPool *WorkerPool
 
-	PythonServiceURL string
-	DB               interface{} // *gorm.DB - kept for compatibility
+	PythonServiceURL  string
+	DB                interface{} // *gorm.DB - kept for compatibility
+	UserTaskTracker   *models.UserTaskTracker
+	MinuteRateLimiter *models.MinuteRateLimiter
 
 	mu        sync.RWMutex
 	isRunning bool
@@ -32,11 +34,12 @@ type Dispatcher struct {
 
 // WorkerPool represents a pool of workers
 type WorkerPool struct {
-	JobQueue     chan *models.AIJob
-	MaxWorkers   int
-	MaxQueueSize int
-	WorkerCount  int
-	JobHandler   JobHandler
+	JobQueue      chan *models.AIJob
+	MaxWorkers    int
+	MaxQueueSize  int
+	WorkerCount   int
+	JobHandler    JobHandler
+	OnJobComplete func(job *models.AIJob) // Callback after job completes
 }
 
 // JobHandler is the interface for handling jobs
@@ -62,33 +65,45 @@ func NewDispatcher(pythonServiceURL string, db interface{}, poolConfigs map[stri
 	recommendConfig := poolConfigs[models.JobTypeRecommend]
 
 	d := &Dispatcher{
-		EvaluateQueue:    make(chan *models.AIJob, evalConfig.MaxQueueSize),
-		DebugQueue:       make(chan *models.AIJob, debugConfig.MaxQueueSize),
-		RecommendQueue:   make(chan *models.AIJob, recommendConfig.MaxQueueSize),
-		PythonServiceURL: pythonServiceURL,
-		DB:               db,
-		isRunning:        false,
+		EvaluateQueue:     make(chan *models.AIJob, evalConfig.MaxQueueSize),
+		DebugQueue:        make(chan *models.AIJob, debugConfig.MaxQueueSize),
+		RecommendQueue:    make(chan *models.AIJob, recommendConfig.MaxQueueSize),
+		PythonServiceURL:  pythonServiceURL,
+		DB:                db,
+		isRunning:         false,
+		UserTaskTracker:   models.NewUserTaskTracker(models.DefaultUserRateLimitConfig()),
+		MinuteRateLimiter: models.NewMinuteRateLimiter(nil),
+	}
+
+	// Create callback for releasing user task slots
+	releaseCallback := func(job *models.AIJob) {
+		if d.UserTaskTracker != nil && job.StudentID != "" {
+			d.UserTaskTracker.Release(job.StudentID, job.Type)
+		}
 	}
 
 	d.EvaluatePool = &WorkerPool{
-		JobQueue:     d.EvaluateQueue,
-		MaxWorkers:   evalConfig.MaxWorkers,
-		MaxQueueSize: evalConfig.MaxQueueSize,
-		JobHandler:   &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		JobQueue:      d.EvaluateQueue,
+		MaxWorkers:    evalConfig.MaxWorkers,
+		MaxQueueSize:  evalConfig.MaxQueueSize,
+		JobHandler:    &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		OnJobComplete: releaseCallback,
 	}
 
 	d.DebugPool = &WorkerPool{
-		JobQueue:     d.DebugQueue,
-		MaxWorkers:   debugConfig.MaxWorkers,
-		MaxQueueSize: debugConfig.MaxQueueSize,
-		JobHandler:   &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		JobQueue:      d.DebugQueue,
+		MaxWorkers:    debugConfig.MaxWorkers,
+		MaxQueueSize:  debugConfig.MaxQueueSize,
+		JobHandler:    &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		OnJobComplete: releaseCallback,
 	}
 
 	d.RecommendPool = &WorkerPool{
-		JobQueue:     d.RecommendQueue,
-		MaxWorkers:   recommendConfig.MaxWorkers,
-		MaxQueueSize: recommendConfig.MaxQueueSize,
-		JobHandler:   &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		JobQueue:      d.RecommendQueue,
+		MaxWorkers:    recommendConfig.MaxWorkers,
+		MaxQueueSize:  recommendConfig.MaxQueueSize,
+		JobHandler:    &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		OnJobComplete: releaseCallback,
 	}
 
 	return d
@@ -161,6 +176,11 @@ func (wp *WorkerPool) worker(id int) {
 			case <-time.After(5 * time.Second):
 				// Timeout sending result
 			}
+		}
+
+		// Release user task slot after job completion
+		if wp.OnJobComplete != nil {
+			wp.OnJobComplete(job)
 		}
 
 		// Log execution time (optional)
@@ -264,7 +284,7 @@ func (h *DefaultJobHandler) handleRecommend(job *models.AIJob) *models.AIJobResp
 }
 
 // SubmitJob submits a job to the appropriate queue (non-blocking)
-// Returns true if job was submitted successfully, false if queue is full
+// Returns true if job was submitted successfully, false if queue is full or user limit exceeded
 func (d *Dispatcher) SubmitJob(job *models.AIJob) bool {
 	var jobQueue chan *models.AIJob
 
@@ -285,6 +305,59 @@ func (d *Dispatcher) SubmitJob(job *models.AIJob) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// SubmitJobWithError submits a job and returns error information
+// This method manages user rate limit internally
+// Returns (true, nil) if successful, (false, error) if failed
+func (d *Dispatcher) SubmitJobWithError(job *models.AIJob) (bool, error) {
+	// Check user concurrent task limit before submitting
+	if d.UserTaskTracker != nil && job.StudentID != "" {
+		if !d.UserTaskTracker.TryAcquire(job.StudentID, job.Type) {
+			return false, fmt.Errorf("User task limit exceeded")
+		}
+	}
+
+	// Check minute rate limit before submitting
+	if d.MinuteRateLimiter != nil && job.StudentID != "" {
+		if !d.MinuteRateLimiter.TryAcquire(job.StudentID, job.Type) {
+			// Release the concurrent slot we just acquired
+			if d.UserTaskTracker != nil && job.StudentID != "" {
+				d.UserTaskTracker.Release(job.StudentID, job.Type)
+			}
+			return false, fmt.Errorf("Rate limit exceeded, please try again later")
+		}
+	}
+
+	var jobQueue chan *models.AIJob
+
+	switch job.Type {
+	case models.JobTypeEvaluate:
+		jobQueue = d.EvaluateQueue
+	case models.JobTypeDebug:
+		jobQueue = d.DebugQueue
+	case models.JobTypeRecommend:
+		jobQueue = d.RecommendQueue
+	default:
+		// Release user task slot on error
+		if d.UserTaskTracker != nil && job.StudentID != "" {
+			d.UserTaskTracker.Release(job.StudentID, job.Type)
+		}
+		return false, fmt.Errorf("unknown job type")
+	}
+
+	// Non-blocking submit
+	select {
+	case jobQueue <- job:
+		// Success - user task slot will be released after job completion via SubmitJobWithError caller
+		return true, nil
+	default:
+		// Release user task slot on queue full
+		if d.UserTaskTracker != nil && job.StudentID != "" {
+			d.UserTaskTracker.Release(job.StudentID, job.Type)
+		}
+		return false, fmt.Errorf("queue is full, please try again later")
 	}
 }
 
@@ -316,6 +389,22 @@ func (d *Dispatcher) GetStats() map[string]models.JobStats {
 // SubmitAndWait submits a job and waits for the result with timeout
 // Returns the result or error if timeout
 func (d *Dispatcher) SubmitAndWait(job *models.AIJob, timeout time.Duration) (interface{}, error) {
+	// Check user concurrent task limit before submitting
+	if d.UserTaskTracker != nil && job.StudentID != "" {
+		if !d.UserTaskTracker.TryAcquire(job.StudentID, job.Type) {
+			return nil, fmt.Errorf("User task limit exceeded")
+		}
+		// Ensure release on exit
+		defer d.UserTaskTracker.Release(job.StudentID, job.Type)
+	}
+
+	// Check minute rate limit before submitting
+	if d.MinuteRateLimiter != nil && job.StudentID != "" {
+		if !d.MinuteRateLimiter.TryAcquire(job.StudentID, job.Type) {
+			return nil, fmt.Errorf("Rate limit exceeded, please try again later")
+		}
+	}
+
 	// Create result channel
 	resultChan := make(chan *models.AIJobResponse, 1)
 	job.ResultChan = resultChan
