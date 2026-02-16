@@ -39,12 +39,12 @@
           ></textarea>
         </div>
         
-        <button 
-          @click="startDebug" 
-          class="btn btn-primary start-btn" 
-          :disabled="loading || !canStart"
+        <button
+          @click="startDebug"
+          class="btn btn-primary start-btn"
+          :disabled="loading || !canStart || isConversationClosed"
         >
-          {{ loading ? '处理中...' : currentRound > 1 ? '继续调试' : '开始调试' }}
+          {{ loading ? '处理中...' : isConversationClosed ? '对话已关闭' : currentRound > 1 ? '继续调试' : '开始调试' }}
         </button>
         
         <button 
@@ -108,23 +108,122 @@
           
           <!-- 学生回复输入 -->
           <div v-if="showStudentInput" class="student-input-area">
-            <div class="input-hint">
-              <span v-if="currentRound === 2">请确认 AI 对你思路的理解是否正确，或提出补充说明：</span>
-              <span v-else-if="currentRound === 3">请选择需要帮助的问题，或请求更详细的指导：</span>
-              <span v-else-if="currentRound === 4">请告诉 AI 你需要什么帮助：</span>
+            <!-- 第2轮：按钮选择 -->
+            <div v-if="currentRound === 2" class="round-2-input">
+              <div class="input-hint">
+                <span>请确认 AI 对你思路的理解是否正确：</span>
+              </div>
+              <!-- 按钮选择模式 -->
+              <div v-if="buttonSelection === ''" class="button-choice">
+                <button
+                  @click="handleRound2Choice('correct')"
+                  class="btn btn-primary"
+                  :disabled="loading"
+                >
+                  理解正确
+                </button>
+                <button
+                  @click="handleRound2Choice('need_correction')"
+                  class="btn btn-secondary"
+                  :disabled="loading"
+                >
+                  需要修正思路
+                </button>
+              </div>
+              <!-- 输入框模式（选择需要修正思路后显示） -->
+              <div v-else class="text-input-mode">
+                <textarea
+                  v-model="studentResponse"
+                  placeholder="请输入你对思路的修正说明..."
+                  rows="3"
+                ></textarea>
+                <button
+                  @click="submitStudentResponse"
+                  class="btn btn-primary"
+                  :disabled="!studentResponse.trim() || loading"
+                >
+                  发送
+                </button>
+              </div>
             </div>
-            <textarea 
-              v-model="studentResponse" 
-              placeholder="请输入你的回答..."
-              rows="3"
-            ></textarea>
-            <button 
-              @click="submitStudentResponse" 
-              class="btn btn-primary"
-              :disabled="!studentResponse.trim() || loading"
-            >
-              发送
-            </button>
+
+            <!-- 第3轮：按钮选择 -->
+            <div v-else-if="currentRound === 3" class="round-3-input">
+              <div class="input-hint">
+                <span>请选择是否需要进一步帮助：</span>
+              </div>
+              <!-- 按钮选择模式 -->
+              <div v-if="buttonSelection === ''" class="button-choice">
+                <button
+                  @click="handleRound3Choice('need')"
+                  class="btn btn-primary"
+                  :disabled="loading"
+                >
+                  需要
+                </button>
+                <button
+                  @click="handleRound3Choice('not_need')"
+                  class="btn btn-secondary"
+                  :disabled="loading"
+                >
+                  不需要
+                </button>
+              </div>
+              <!-- 输入框模式（选择需要后显示） -->
+              <div v-else class="text-input-mode">
+                <textarea
+                  v-model="studentResponse"
+                  placeholder="请告诉 AI 你需要什么帮助..."
+                  rows="3"
+                ></textarea>
+                <button
+                  @click="submitStudentResponse"
+                  class="btn btn-primary"
+                  :disabled="!studentResponse.trim() || loading"
+                >
+                  发送
+                </button>
+              </div>
+            </div>
+
+            <!-- 第4轮：按钮选择 -->
+            <div v-else-if="currentRound === 4" class="round-4-input">
+              <div class="input-hint">
+                <span>请选择是否需要进一步帮助：</span>
+              </div>
+              <!-- 按钮选择模式 -->
+              <div v-if="buttonSelection === ''" class="button-choice">
+                <button
+                  @click="handleRound3Choice('need')"
+                  class="btn btn-primary"
+                  :disabled="loading"
+                >
+                  需要
+                </button>
+                <button
+                  @click="handleRound3Choice('not_need')"
+                  class="btn btn-secondary"
+                  :disabled="loading"
+                >
+                  不需要
+                </button>
+              </div>
+              <!-- 输入框模式（选择需要后显示） -->
+              <div v-else class="text-input-mode">
+                <textarea
+                  v-model="studentResponse"
+                  placeholder="请告诉 AI 你需要什么帮助..."
+                  rows="3"
+                ></textarea>
+                <button
+                  @click="submitStudentResponse"
+                  class="btn btn-primary"
+                  :disabled="!studentResponse.trim() || loading"
+                >
+                  发送
+                </button>
+              </div>
+            </div>
           </div>
           
           <!-- 对话完成提示 -->
@@ -166,9 +265,58 @@ const studentResponse = ref('')
 const showStudentInput = ref(false)
 const roundInfo = ref(null)
 
+// 按钮选择状态
+const buttonSelection = ref('') // '' | 'correct' | 'need_correction' | 'need' | 'not_need'
+
+// 对话关闭状态
+const isConversationClosed = ref(false)
+
 // 加载状态
 const loading = ref(false)
 const errorMessage = ref('')
+
+// 第2轮处理
+const handleRound2Choice = (choice) => {
+  buttonSelection.value = choice
+  if (choice === 'correct') {
+    // 理解正确，直接发送
+    studentResponse.value = '理解正确'
+    submitStudentResponse()
+  }
+  // need_correction 时，显示输入框让学生填写
+}
+
+// 第3轮处理
+const handleRound3Choice = async (choice) => {
+  buttonSelection.value = choice
+  if (choice === 'not_need') {
+    // 不需要帮助，关闭对话
+    try {
+      await aiAPI.closeConversation(conversationId.value)
+      // 显示完成提示，不再发送请求
+      isConversationClosed.value = true
+      showStudentInput.value = false
+      roundInfo.value = { is_completed: true }
+    } catch (error) {
+      console.error('关闭对话失败:', error)
+      errorMessage.value = '关闭对话失败，请重试'
+    }
+  }
+  // need 时，显示输入框让学生填写
+}
+
+// 关闭对话并结束
+const closeConversation = async () => {
+  try {
+    await aiAPI.closeConversation(conversationId.value)
+    isConversationClosed.value = true
+    showStudentInput.value = false
+    roundInfo.value = { is_completed: true }
+  } catch (error) {
+    console.error('关闭对话失败:', error)
+    errorMessage.value = '关闭对话失败，请重试'
+  }
+}
 
 // 计算是否能开始调试
 const canStart = computed(() => {
@@ -258,8 +406,9 @@ const startDebug = async () => {
       // 检查是否还有后续输入
       showStudentInput.value = currentRound.value <= 4
       
-      // 清空学生回复
+      // 清空学生回复和按钮选择状态
       studentResponse.value = ''
+      buttonSelection.value = ''
     }
   } catch (error) {
     errorMessage.value = error.error || '请求失败，请稍后重试'
@@ -284,6 +433,8 @@ const resetConversation = () => {
   studentResponse.value = ''
   showStudentInput.value = false
   roundInfo.value = null
+  buttonSelection.value = ''
+  isConversationClosed.value = false
   formData.value = {
     problem_description: '',
     code: '',
@@ -458,6 +609,48 @@ onMounted(() => {
 
 .student-input-area .btn {
   width: 100%;
+}
+
+/* 按钮选择样式 */
+.button-choice {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.button-choice .btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.text-input-mode textarea {
+  width: 100%;
+  resize: none;
+  margin-bottom: 10px;
+}
+
+.text-input-mode .btn {
+  width: 100%;
+}
+
+/* 辅助按钮样式 */
+.btn-secondary {
+  background-color: #909399;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.btn-secondary:hover {
+  background-color: #82848a;
+}
+
+.btn-secondary:disabled {
+  background-color: #c0c4cc;
+  cursor: not-allowed;
 }
 
 @media (max-width: 900px) {

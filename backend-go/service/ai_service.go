@@ -430,8 +430,8 @@ func (s *AIService) GetDebugRecords(studentID string) ([]models.AIRecord, error)
 // GetEvaluateRecords fetches evaluation records for a student (from AIRecord table)
 func (s *AIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, error) {
 	var records []models.AIRecord
-	// conversation_id starts with "eval_" or role is "assistant" with round_number = 0
-	if err := s.DB.Where("student_id = ? AND (conversation_id LIKE 'eval_%' OR (role = 'assistant' AND round_number = 0))", studentID).Order("created_at desc").Find(&records).Error; err != nil {
+	// Only fetch records with conversation_id starting with "eval_"
+	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'eval_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("failed to get evaluate records: %w", err)
 	}
 	return records, nil
@@ -440,8 +440,8 @@ func (s *AIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, err
 // GetRecommendRecords fetches recommendation records for a student (from AIRecord table)
 func (s *AIService) GetRecommendRecords(studentID string) ([]models.AIRecord, error) {
 	var records []models.AIRecord
-	// conversation_id starts with "rec_"
-	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'rec_%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
+	// Only fetch records with conversation_id starting with "rec_"
+	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'rec_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("failed to get recommend records: %w", err)
 	}
 	return records, nil

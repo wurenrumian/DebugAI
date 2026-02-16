@@ -23,5 +23,6 @@ func InitDB() {
 		&models.AIRecord{},
 		&models.WeakPoint{},
 		&models.UserWeakPoint{},
+		&models.Conversation{},
 	)
 }

@@ -9,6 +9,8 @@
 - 用户认证：支持用户注册、登录和登出，采用 JWT 令牌进行身份验证。
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
 - **Debug 对话关闭机制**：为多轮调试对话添加显式关闭状态，防止对话结束后被继续使用
+  - 对话状态存储在独立的 `conversations` 表中
+  - `debug_v2` 接口首次调用时自动创建对话记录
   - 关闭接口：`POST /api/v1/ai/debug/close`
   - 防护检查：`debug_v2` 接口自动检测已关闭对话，返回 400 错误
 - AI Evaluate 代理：代理代码评价请求 (`/api/v1/ai/evaluate`) 给 Python AI 服务。
@@ -433,6 +435,7 @@
 - `models/`：数据模型
   - `user.go`：定义 User 结构体
   - `ai_record.go`：定义 AI 交互记录
+  - `conversation.go`：定义对话会话（包含关闭状态）
   - `ai.go`：定义 AI 相关数据结构
   - `debug.go`：定义调试相关数据结构
   - `job.go`：定义 Worker Pool 任务模型
@@ -445,6 +448,19 @@
   - `ai_client.go`：Python AI 服务 HTTP 客户端
 - `main.go`：应用入口，路由定义。
 - `go.mod` / `go.sum`：Go 模块依赖。
+
+## 数据库表说明
+
+- `users`：用户信息
+- `air_records`：AI 交互详细记录（每轮对话的学生请求和 AI 响应）
+- `conversations`：**对话会话表**，记录每个 conversation_id 的关闭状态
+  - `conversation_id`：对话唯一标识
+  - `student_id`：学生 ID
+  - `task_type`：任务类型（debug/evaluate/recommend）
+  - `is_closed`：对话是否已关闭
+  - `closed_at`：关闭时间
+- `weak_points`：薄弱点定义
+- `user_weak_points`：用户薄弱点统计
 
 ## 测试
 

@@ -11,6 +11,7 @@ import (
 	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // AIProxyController handles AI debug v2 requests
@@ -43,7 +44,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		return
 	}
 
-	// Check if conversation is already closed
+	// Check if conversation is already closed and ensure conversation record exists
 	isClosed, err := ctrl.AIProxyService.IsConversationClosed(req.ConversationID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check conversation status"})
@@ -52,6 +53,27 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 	if isClosed {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation already closed"})
 		return
+	}
+
+	// Ensure conversation record exists in database (create if not)
+	// This is needed because when using Dispatcher, ProxyDebugV2 is not called directly
+	if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
+		db := proxyService.GetDB()
+		var count int64
+		db.Model(&models.Conversation{}).Where("conversation_id = ?", req.ConversationID).Count(&count)
+		if count == 0 {
+			// Create new conversation record
+			conv := models.Conversation{
+				ConversationID: req.ConversationID,
+				StudentID:      req.StudentID,
+				TaskType:       "debug",
+				IsClosed:       false,
+			}
+			if err := db.Create(&conv).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation record"})
+				return
+			}
+		}
 	}
 
 	// Validate request
@@ -131,6 +153,18 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 					ResponsePayload: string(responseData),
 				}
 				proxyService.GetDB().Create(&responseRecord)
+
+				// If round 2, save weak_points from response
+				if req.CurrentRound == 2 {
+					saveWeakPoints(proxyService.GetDB(), req.StudentID, responseData)
+				}
+
+				// If round 4, auto-close the conversation
+				if req.CurrentRound == 4 {
+					proxyService.GetDB().Model(&models.Conversation{}).
+						Where("conversation_id = ?", req.ConversationID).
+						Updates(map[string]interface{}{"is_closed": true})
+				}
 			}
 			// Add round info to the response
 			if result.Data != nil {
@@ -261,4 +295,55 @@ func (ctrl *AIProxyController) HandleCloseConversation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Conversation closed successfully"})
+}
+
+// saveWeakPoints extracts weak_points from AI response and saves them to the database
+func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
+	var response map[string]interface{}
+	if err := json.Unmarshal(responseData, &response); err != nil {
+		return
+	}
+
+	// Extract weak_points
+	aiResponse, ok := response["ai_response"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	weakPointsRaw, ok := aiResponse["weak_points"]
+	if !ok {
+		return
+	}
+
+	// weak_points can be array or interface{}
+	var weakPoints []interface{}
+	switch v := weakPointsRaw.(type) {
+	case []interface{}:
+		weakPoints = v
+	case []string:
+		for _, wp := range v {
+			weakPoints = append(weakPoints, wp)
+		}
+	default:
+		return
+	}
+
+	if len(weakPoints) == 0 {
+		return
+	}
+
+	// Convert to map[string]int and save
+	weakPointsMap := make(map[string]int)
+	for _, wp := range weakPoints {
+		switch v := wp.(type) {
+		case string:
+			weakPointsMap[v] = 1
+		case float64:
+			// Ignore if number
+		}
+	}
+
+	// Use AIService to save
+	aiService := service.NewAIService(db, "")
+	_ = aiService.UpdateUserWeakPoints(studentID, weakPointsMap)
 }
