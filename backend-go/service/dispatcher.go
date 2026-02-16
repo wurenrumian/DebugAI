@@ -361,31 +361,6 @@ func (d *Dispatcher) SubmitJobWithError(job *models.AIJob) (bool, error) {
 	}
 }
 
-// GetStats returns the current statistics of all pools
-func (d *Dispatcher) GetStats() map[string]models.JobStats {
-	stats := make(map[string]models.JobStats)
-
-	stats[models.JobTypeEvaluate] = models.JobStats{
-		QueueSize:    len(d.EvaluateQueue),
-		MaxQueueSize: cap(d.EvaluateQueue),
-		WorkerCount:  d.EvaluatePool.WorkerCount,
-	}
-
-	stats[models.JobTypeDebug] = models.JobStats{
-		QueueSize:    len(d.DebugQueue),
-		MaxQueueSize: cap(d.DebugQueue),
-		WorkerCount:  d.DebugPool.WorkerCount,
-	}
-
-	stats[models.JobTypeRecommend] = models.JobStats{
-		QueueSize:    len(d.RecommendQueue),
-		MaxQueueSize: cap(d.RecommendQueue),
-		WorkerCount:  d.RecommendPool.WorkerCount,
-	}
-
-	return stats
-}
-
 // SubmitAndWait submits a job and waits for the result with timeout
 // Returns the result or error if timeout
 func (d *Dispatcher) SubmitAndWait(job *models.AIJob, timeout time.Duration) (interface{}, error) {

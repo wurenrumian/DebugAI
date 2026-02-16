@@ -31,13 +31,6 @@ type AIJobResponse struct {
 	Err  error
 }
 
-// JobStats represents the statistics of a job queue
-type JobStats struct {
-	QueueSize    int `json:"queue_size"`     // Current number of jobs in queue
-	MaxQueueSize int `json:"max_queue_size"` // Maximum queue size
-	WorkerCount  int `json:"worker_count"`   // Number of active workers
-}
-
 // PoolConfig represents the configuration for a worker pool
 type PoolConfig struct {
 	MaxWorkers   int           // Maximum number of workers
@@ -250,31 +243,4 @@ func (r *MinuteRateLimiter) TryAcquire(userID, jobType string) bool {
 	userRequests[jobType] = validRequests
 
 	return true
-}
-
-// GetCount returns the current request count for user and job type within the window
-func (r *MinuteRateLimiter) GetCount(userID, jobType string) int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	now := time.Now()
-	cutoff := now.Add(-r.windowSize)
-
-	userRequests, exists := r.requests[userID]
-	if !exists {
-		return 0
-	}
-
-	jobRequests, exists := userRequests[jobType]
-	if !exists {
-		return 0
-	}
-
-	count := 0
-	for _, t := range jobRequests {
-		if t.After(cutoff) {
-			count++
-		}
-	}
-	return count
 }
