@@ -104,6 +104,10 @@ export const aiAPI = {
 	// 获取前5个薄弱点
 	getTopWeakPoints() {
 		return api.get('/api/v1/ai/weak_points/top')
+	},
+	// 关闭对话
+	closeConversation(conversationId) {
+		return api.post('/api/v1/ai/debug/close', { conversation_id: conversationId })
 	}
 }
 

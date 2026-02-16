@@ -54,6 +54,29 @@ func (s *AIProxyService) ValidateDebugRequest(req *models.DebugV2Request) error 
 
 // ProxyDebugV2 proxies the request to the Python AI service and records interactions
 func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversationID string, roundNumber int) (map[string]interface{}, error) {
+	// 0. Ensure conversation exists in conversations table (create if not exists)
+	var conv models.Conversation
+	err := s.DB.Where("conversation_id = ?", conversationID).First(&conv).Error
+	if err == gorm.ErrRecordNotFound {
+		// Create new conversation record
+		conv = models.Conversation{
+			ConversationID: conversationID,
+			StudentID:      studentID,
+			TaskType:       "debug",
+			IsClosed:       false,
+		}
+		if err := s.DB.Create(&conv).Error; err != nil {
+			return nil, fmt.Errorf("failed to create conversation record: %w", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to check conversation: %w", err)
+	}
+
+	// Check if conversation is already closed
+	if conv.IsClosed {
+		return nil, fmt.Errorf("conversation already closed")
+	}
+
 	// 1. Record student's request
 	studentRecord := models.AIRecord{
 		ConversationID: conversationID,
@@ -136,7 +159,14 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 		s.saveWeakPointsFromResponse(studentID, responseBody)
 	}
 
-	// 5. 解析AI响应并返回
+	// 5. 如果是第4轮，自动关闭对话
+	if roundNumber == 4 {
+		s.DB.Model(&models.Conversation{}).
+			Where("conversation_id = ?", conversationID).
+			Updates(map[string]interface{}{"is_closed": true})
+	}
+
+	// 6. 解析AI响应并返回
 	var result map[string]interface{}
 	if err := json.Unmarshal(responseBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
@@ -205,32 +235,60 @@ func (s *AIProxyService) GetAIRecordsByStudentID(studentID string) ([]models.AIR
 	return records, nil
 }
 
-// CloseConversation closes a debug conversation by setting IsClosed to true
+// CloseConversation closes a debug conversation by setting IsClosed to true in the conversations table
+// Note: Conversation record should be created by ProxyDebugV2 when the debug session starts
 func (s *AIProxyService) CloseConversation(conversationID, studentID string) error {
-	result := s.DB.Model(&models.AIRecord{}).
+	now := time.Now()
+
+	// Find existing conversation
+	var conv models.Conversation
+	err := s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
+
+	if err == gorm.ErrRecordNotFound {
+		// Conversation not found - it should have been created by ProxyDebugV2
+		return fmt.Errorf("conversation not found or already closed")
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to check conversation: %w", err)
+	}
+
+	// Check if already closed
+	if conv.IsClosed {
+		return fmt.Errorf("conversation not found or already closed")
+	}
+
+	// Update to closed
+	result := s.DB.Model(&models.Conversation{}).
 		Where("conversation_id = ? AND student_id = ?", conversationID, studentID).
-		Update("is_closed", true)
+		Updates(map[string]interface{}{
+			"is_closed": true,
+			"closed_at": now,
+		})
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to close conversation: %w", result.Error)
 	}
 
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("conversation not found or already closed")
-	}
-
 	return nil
 }
 
-// IsConversationClosed checks if a conversation is already closed
+// IsConversationClosed checks if a conversation is already closed using the conversations table
 func (s *AIProxyService) IsConversationClosed(conversationID string) (bool, error) {
-	var record models.AIRecord
-	err := s.DB.Where("conversation_id = ?", conversationID).First(&record).Error
+	var count int64
+	err := s.DB.Model(&models.Conversation{}).Where("conversation_id = ?", conversationID).Count(&count).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return false, nil // 如果对话不存在，视为未关闭
-		}
 		return false, fmt.Errorf("failed to check conversation status: %w", err)
 	}
-	return record.IsClosed, nil
+	if count == 0 {
+		return false, nil // 如果对话不存在，视为未关闭
+	}
+
+	// Get the conversation to check if closed
+	var conv models.Conversation
+	err = s.DB.Where("conversation_id = ?", conversationID).First(&conv).Error
+	if err != nil {
+		return false, fmt.Errorf("failed to check conversation status: %w", err)
+	}
+	return conv.IsClosed, nil
 }
