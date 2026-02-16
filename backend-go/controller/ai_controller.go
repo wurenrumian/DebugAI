@@ -17,6 +17,7 @@ import (
 type DispatcherIface interface {
 	SubmitAndWait(job *models.AIJob, timeout time.Duration) (interface{}, error)
 	SubmitJob(job *models.AIJob) bool
+	SubmitJobWithError(job *models.AIJob) (bool, error)
 }
 
 // AIController handles AI evaluate and recommend requests
@@ -78,9 +79,18 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		job := service.NewAIJob(models.JobTypeEvaluate, req, req.StudentID, req.ConversationID)
 
 		// Try to submit job (non-blocking)
-		if !ctrl.Dispatcher.SubmitJob(job) {
-			// Queue is full, return 429
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Server busy, please try again later"})
+		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
+			// Return appropriate error message based on the reason
+			errorMsg := "Server busy, please try again later"
+			if err != nil {
+				switch err.Error() {
+				case "User task limit exceeded":
+					errorMsg = "User task limit exceeded"
+				case "Rate limit exceeded, please try again later":
+					errorMsg = "Rate limit exceeded, please try again later"
+				}
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
 			return
 		}
 
@@ -177,9 +187,18 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		job := service.NewAIJob(models.JobTypeRecommend, req, req.StudentID, conversationID)
 
 		// Try to submit job (non-blocking)
-		if !ctrl.Dispatcher.SubmitJob(job) {
-			// Queue is full, return 429
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Server busy, please try again later"})
+		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
+			// Return appropriate error message based on the reason
+			errorMsg := "Server busy, please try again later"
+			if err != nil {
+				switch err.Error() {
+				case "User task limit exceeded":
+					errorMsg = "User task limit exceeded"
+				case "Rate limit exceeded, please try again later":
+					errorMsg = "Rate limit exceeded, please try again later"
+				}
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
 			return
 		}
 
