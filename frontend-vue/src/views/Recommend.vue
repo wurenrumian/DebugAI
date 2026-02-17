@@ -166,17 +166,18 @@ const fetchUserWeakPoints = async () => {
     if (response.data && response.data.length > 0) {
       // 转换为关键词并排序
       const weakPointMap = new Map()
+      const keywordMap = new Map()
       for (const wp of response.data) {
         const existing = weakPointMap.get(wp.weak_point_id)
         if (existing) {
           existing.count += wp.count
         } else {
-          // 这里需要通过 ID 获取关键词
-          // 由于 API 返回的是关联表数据，我们使用一个简化的方法
-          weakPointMap.set(wp.weak_point_id, {
+          const item = {
             keyword: `知识点${wp.weak_point_id}`,
             count: wp.count
-          })
+          }
+          weakPointMap.set(wp.weak_point_id, item)
+          keywordMap.set(item.keyword, item)
         }
       }
       
@@ -184,14 +185,20 @@ const fetchUserWeakPoints = async () => {
       try {
         const topResponse = await aiAPI.getTopWeakPoints()
         if (topResponse.data && topResponse.data.length > 0) {
-          selectedWeakPoints.value = topResponse.data
-          userWeakPoints.value = topResponse.data.map(kw => ({
-            keyword: kw,
-            count: 1
+          // 新格式: [{keyword: "数组", count: 4}, ...]
+          userWeakPoints.value = topResponse.data.map(item => ({
+            keyword: item.keyword,
+            count: item.count
           }))
+          selectedWeakPoints.value = userWeakPoints.value.map(wp => wp.keyword)
         }
       } catch (e) {
         console.log('No top weak points yet')
+        if (weakPointMap.size > 0) {
+          userWeakPoints.value = Array.from(weakPointMap.values())
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+        }
       }
     }
   } catch (error) {
