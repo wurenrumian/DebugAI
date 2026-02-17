@@ -179,17 +179,20 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBody []byte) {
 	var response map[string]interface{}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
+		fmt.Printf("Error: failed to unmarshal weak points response for student %s: %v\n", studentID, err)
 		return
 	}
 
 	// 提取 weak_points
 	aiResponse, ok := response["ai_response"].(map[string]interface{})
 	if !ok {
+		fmt.Printf("Warning: no ai_response in weak points data for student %s\n", studentID)
 		return
 	}
 
 	weakPointsRaw, ok := aiResponse["weak_points"]
 	if !ok {
+		fmt.Printf("Warning: no weak_points in ai_response for student %s\n", studentID)
 		return
 	}
 
@@ -203,10 +206,12 @@ func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBo
 			weakPoints = append(weakPoints, wp)
 		}
 	default:
+		fmt.Printf("Warning: unexpected weak_points type for student %s\n", studentID)
 		return
 	}
 
 	if len(weakPoints) == 0 {
+		fmt.Printf("Info: empty weak_points for student %s\n", studentID)
 		return
 	}
 
@@ -223,7 +228,9 @@ func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBo
 
 	// 使用 AIService 的方法来保存
 	aiService := NewAIService(s.DB, "")
-	_ = aiService.UpdateUserWeakPoints(studentID, weakPointsMap)
+	if err := aiService.UpdateUserWeakPoints(studentID, weakPointsMap, time.Now()); err != nil {
+		fmt.Printf("Error: failed to update weak points for student %s: %v\n", studentID, err)
+	}
 }
 
 // GetAIRecordsByStudentID fetches all AI interaction records for a given student ID

@@ -18,9 +18,9 @@ import (
 type AIServiceIface interface {
 	ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
 	ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error)
-	GetUserWeakPoints(studentID string) ([]models.UserWeakPoint, error)
-	UpdateUserWeakPoints(studentID string, weakPoints map[string]int) error
-	GetTopWeakPoints(studentID string, limit int) ([]map[string]interface{}, error)
+	GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]models.UserWeakPoint, error)
+	UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error
+	GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	SeedWeakPointKeywords() error
 	GetDebugRecords(studentID string) ([]models.AIRecord, error)
 	GetEvaluateRecords(studentID string) ([]models.AIRecord, error)
@@ -204,7 +204,7 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 	}
 
 	// 2. Update user's weak points
-	if err := s.UpdateUserWeakPoints(studentID, req.WeakPoints); err != nil {
+	if err := s.UpdateUserWeakPoints(studentID, req.WeakPoints, time.Now()); err != nil {
 		fmt.Printf("Warning: failed to update user weak points: %v\n", err)
 	}
 
@@ -274,17 +274,27 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 	return result, nil
 }
 
-// GetUserWeakPoints fetches all weak points for a user
-func (s *AIService) GetUserWeakPoints(studentID string) ([]models.UserWeakPoint, error) {
+// GetUserWeakPoints fetches weak points for a user with optional date range filter
+func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]models.UserWeakPoint, error) {
 	var userWeakPoints []models.UserWeakPoint
-	if err := s.DB.Where("student_id = ?", studentID).Find(&userWeakPoints).Error; err != nil {
+	query := s.DB.Where("student_id = ?", studentID)
+
+	// Apply date range filter if provided
+	if startDate != nil {
+		query = query.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
+	}
+	if endDate != nil {
+		query = query.Where("DATE(record_date) <= ?", endDate.Format("2006-01-02"))
+	}
+
+	if err := query.Find(&userWeakPoints).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user weak points: %w", err)
 	}
 	return userWeakPoints, nil
 }
 
-// UpdateUserWeakPoints updates the user's weak points count
-func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string]int) error {
+// UpdateUserWeakPoints updates the user's weak points count with date isolation
+func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error {
 	for keyword, count := range weakPoints {
 		// Find or create the weak point in the dictionary
 		var wp models.WeakPoint
@@ -304,16 +314,18 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 			continue
 		}
 
-		// Update or create user weak point association
+		// Find or create user weak point association by date
 		var userWP models.UserWeakPoint
-		result = s.DB.Where("student_id = ? AND weak_point_id = ?", studentID, wp.ID).First(&userWP)
+		result = s.DB.Where("student_id = ? AND weak_point_id = ? AND DATE(record_date) = ?",
+			studentID, wp.ID, recordDate.Format("2006-01-02")).First(&userWP)
 
 		if result.Error == gorm.ErrRecordNotFound {
-			// Create new association
+			// Create new association with date
 			userWP = models.UserWeakPoint{
 				StudentID:   studentID,
 				WeakPointID: wp.ID,
 				Count:       count,
+				RecordDate:  recordDate,
 			}
 			s.DB.Create(&userWP)
 		} else if result.Error == nil {
@@ -325,14 +337,24 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 	return nil
 }
 
-// GetTopWeakPoints returns the top N weak points for a user with count
-func (s *AIService) GetTopWeakPoints(studentID string, limit int) ([]map[string]interface{}, error) {
+// GetTopWeakPoints returns the top N weak points for a user with count and optional date range
+func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
 	if limit <= 0 {
 		limit = 5
 	}
 
 	var userWeakPoints []models.UserWeakPoint
-	if err := s.DB.Where("student_id = ?", studentID).Find(&userWeakPoints).Error; err != nil {
+	query := s.DB.Where("student_id = ?", studentID)
+
+	// Apply date range filter if provided
+	if startDate != nil {
+		query = query.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
+	}
+	if endDate != nil {
+		query = query.Where("DATE(record_date) <= ?", endDate.Format("2006-01-02"))
+	}
+
+	if err := query.Find(&userWeakPoints).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user weak points: %w", err)
 	}
 
