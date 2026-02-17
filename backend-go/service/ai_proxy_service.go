@@ -161,9 +161,13 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 
 	// 5. 如果是第4轮，自动关闭对话
 	if roundNumber == 4 {
+		now := time.Now()
 		s.DB.Model(&models.Conversation{}).
 			Where("conversation_id = ?", conversationID).
-			Updates(map[string]interface{}{"is_closed": true})
+			Updates(map[string]interface{}{
+				"is_closed": true,
+				"closed_at": now,
+			})
 	}
 
 	// 6. 解析AI响应并返回
@@ -275,18 +279,12 @@ func (s *AIProxyService) CloseConversation(conversationID, studentID string) err
 
 // IsConversationClosed checks if a conversation is already closed using the conversations table
 func (s *AIProxyService) IsConversationClosed(conversationID, studentID string) (bool, error) {
-	var count int64
-	err := s.DB.Model(&models.Conversation{}).Where("conversation_id = ? AND student_id = ?", conversationID, studentID).Count(&count).Error
-	if err != nil {
-		return false, fmt.Errorf("failed to check conversation status: %w", err)
-	}
-	if count == 0 {
-		return false, nil // 如果对话不存在，视为未关闭
-	}
-
-	// Get the conversation to check if closed
 	var conv models.Conversation
-	err = s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
+	err := s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
+	if err == gorm.ErrRecordNotFound {
+		// Conversation doesn't exist, treat as closed
+		return true, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to check conversation status: %w", err)
 	}

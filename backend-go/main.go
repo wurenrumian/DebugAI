@@ -80,6 +80,15 @@ func main() {
 		api.GET("/ai/records/debug", aiController.GetDebugRecords)
 		api.GET("/ai/records/evaluate", aiController.GetEvaluateRecords)
 		api.GET("/ai/records/recommend", aiController.GetRecommendRecords)
+
+		// 班级管理路由
+		api.POST("/classes", controller.CreateClass)                      // 创建班级（仅admin）
+		api.GET("/classes", controller.GetClasses)                        // 获取班级列表
+		api.GET("/classes/my", controller.GetMyClasses)                   // 获取我的班级
+		api.POST("/classes/:id/join", controller.JoinClass)               // 加入班级
+		api.GET("/classes/:id/members", controller.GetClassMembers)       // 获取班级成员
+		api.POST("/classes/:id/members/add", controller.AddMembers)       // 批量添加成员（仅teacher）
+		api.POST("/classes/:id/members/remove", controller.RemoveMembers) // 批量移除成员（仅teacher）
 	}
 
 	r.Run(":8080")

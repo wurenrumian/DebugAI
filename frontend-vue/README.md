@@ -2,34 +2,15 @@
 
 ## 概述
 
-这是一个基于 Vue 3 + Vite 构建的前端应用，为 AI 教学辅助平台提供用户界面。该应用与 Go 后端 (`backend-go`) 和 Python AI 服务 (`ai-python`) 配合使用，提供学生登录注册、AI 代码调试、历史记录查看等功能。
-
-## 功能特性
-
-- **用户认证**: 学号+密码登录、注册、登出
-- **个人主页**: 查看用户信息，快速访问各项功能
-- **AI 代码调试**:
-  - 支持最多 4 轮对话的智能代码调试
-  - 实时显示轮次信息和对话进度
-  - 支持代码、问题描述、测试点输入
-- **AI 代码评价**:
-  - 对代码进行多维度评价
-  - 功能正确性、逻辑严谨性、算法质量、结构规范性
-- **AI 题目推荐**:
-  - 根据薄弱点智能推荐练习题目
-  - 显示推荐理由和相关度
-- **薄弱点分析**:
-  - 追踪用户薄弱点统计
-  - 展示排名前5的薄弱点
-- **对话历史**: 查看所有 AI 交互历史记录，支持按类型筛选
+基于 Vue 3 + Vite 构建的前端应用，为 AI 教学辅助平台提供用户界面。与 Go 后端 ([`backend-go`](backend-go/README.md)) 和 Python AI 服务 ([`ai-python`](ai-python/README.md)) 配合，提供学生登录注册、AI 代码调试、代码评价、题目推荐、历史记录等功能。
 
 ## 技术栈
 
-- **框架**: Vue 3 (Composition API)
-- **构建工具**: Vite 5
-- **路由**: Vue Router 4
-- **状态管理**: Pinia
-- **HTTP 客户端**: Axios
+- **框架**: Vue 3.4+ (Composition API)
+- **构建工具**: Vite 5.2+
+- **路由**: Vue Router 4.3+
+- **状态管理**: Pinia 2.1+
+- **HTTP 客户端**: Axios 1.6+
 - **样式**: 原生 CSS
 
 ## 项目结构
@@ -49,11 +30,16 @@ frontend-vue/
     │   └── index.js       # 路由配置 (含权限守卫)
     ├── stores/
     │   └── auth.js        # 用户认证状态管理
+    ├── components/
+    │   └── HistoryTabs/   # 历史记录标签页组件
+    │       ├── DebugHistoryTab.vue
+    │       ├── EvaluateHistoryTab.vue
+    │       └── RecommendHistoryTab.vue
     └── views/
         ├── Login.vue       # 登录页面
         ├── Register.vue    # 注册页面
         ├── Profile.vue     # 个人主页
-        ├── AIDebug.vue    # AI 对话调试页面
+        ├── AIDebug.vue     # AI 对话调试页面
         ├── Evaluate.vue    # AI 代码评价页面
         ├── Recommend.vue   # AI 题目推荐页面
         └── History.vue     # 对话历史页面
@@ -63,7 +49,7 @@ frontend-vue/
 
 ### 前置条件
 
-- Node.js 16.0 或更高版本
+- Node.js 16.0+
 - npm 或 yarn
 
 ### 安装依赖
@@ -79,7 +65,7 @@ npm install
 npm run dev
 ```
 
-前端服务将在 `http://localhost:5173` 启动，并自动代理 API 请求到 `http://localhost:8080` (Go 后端)。
+前端服务将在 `http://localhost:5173` 启动，Vite 代理配置将 API 请求转发到 Go 后端 (`http://localhost:8080`)。
 
 ### 生产构建
 
@@ -91,145 +77,89 @@ npm run build
 
 ## API 代理配置
 
-Vite 配置了开发环境的代理，将请求转发到 Go 后端：
+Vite 开发服务器代理配置：
 
 | 路径      | 目标                           |
 | --------- | ------------------------------ |
 | `/auth/*` | `http://localhost:8080/auth/*` |
 | `/api/*`  | `http://localhost:8080/api/*`  |
 
-## 页面功能详解
+所有以 `/auth` 和 `/api` 开头的请求将被转发到 Go 后端。
 
-### 1. 登录页面 (`/login`)
+## 核心功能
 
-- 学号和密码登录
-- 登录成功后自动保存 JWT Token
-- 跳转到个人主页
+### 1. 用户认证
 
-### 2. 注册页面 (`/register`)
+- 学号+密码登录/注册
+- JWT Token 自动管理
+- 路由权限守卫
 
-- 新用户注册
-- 验证：学号、用户名、密码
-- 密码确认校验
+### 2. AI 代码调试 ([`/ai-debug`](src/views/AIDebug.vue))
 
-### 3. 个人主页 (`/profile`)
+**4轮对话流程**：
 
-- 显示用户信息（学号、用户名、账户类型）
-- 快捷入口：AI 调试、AI 评价、AI 推荐、历史记录
-- 退出登录功能
+| 轮次 | 名称         | 交互方式                   |
+| ---- | ------------ | -------------------------- |
+| 1    | 理解学生思路 | AI 分析代码，学生确认      |
+| 2    | 指出问题点   | AI 指出问题，学生选择/修正 |
+| 3    | 调试指导     | AI 提供指导，学生确认      |
+| 4    | 详细修改指导 | AI 提供详细建议，结束对话  |
 
-### 4. AI 调试页面 (`/ai-debug`)
+**API 端点**：
+- `POST /api/v1/ai/debug_v2` - 发送调试请求
+- `GET /api/v1/ai/round_info` - 获取轮次信息
+- `POST /api/v1/ai/start` - 开始新对话
+- `POST /api/v1/ai/debug/close` - 关闭对话
 
-#### 对话流程 (4 轮)
-
-| 轮次 | 名称         | 说明                                  |
-| ---- | ------------ | ------------------------------------- |
-| 1    | 理解学生思路 | AI 分析代码，理解解题思路             |
-| 2    | 指出问题点   | AI 结合确认结果指出问题点和薄弱点     |
-| 3    | 调试指导     | AI 提供调试要点，引导思考             |
-| 4    | 详细修改指导 | AI 提供详细修改建议（不提供完整代码） |
-
-#### 功能特性
-
-- 左侧输入：问题描述、代码、测试点
-- 右侧输出：对话历史、AI 回复
-- 实时轮次信息和提示
+**特性**：
+- 实时轮次状态和提示
+- 对话历史展示
 - 支持新建对话
+- 第2轮支持按钮选择/文本输入
+- 第3轮支持按钮选择/文本输入
+- 第4轮显示详细修改建议
 
-### 5. AI 评价页面 (`/evaluate`)
+### 3. AI 代码评价 ([`/evaluate`](src/views/Evaluate.vue))
 
-- 输入代码和问题描述
-- 提交后获取 AI 多维度评价
-- 评价维度包括：
-  - 功能正确性：代码是否能正确解决问题
-  - 逻辑严谨性：算法逻辑是否清晰正确
-  - 算法质量：算法效率和时间空间复杂度
-  - 结构规范性：代码结构和命名规范
-- 显示各项得分和详细评语
+**API 端点**：
+- `POST /api/v1/ai/evaluate` - 提交代码评价
 
-### 6. AI 推荐页面 (`/recommend`)
+**评价维度**：
+- 功能正确性
+- 逻辑严谨性
+- 算法质量
+- 结构规范性
 
-- 根据用户薄弱点智能推荐练习题目
-- 显示个人的薄弱点统计
-- 展示推荐的题目标签
-- 每道推荐题目显示相关度和推荐理由
+### 4. AI 题目推荐 ([`/recommend`](src/views/Recommend.vue))
 
-### 7. 历史记录页面 (`/history`)
+**API 端点**：
+- `POST /api/v1/ai/recommend` - 获取推荐题目
+- `GET /api/v1/ai/weak_points` - 获取用户薄弱点
+- `GET /api/v1/ai/weak_points/top` - 获取Top 5薄弱点
 
-- 按类型筛选：全部、调试、评价、推荐
-- 显示每条记录的时间、类型、状态
-- 支持查看详细请求/响应内容
+**特性**：
+- 基于薄弱点智能推荐
+- 可调整推荐数量 (3/5/8/10)
+- 显示推荐理由和相关度
 
-## 与后端集成
+### 5. 历史记录 ([`/history`](src/views/History.vue))
 
-### 认证流程
+**API 端点**：
+- `GET /api/v1/ai/records` - 获取所有记录
+- `GET /api/v1/ai/records/debug` - 调试记录
+- `GET /api/v1/ai/records/evaluate` - 评价记录
+- `GET /api/v1/ai/records/recommend` - 推荐记录
 
-1. 用户登录成功后，后端返回 JWT Token
-2. 前端将 Token 存储在 `localStorage`
-3. 每次 API 请求在请求头中携带 `Authorization: Bearer <token>`
-4. Token 过期或无效时自动跳转登录页面
+**特性**：
+- 标签页切换 (调试/评价/推荐)
+- 按类型筛选
+- 查看详细内容
 
-### 请求/响应格式
+### 6. 个人主页 ([`/profile`](src/views/Profile.vue))
 
-#### 登录请求
-```json
-{
-  "student_id": "12345678",
-  "password": "password123"
-}
-```
-
-#### 登录响应
-```json
-{
-  "message": "登录成功",
-  "data": {
-    "username": "testuser",
-    "user_type": "student",
-    "student_id": "12345678",
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-  }
-}
-```
-
-#### AI 调试请求
-```json
-{
-  "student_id": "12345678",
-  "conversation_id": "conv_1234567890",
-  "code": "int main() {...}",
-  "problem_description": "实现一个排序算法",
-  "test_points": [],
-  "current_round": 1,
-  "dialogue_history": [],
-  "student_response": ""
-}
-```
-
-#### AI 调试响应
-```json
-{
-  "student_id": "12345678",
-  "conversation_id": "conv_1234567890",
-  "current_round": 1,
-  "ai_response": {
-    "student_thought": "学生使用了冒泡排序..."
-  },
-  "dialogue_turn": {
-    "round_number": 1,
-    "role": "assistant",
-    "content": "..."
-  },
-  "round_info": {
-    "round_number": 1,
-    "round_title": "理解学生思路",
-    "round_description": "AI 将分析你的代码，理解你的解题思路",
-    "can_proceed": true,
-    "next_round_hint": "确认 AI 对你思路的理解是否正确",
-    "is_completed": false
-  }
-}
-```
+- 用户信息展示
+- 功能快捷入口
+- 退出登录
 
 ## 路由权限
 
@@ -243,19 +173,52 @@ Vite 配置了开发环境的代理，将请求转发到 Go 后端：
 | `/recommend` | 是       | AI 推荐页面  |
 | `/history`   | 是       | 历史记录页面 |
 
-未登录用户访问受保护路由时，将自动重定向到登录页面。
+未登录用户访问受保护路由时，自动重定向到登录页面。
+
+## API 集成
+
+### 认证流程
+
+1. 登录成功后，后端返回 JWT Token
+2. Token 存储在 `localStorage`
+3. Axios 请求拦截器自动添加 `Authorization: Bearer <token>`
+4. 401 响应自动清除 Token 并跳转登录
+
+### 主要 API 端点
+
+**认证**：
+- `POST /auth/register` - 用户注册
+- `POST /auth/login` - 用户登录
+- `POST /auth/logout` - 用户登出
+
+**用户**：
+- `GET /api/v1/profile` - 获取用户信息
+
+**AI 服务**：
+- `POST /api/v1/ai/debug_v2` - AI 调试 (v2)
+- `GET /api/v1/ai/round_info` - 获取轮次信息
+- `POST /api/v1/ai/start` - 开始新对话
+- `POST /api/v1/ai/debug/close` - 关闭对话
+- `POST /api/v1/ai/evaluate` - 代码评价
+- `POST /api/v1/ai/recommend` - 题目推荐
+- `GET /api/v1/ai/weak_points` - 获取薄弱点
+- `GET /api/v1/ai/weak_points/top` - 获取Top 5薄弱点
+- `GET /api/v1/ai/records` - 获取所有历史记录
+- `GET /api/v1/ai/records/debug` - 调试历史
+- `GET /api/v1/ai/records/evaluate` - 评价历史
+- `GET /api/v1/ai/records/recommend` - 推荐历史
 
 ## 常见问题
 
 ### 1. 登录后跳转回登录页面
-- 检查 Go 后端是否运行在 `http://localhost:8080`
-- 检查浏览器控制台是否有 CORS 错误
-- 确认 Token 是否正确存储
+- 确认 Go 后端运行在 `http://localhost:8080`
+- 检查浏览器控制台 CORS 错误
+- 验证 Token 是否正确存储
 
-### 2. AI 调试请求失败
-- 确认 Python AI 服务运行在 `http://localhost:8000`
-- 检查 Go 后端日志
-- 确认请求参数格式正确
+### 2. API 请求失败
+- 确认后端服务运行状态
+- 检查网络请求路径和参数
+- 查看后端服务日志
 
 ### 3. 前端无法启动
 - 确认 Node.js 版本 >= 16.0
@@ -264,9 +227,14 @@ Vite 配置了开发环境的代理，将请求转发到 Go 后端：
 ## 开发建议
 
 - 使用 Vue DevTools 调试组件状态
-- 使用浏览器开发者工具查看网络请求
-- 后端 Go 服务运行在 `:8080`
-- Python AI 服务运行在 `:8000`
+- 浏览器开发者工具查看网络请求
+- Go 后端: `http://localhost:8080`
+- Python AI 服务: `http://localhost:8000`
+
+## 相关项目
+
+- [后端 Go 服务](../backend-go/README.md)
+- [Python AI 服务](../ai-python/README.md)
 
 ## 许可证
 

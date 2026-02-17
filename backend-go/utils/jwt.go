@@ -2,6 +2,7 @@ package utils
 
 import (
 	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -10,16 +11,18 @@ var jwtKey = []byte("your_secret_key_123456")
 
 // MyClaims 定义 JWT 中存储的信息
 type MyClaims struct {
+	ID        uint   `json:"id"`
 	StudentID string `json:"student_id"`
 	UserType  string `json:"user_type"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken 生成 Token
-func GenerateToken(studentID string, userType string) (string, error) {
+func GenerateToken(id uint, studentID string, userType string) (string, error) {
 	// 设置过期时间：24 小时
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &MyClaims{
+		ID:        id,
 		StudentID: studentID,
 		UserType:  userType,
 		RegisteredClaims: jwt.RegisteredClaims{

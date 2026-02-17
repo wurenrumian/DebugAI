@@ -171,9 +171,13 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 
 				// If round 4, auto-close the conversation
 				if req.CurrentRound == 4 {
+					now := time.Now()
 					proxyService.GetDB().Model(&models.Conversation{}).
 						Where("conversation_id = ?", req.ConversationID).
-						Updates(map[string]interface{}{"is_closed": true})
+						Updates(map[string]interface{}{
+							"is_closed": true,
+							"closed_at": now,
+						})
 				}
 			}
 			// Add round info to the response
@@ -268,6 +272,21 @@ func (ctrl *AIProxyController) StartConversation(c *gin.Context) {
 
 	// Generate conversation ID using authenticated user's student ID
 	conversationID := fmt.Sprintf("conv_%d_%s", time.Now().Unix(), studentID)
+
+	// Create conversation record in database
+	if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
+		db := proxyService.GetDB()
+		conv := models.Conversation{
+			ConversationID: conversationID,
+			StudentID:      studentID,
+			TaskType:       "debug",
+			IsClosed:       false,
+		}
+		if err := db.Create(&conv).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation record"})
+			return
+		}
+	}
 
 	// Get round 1 info
 	roundInfo := ctrl.AIProxyService.GetRoundInfo(1, "")
