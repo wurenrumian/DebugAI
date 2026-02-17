@@ -75,10 +75,8 @@ type UserWeakPoint struct {
 // ==================== Validation ====================
 
 // ValidateEvaluateRequest validates the evaluate request
+// Note: StudentID is now obtained from token, not from request body
 func ValidateEvaluateRequest(req *EvaluateRequest) error {
-	if req.StudentID == "" {
-		return &ValidationError{Field: "student_id", Message: "学生ID不能为空"}
-	}
 	if req.Code == "" {
 		return &ValidationError{Field: "code", Message: "代码不能为空"}
 	}
@@ -89,10 +87,8 @@ func ValidateEvaluateRequest(req *EvaluateRequest) error {
 }
 
 // ValidateRecommendRequest validates the recommend request
+// Note: StudentID is now obtained from token, not from request body
 func ValidateRecommendRequest(req *RecommendRequest) error {
-	if req.StudentID == "" {
-		return &ValidationError{Field: "student_id", Message: "学生ID不能为空"}
-	}
 	if req.MaxRecommendations <= 0 {
 		req.MaxRecommendations = 5 // Default value
 	}

@@ -85,10 +85,9 @@ func GetRoundInfo(roundNumber int, studentResponse string) *RoundInfo {
 }
 
 // ValidateDebugRequest validates the debug request
+// Note: StudentID security check is done in Controller - if request contains student_id
+// that doesn't match the token, the request should be rejected
 func ValidateDebugRequest(req *DebugV2Request) error {
-	if req.StudentID == "" {
-		return &ValidationError{Field: "student_id", Message: "学生ID不能为空"}
-	}
 	if req.ConversationID == "" {
 		return &ValidationError{Field: "conversation_id", Message: "会话ID不能为空"}
 	}

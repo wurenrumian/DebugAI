@@ -30,6 +30,9 @@ func NewAIProxyController(aiProxyService service.AIProxyServiceIface, dispatcher
 
 // HandleDebugV2 handles the /api/v1/ai/debug_v2 endpoint
 func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
+	// Get student ID from token (secure way)
+	studentID := c.MustGet("student_id").(string)
+
 	// Read the request body manually to pass it as-is to the Python service
 	requestBody, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -44,8 +47,15 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		return
 	}
 
+	// Security check: if request body contains student_id, it must match the token
+	// This prevents privilege escalation attacks
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
 	// Check if conversation is already closed and ensure conversation record exists
-	isClosed, err := ctrl.AIProxyService.IsConversationClosed(req.ConversationID)
+	isClosed, err := ctrl.AIProxyService.IsConversationClosed(req.ConversationID, studentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check conversation status"})
 		return
@@ -65,7 +75,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 			// Create new conversation record
 			conv := models.Conversation{
 				ConversationID: req.ConversationID,
-				StudentID:      req.StudentID,
+				StudentID:      studentID,
 				TaskType:       "debug",
 				IsClosed:       false,
 			}
@@ -94,7 +104,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		// Save request record to DB first
 		requestRecord := models.AIRecord{
 			ConversationID: req.ConversationID,
-			StudentID:      req.StudentID,
+			StudentID:      studentID,
 			RoundNumber:    req.CurrentRound,
 			Role:           "student",
 			RequestPayload: string(requestBody),
@@ -104,7 +114,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		}
 
 		// Create job - pass the parsed struct, not raw bytes
-		job := service.NewAIJob(models.JobTypeDebug, req, req.StudentID, req.ConversationID)
+		job := service.NewAIJob(models.JobTypeDebug, req, studentID, req.ConversationID)
 
 		// Try to submit job (non-blocking)
 		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
@@ -130,7 +140,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 				if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
 					errorRecord := models.AIRecord{
 						ConversationID: req.ConversationID,
-						StudentID:      req.StudentID,
+						StudentID:      studentID,
 						RoundNumber:    req.CurrentRound,
 						Role:           "system_error",
 						RequestPayload: string(requestBody),
@@ -146,7 +156,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 				responseData, _ := json.Marshal(result.Data)
 				responseRecord := models.AIRecord{
 					ConversationID:  req.ConversationID,
-					StudentID:       req.StudentID,
+					StudentID:       studentID,
 					RoundNumber:     req.CurrentRound,
 					Role:            "assistant",
 					RequestPayload:  string(requestBody),
@@ -156,7 +166,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 
 				// If round 2, save weak_points from response
 				if req.CurrentRound == 2 {
-					saveWeakPoints(proxyService.GetDB(), req.StudentID, responseData)
+					saveWeakPoints(proxyService.GetDB(), studentID, responseData)
 				}
 
 				// If round 4, auto-close the conversation
@@ -182,7 +192,7 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 	}
 
 	// Fallback: direct service call
-	aiResponse, err := ctrl.AIProxyService.ProxyDebugV2(requestBody, req.StudentID, req.ConversationID, req.CurrentRound)
+	aiResponse, err := ctrl.AIProxyService.ProxyDebugV2(requestBody, studentID, req.ConversationID, req.CurrentRound)
 	if err != nil {
 		// If the error contains a partial AI response (e.g., from non-200 status), return that
 		if aiResponse != nil {
@@ -242,8 +252,10 @@ func (ctrl *AIProxyController) GetRoundInfo(c *gin.Context) {
 
 // StartConversation handles the /api/v1/ai/start endpoint
 func (ctrl *AIProxyController) StartConversation(c *gin.Context) {
+	// Get student ID from token (secure way)
+	studentID := c.MustGet("student_id").(string)
+
 	var req struct {
-		StudentID          string             `json:"student_id" binding:"required"`
 		ProblemDescription string             `json:"problem_description" binding:"required"`
 		Code               string             `json:"code" binding:"required"`
 		TestPoints         []models.TestPoint `json:"test_points"`
@@ -254,8 +266,8 @@ func (ctrl *AIProxyController) StartConversation(c *gin.Context) {
 		return
 	}
 
-	// Generate conversation ID
-	conversationID := fmt.Sprintf("conv_%d_%s", time.Now().Unix(), req.StudentID)
+	// Generate conversation ID using authenticated user's student ID
+	conversationID := fmt.Sprintf("conv_%d_%s", time.Now().Unix(), studentID)
 
 	// Get round 1 info
 	roundInfo := ctrl.AIProxyService.GetRoundInfo(1, "")

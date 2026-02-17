@@ -20,7 +20,7 @@ type AIProxyServiceIface interface {
 	GetRoundInfo(roundNumber int, studentResponse string) *models.RoundInfo
 	ValidateDebugRequest(req *models.DebugV2Request) error
 	CloseConversation(conversationID, studentID string) error
-	IsConversationClosed(conversationID string) (bool, error)
+	IsConversationClosed(conversationID, studentID string) (bool, error)
 }
 
 // AIProxyService handles communication with the AI Python backend and database operations
@@ -274,9 +274,9 @@ func (s *AIProxyService) CloseConversation(conversationID, studentID string) err
 }
 
 // IsConversationClosed checks if a conversation is already closed using the conversations table
-func (s *AIProxyService) IsConversationClosed(conversationID string) (bool, error) {
+func (s *AIProxyService) IsConversationClosed(conversationID, studentID string) (bool, error) {
 	var count int64
-	err := s.DB.Model(&models.Conversation{}).Where("conversation_id = ?", conversationID).Count(&count).Error
+	err := s.DB.Model(&models.Conversation{}).Where("conversation_id = ? AND student_id = ?", conversationID, studentID).Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("failed to check conversation status: %w", err)
 	}
@@ -286,7 +286,7 @@ func (s *AIProxyService) IsConversationClosed(conversationID string) (bool, erro
 
 	// Get the conversation to check if closed
 	var conv models.Conversation
-	err = s.DB.Where("conversation_id = ?", conversationID).First(&conv).Error
+	err = s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
 	if err != nil {
 		return false, fmt.Errorf("failed to check conversation status: %w", err)
 	}
