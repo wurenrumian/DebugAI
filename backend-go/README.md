@@ -17,10 +17,9 @@
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
 - **Debug 对话关闭机制**：为多轮调试对话添加显式关闭状态，防止对话结束后被继续使用
   - 对话状态存储在独立的 `conversations` 表中
-  - 调用 `/api/v1/ai/start` 接口时创建对话记录
+  - `debug_v2` 接口首次调用时自动创建对话记录
   - 关闭接口：`POST /api/v1/ai/debug/close`
   - 防护检查：`debug_v2` 接口自动检测已关闭对话，返回 400 错误
-  - 第4轮调试完成后自动关闭对话
 - AI Evaluate 代理：代理代码评价请求 (`/api/v1/ai/evaluate`) 给 Python AI 服务。
 - AI Recommend 代理：代理题目推荐请求 (`/api/v1/ai/recommend`) 给 Python AI 服务。
 - AI 交互记录：详细记录每次 AI 调试会话的请求和响应，包括会话 ID、学生 ID、轮次、角色、请求和响应内容。
