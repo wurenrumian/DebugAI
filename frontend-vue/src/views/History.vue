@@ -27,7 +27,7 @@
       </button>
     </div>
     
-    <div class="content-wrapper">
+    <div class="history-content-wrapper">
       <div v-if="loading" class="loading-container">
         <div class="loading"></div>
         <p>加载中...</p>
@@ -38,7 +38,7 @@
         <button @click="fetchRecords" class="btn btn-primary">重试</button>
       </div>
       
-      <div v-else-if="displayRecords.length === 0" class="empty-container">
+      <div v-else-if="records.length === 0" class="empty-container">
         <div class="empty-icon">📭</div>
         <h3>暂无{{ tabTitle }}记录</h3>
         <p>{{ emptyHint }}</p>
@@ -47,95 +47,25 @@
       
       <div v-else class="records-list">
         <!-- 调试历史 -->
-        <template v-if="activeTab === 'debug'">
-          <div
-            v-for="group in groupedRecords"
-            :key="group.conversation_id"
-            class="record-group card"
-          >
-            <div class="group-header">
-              <div class="group-info">
-                <h3>会话: {{ group.conversation_id.substring(0, 15) }}...</h3>
-                <span class="group-time">{{ formatDate(group.latest_time) }}</span>
-              </div>
-              <button
-                @click="viewDetails(group)"
-                class="btn btn-secondary btn-sm"
-              >
-                查看详情
-              </button>
-            </div>
-            
-            <div class="group-stats">
-              <span class="stat">
-                <span class="stat-icon">💬</span>
-                {{ group.records.length }} 条记录
-              </span>
-              <span class="stat">
-                <span class="stat-icon">🔄</span>
-                轮次: {{ group.max_round }}
-              </span>
-            </div>
-          </div>
-        </template>
+        <DebugHistoryTab
+          v-if="activeTab === 'debug'"
+          :records="records"
+          @view-details="viewDetails"
+        />
         
         <!-- 评价历史 -->
-        <template v-else-if="activeTab === 'evaluate'">
-          <div
-            v-for="record in displayRecords"
-            :key="record.id"
-            class="record-group card"
-          >
-            <div class="group-header">
-              <div class="group-info">
-                <h3>评价: {{ record.conversation_id?.substring(0, 15) || 'N/A' }}...</h3>
-                  <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
-              </div>
-              <button
-                @click="viewEvaluateDetails(record)"
-                class="btn btn-secondary btn-sm"
-              >
-                查看详情
-              </button>
-            </div>
-            
-            <div class="group-stats">
-              <span class="stat">
-                <span class="stat-icon">📝</span>
-                代码评价
-              </span>
-            </div>
-          </div>
-        </template>
+        <EvaluateHistoryTab
+          v-else-if="activeTab === 'evaluate'"
+          :records="records"
+          @view-details="viewEvaluateDetails"
+        />
         
         <!-- 推荐历史 -->
-        <template v-else-if="activeTab === 'recommend'">
-          <div
-            v-for="record in displayRecords"
-            :key="record.id"
-            class="record-group card"
-          >
-            <div class="group-header">
-              <div class="group-info">
-                <h3>推荐记录</h3>
-                <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
-              </div>
-              <button
-                @click="viewRecommendDetails(record)"
-                class="btn btn-secondary btn-sm"
-              >
-                查看详情
-              </button>
-            </div>
-            
-            <div class="group-stats">
-              <span class="stat">
-                <span class="stat-icon">📚</span>
-                题目推荐
-              </span>
-            </div>
-          </div>
-        </template>
+        <RecommendHistoryTab
+          v-else-if="activeTab === 'recommend'"
+          :records="records"
+          @view-details="viewRecommendDetails"
+        />
       </div>
     </div>
     
@@ -183,14 +113,26 @@
           
           <!-- 评价记录显示 -->
           <template v-else-if="selectedType === 'evaluate'">
-            <div class="record-detail evaluate">
+            <div
+              v-for="(record, index) in selectedRecords"
+              :key="index"
+              :class="['record-detail', record.role]"
+            >
               <div class="detail-header">
-                <span class="detail-role">📝 代码评价</span>
+                <span class="detail-role">
+                  {{ record.role === 'student' ? '👤 学生提交' : '🤖 AI评价' }}
+                </span>
               </div>
-              <div class="detail-content" v-if="selectedRecords[0]">
-                <div class="detail-payload">
-                  <h4>响应内容:</h4>
-                  <pre>{{ formatPayload(selectedRecords[0].response_payload) }}</pre>
+              
+              <div class="detail-content">
+                <div v-if="record.role === 'student'" class="detail-payload">
+                  <h4>提交代码:</h4>
+                  <pre>{{ formatPayload(record.request_payload) }}</pre>
+                </div>
+                
+                <div v-else-if="record.role === 'assistant'" class="detail-payload">
+                  <h4>评价结果:</h4>
+                  <pre>{{ formatPayload(record.response_payload) }}</pre>
                 </div>
               </div>
             </div>
@@ -220,6 +162,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { aiAPI } from '../api'
+import DebugHistoryTab from '../components/HistoryTabs/DebugHistoryTab.vue'
+import EvaluateHistoryTab from '../components/HistoryTabs/EvaluateHistoryTab.vue'
+import RecommendHistoryTab from '../components/HistoryTabs/RecommendHistoryTab.vue'
 
 const authStore = useAuthStore()
 
@@ -231,11 +176,6 @@ const errorMessage = ref('')
 const showModal = ref(false)
 const selectedRecords = ref([])
 const selectedType = ref('debug')
-
-// 计算属性：后端已按类型过滤，直接返回记录
-const displayRecords = computed(() => {
-  return records.value
-})
 
 // Tab 标题和提示
 const tabTitle = computed(() => {
@@ -279,32 +219,6 @@ watch(activeTab, () => {
   fetchRecords()
 })
 
-// 按会话分组的记录
-const groupedRecords = computed(() => {
-  const debugRecords = records.value.filter(r => r.round_number > 0)
-  const groups = {}
-  
-  debugRecords.forEach(record => {
-    const convId = record.conversation_id
-    if (!groups[convId]) {
-      groups[convId] = {
-        conversation_id: convId,
-        records: [],
-        latest_time: new Date(record.CreatedAt).getTime(),
-        max_round: 0
-      }
-    }
-    groups[convId].records.push(record)
-    groups[convId].max_round = Math.max(groups[convId].max_round, record.round_number)
-    groups[convId].latest_time = Math.max(
-      groups[convId].latest_time,
-      new Date(record.CreatedAt).getTime()
-    )
-  })
-  
-  return Object.values(groups).sort((a, b) => b.latest_time - a.latest_time)
-})
-
 // 获取记录 - 根据 tab 类型获取对应记录
 const fetchRecords = async () => {
   loading.value = true
@@ -338,7 +252,17 @@ const fetchRecords = async () => {
 
 // 查看评价详情
 const viewEvaluateDetails = (record) => {
-  selectedRecords.value = [record]
+  // 对于评价记录，需要同时显示学生请求和AI回复
+  // 根据 conversation_id 查找同一会话的所有记录
+  const relatedRecords = records.value.filter(
+    r => r.conversation_id === record.conversation_id
+  )
+  selectedRecords.value = relatedRecords.sort((a, b) => {
+    // student 记录在前，assistant 记录在后
+    if (a.role === 'student' && b.role === 'assistant') return -1
+    if (a.role === 'assistant' && b.role === 'student') return 1
+    return 0
+  })
   selectedType.value = 'evaluate'
   showModal.value = true
 }
@@ -369,24 +293,11 @@ const formatDate = (timestamp) => {
   const now = new Date()
   const diff = now - date
   
-  // 小于1分钟
-  if (diff < 60000) {
-    return '刚刚'
-  }
-  // 小于1小时
-  if (diff < 3600000) {
-    return Math.floor(diff / 60000) + '分钟前'
-  }
-  // 小于1天
-  if (diff < 86400000) {
-    return Math.floor(diff / 3600000) + '小时前'
-  }
-  // 小于7天
-  if (diff < 604800000) {
-    return Math.floor(diff / 86400000) + '天前'
-  }
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
+  if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
   
-  // 超过7天，显示具体日期
   return date.toLocaleDateString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
@@ -448,8 +359,8 @@ onMounted(() => {
 }
 
 .records-list {
-  max-width: 800px;
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -628,5 +539,11 @@ onMounted(() => {
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.history-content-wrapper {
+	max-width: 1000px;
+	margin: 0 auto;
+	padding: 20px;
 }
 </style>
