@@ -7,12 +7,20 @@
 ## 功能特性
 
 - 用户认证：支持用户注册、登录和登出，采用 JWT 令牌进行身份验证。
+- **班级权限体系**：基于用户类型（admin/user）和班级角色（teacher/ta/student）的双重权限控制
+  - 全局身份（user_type）：'admin' 可创建班级，'user' 为普通学生
+  - 班级角色（member_role）：'teacher'/'ta' 可管理班级数据，'student' 仅可访问个人数据
+- **创建者保护机制**：班级创建者拥有最高权限，不可被移除或降级
+  - 创建者自动标记为 `IsCreator`，即使角色变更也不可移除
+  - 只有创建者或系统管理员可分配 `teacher`/`ta` 角色
+  - 普通管理员（teacher/ta）仅可分配 `student` 角色
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
 - **Debug 对话关闭机制**：为多轮调试对话添加显式关闭状态，防止对话结束后被继续使用
   - 对话状态存储在独立的 `conversations` 表中
-  - `debug_v2` 接口首次调用时自动创建对话记录
+  - 调用 `/api/v1/ai/start` 接口时创建对话记录
   - 关闭接口：`POST /api/v1/ai/debug/close`
   - 防护检查：`debug_v2` 接口自动检测已关闭对话，返回 400 错误
+  - 第4轮调试完成后自动关闭对话
 - AI Evaluate 代理：代理代码评价请求 (`/api/v1/ai/evaluate`) 给 Python AI 服务。
 - AI Recommend 代理：代理题目推荐请求 (`/api/v1/ai/recommend`) 给 Python AI 服务。
 - AI 交互记录：详细记录每次 AI 调试会话的请求和响应，包括会话 ID、学生 ID、轮次、角色、请求和响应内容。
@@ -152,8 +160,106 @@
   ```
   **错误示例**：  
   - 未登录：HTTP 401 `{"error": "未登录"}`  
-  - 无效 Token：HTTP 401 `{"error": "无效的Token"}`  
+  - 无效 Token：HTTP 401 `{"error": "无效的Token"}`
   - Token 格式错误：HTTP 401 `{"error": "Token格式错误"}`
+
+### 班级管理接口
+
+- **POST /api/v1/classes**
+  创建班级（仅 user_type='admin' 可执行）。
+  **请求体**（JSON）：
+  ```json
+  {
+    "class_name": "软件工程2024"
+  }
+  ```
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "message": "班级创建成功",
+    "data": {
+      "id": 1,
+      "class_name": "软件工程2024",
+      "created_by": 1,
+      "created_at": "2024-01-01T00:00:00Z"
+    }
+  }
+  ```
+  **错误示例**：
+  - 非管理员：HTTP 403 `{"error": "只有管理员可以创建班级"}`
+
+- **GET /api/v1/classes**
+  获取班级列表（公开）。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"data": [...]}
+  ```
+
+- **GET /api/v1/classes/my**
+  获取当前用户加入的班级。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"data": [...]}
+  ```
+
+- **POST /api/v1/classes/:id/join**
+  加入班级（当前用户）。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"message": "加入班级成功", "data": {...}}
+  ```
+
+- **GET /api/v1/classes/:id/members**
+  获取班级成员列表。
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {"data": [...]}
+  ```
+
+- **POST /api/v1/classes/:id/members/add**
+  批量添加班级成员（仅班级管理员 teacher/ta 可执行）。
+  **请求体**（JSON）：
+  ```json
+  {
+    "student_ids": ["2024001", "2024002"],
+    "member_role": "student"
+  }
+  ```
+  **member_role 可选值**：`teacher`、`ta`、`student`
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "message": "批量添加完成",
+    "summary": {"success": 2, "not_found": 0, "skipped": 0},
+    "details": [...]
+  }
+  ```
+  **错误示例**：
+  - 非班级管理员：HTTP 403 `{"error": "只有班级管理员可以添加成员"}`
+
+- **POST /api/v1/classes/:id/members/remove**
+  批量移除班级成员（仅班级管理员 teacher/ta 可执行）。
+  **请求体**（JSON）：
+  ```json
+  {
+    "student_ids": ["2024001", "2024002"]
+  }
+  ```
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "message": "批量移除完成",
+    "summary": {"success": 2, "not_found": 0, "not_member": 0},
+    "details": [...]
+  }
+  ```
 
 - **POST /api/v1/ai/debug_v2**
   AI多轮代码调试代理接口。将前端的调试请求转发给Python AI服务，并记录交互历史。
@@ -461,6 +567,18 @@
   - `closed_at`：关闭时间
 - `weak_points`：薄弱点定义
 - `user_weak_points`：用户薄弱点统计
+- `classes`：班级表
+- `class_members`：班级成员表
+  - `is_creator`：标识该成员是否为班级创建者（创建者不可移除或降级）
+
+### 班级权限体系
+
+| 角色   | user_type | member_role | 权限                        |
+| ------ | --------- | ----------- | --------------------------- |
+| 管理员 | admin     | -           | 可创建班级                  |
+| 老师   | user      | teacher     | 班级管理者，可添加/移除成员 |
+| 助教   | user      | ta          | 班级管理者，可添加/移除成员 |
+| 学生   | user      | student     | 仅访问个人数据              |
 
 ## 测试
 

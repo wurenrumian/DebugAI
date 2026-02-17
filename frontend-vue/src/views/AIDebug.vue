@@ -194,19 +194,19 @@
               <!-- 按钮选择模式 -->
               <div v-if="buttonSelection === ''" class="button-choice">
                 <button
-                  @click="handleRound3Choice('need')"
+                  @click="handleRound4Choice('need')"
                   class="btn btn-primary"
                   :disabled="loading"
                 >
-                  需要
-                </button>
-                <button
-                  @click="handleRound3Choice('not_need')"
+                   需要
+                 </button>
+                 <button
+                  @click="handleRound4Choice('not_need')"
                   class="btn btn-secondary"
                   :disabled="loading"
                 >
-                  不需要
-                </button>
+                   不需要
+                 </button>
               </div>
               <!-- 输入框模式（选择需要后显示） -->
               <div v-else class="text-input-mode">
@@ -291,16 +291,17 @@ const handleRound3Choice = async (choice) => {
   buttonSelection.value = choice
   if (choice === 'not_need') {
     // 不需要帮助，关闭对话
-    try {
-      await aiAPI.closeConversation(conversationId.value)
-      // 显示完成提示，不再发送请求
-      isConversationClosed.value = true
-      showStudentInput.value = false
-      roundInfo.value = { is_completed: true }
-    } catch (error) {
-      console.error('关闭对话失败:', error)
-      errorMessage.value = '关闭对话失败，请重试'
-    }
+    await closeConversation()
+  }
+  // need 时，显示输入框让学生填写
+}
+
+// 第4轮处理
+const handleRound4Choice = async (choice) => {
+  buttonSelection.value = choice
+  if (choice === 'not_need') {
+    // 不需要帮助，关闭对话
+    await closeConversation()
   }
   // need 时，显示输入框让学生填写
 }
