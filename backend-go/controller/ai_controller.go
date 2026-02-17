@@ -276,7 +276,20 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 func (ctrl *AIController) GetUserWeakPoints(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
-	weakPoints, err := ctrl.AIService.GetUserWeakPoints(studentID)
+	// Parse optional date range parameters
+	var startDate, endDate *time.Time
+	if startDateStr := c.Query("start_date"); startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			startDate = &t
+		}
+	}
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			endDate = &t
+		}
+	}
+
+	weakPoints, err := ctrl.AIService.GetUserWeakPoints(studentID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch weak points"})
 		return
@@ -289,7 +302,20 @@ func (ctrl *AIController) GetUserWeakPoints(c *gin.Context) {
 func (ctrl *AIController) GetTopWeakPoints(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
-	weakPoints, err := ctrl.AIService.GetTopWeakPoints(studentID, 5)
+	// Parse optional date range parameters
+	var startDate, endDate *time.Time
+	if startDateStr := c.Query("start_date"); startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			startDate = &t
+		}
+	}
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			endDate = &t
+		}
+	}
+
+	weakPoints, err := ctrl.AIService.GetTopWeakPoints(studentID, 5, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top weak points"})
 		return

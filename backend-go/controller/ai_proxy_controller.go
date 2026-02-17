@@ -313,17 +313,20 @@ func (ctrl *AIProxyController) HandleCloseConversation(c *gin.Context) {
 func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
 	var response map[string]interface{}
 	if err := json.Unmarshal(responseData, &response); err != nil {
+		fmt.Printf("Error: failed to unmarshal weak points response for student %s: %v\n", studentID, err)
 		return
 	}
 
 	// Extract weak_points
 	aiResponse, ok := response["ai_response"].(map[string]interface{})
 	if !ok {
+		fmt.Printf("Warning: no ai_response in weak points data for student %s\n", studentID)
 		return
 	}
 
 	weakPointsRaw, ok := aiResponse["weak_points"]
 	if !ok {
+		fmt.Printf("Warning: no weak_points in ai_response for student %s\n", studentID)
 		return
 	}
 
@@ -337,10 +340,12 @@ func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
 			weakPoints = append(weakPoints, wp)
 		}
 	default:
+		fmt.Printf("Warning: unexpected weak_points type for student %s\n", studentID)
 		return
 	}
 
 	if len(weakPoints) == 0 {
+		fmt.Printf("Info: empty weak_points for student %s\n", studentID)
 		return
 	}
 
@@ -357,5 +362,7 @@ func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
 
 	// Use AIService to save
 	aiService := service.NewAIService(db, "")
-	_ = aiService.UpdateUserWeakPoints(studentID, weakPointsMap)
+	if err := aiService.UpdateUserWeakPoints(studentID, weakPointsMap, time.Now()); err != nil {
+		fmt.Printf("Error: failed to update weak points for student %s: %v\n", studentID, err)
+	}
 }

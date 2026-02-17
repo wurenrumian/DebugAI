@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // ==================== Evaluator Models ====================
 
@@ -67,9 +71,10 @@ type WeakPoint struct {
 // UserWeakPoint represents the association between user and weak points
 type UserWeakPoint struct {
 	gorm.Model
-	StudentID   string `json:"student_id" gorm:"index"`
-	WeakPointID uint   `json:"weak_point_id"`
-	Count       int    `json:"count" gorm:"default:1"` // Number of times this weak point was recorded
+	StudentID   string    `json:"student_id" gorm:"index:idx_user_weak_point"`
+	WeakPointID uint      `json:"weak_point_id" gorm:"index:idx_user_weak_point"`
+	Count       int       `json:"count" gorm:"default:1"`                       // Number of times this weak point was recorded
+	RecordDate  time.Time `json:"record_date" gorm:"index:idx_user_weak_point"` // Recording date (per day)
 }
 
 // ==================== Validation ====================
