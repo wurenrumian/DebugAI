@@ -36,6 +36,9 @@ func NewAIController(aiService service.AIServiceIface, dispatcher DispatcherIfac
 
 // HandleEvaluate handles the /api/v1/ai/evaluate endpoint
 func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
+	// Get student ID from token (secure way)
+	studentID := c.MustGet("student_id").(string)
+
 	// Read request body
 	requestBody, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -50,7 +53,14 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		return
 	}
 
-	// Validate request
+	// Security check: if request body contains student_id, it must match the token
+	// This prevents privilege escalation attacks
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request (student_id validation removed - now from token)
 	if err := models.ValidateEvaluateRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -66,7 +76,7 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		// Save request record to DB first
 		requestRecord := models.AIRecord{
 			ConversationID: req.ConversationID,
-			StudentID:      req.StudentID,
+			StudentID:      studentID,
 			RoundNumber:    0,
 			Role:           "student",
 			RequestPayload: string(requestBody),
@@ -76,7 +86,7 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		}
 
 		// Create job - pass the parsed struct, not raw bytes
-		job := service.NewAIJob(models.JobTypeEvaluate, req, req.StudentID, req.ConversationID)
+		job := service.NewAIJob(models.JobTypeEvaluate, req, studentID, req.ConversationID)
 
 		// Try to submit job (non-blocking)
 		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
@@ -102,7 +112,7 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 				if db, ok := ctrl.AIService.(*service.AIService); ok {
 					errorRecord := models.AIRecord{
 						ConversationID: req.ConversationID,
-						StudentID:      req.StudentID,
+						StudentID:      studentID,
 						RoundNumber:    0,
 						Role:           "system_error",
 						RequestPayload: string(requestBody),
@@ -118,7 +128,7 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 				responseData, _ := json.Marshal(result.Data)
 				responseRecord := models.AIRecord{
 					ConversationID:  req.ConversationID,
-					StudentID:       req.StudentID,
+					StudentID:       studentID,
 					RoundNumber:     0,
 					Role:            "assistant",
 					RequestPayload:  string(requestBody),
@@ -134,7 +144,7 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 	}
 
 	// Fallback: direct service call
-	aiResponse, err := ctrl.AIService.ProxyEvaluate(requestBody, req.StudentID, req.ConversationID)
+	aiResponse, err := ctrl.AIService.ProxyEvaluate(requestBody, studentID, req.ConversationID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
 		return
@@ -146,6 +156,9 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 
 // HandleRecommend handles the /api/v1/ai/recommend endpoint
 func (ctrl *AIController) HandleRecommend(c *gin.Context) {
+	// Get student ID from token (secure way)
+	studentID := c.MustGet("student_id").(string)
+
 	// Read request body
 	requestBody, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -160,7 +173,14 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		return
 	}
 
-	// Validate request
+	// Security check: if request body contains student_id, it must match the token
+	// This prevents privilege escalation attacks
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request (student_id validation removed - now from token)
 	if err := models.ValidateRecommendRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -174,7 +194,7 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		// Save request record to DB first
 		requestRecord := models.AIRecord{
 			ConversationID: conversationID,
-			StudentID:      req.StudentID,
+			StudentID:      studentID,
 			RoundNumber:    0,
 			Role:           "student",
 			RequestPayload: string(requestBody),
@@ -184,7 +204,7 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		}
 
 		// Create job - pass the parsed struct, not raw bytes
-		job := service.NewAIJob(models.JobTypeRecommend, req, req.StudentID, conversationID)
+		job := service.NewAIJob(models.JobTypeRecommend, req, studentID, conversationID)
 
 		// Try to submit job (non-blocking)
 		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
@@ -210,7 +230,7 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 				if db, ok := ctrl.AIService.(*service.AIService); ok {
 					errorRecord := models.AIRecord{
 						ConversationID: conversationID,
-						StudentID:      req.StudentID,
+						StudentID:      studentID,
 						RoundNumber:    0,
 						Role:           "system_error",
 						RequestPayload: string(requestBody),
@@ -226,7 +246,7 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 				responseData, _ := json.Marshal(result.Data)
 				responseRecord := models.AIRecord{
 					ConversationID:  conversationID,
-					StudentID:       req.StudentID,
+					StudentID:       studentID,
 					RoundNumber:     0,
 					Role:            "assistant",
 					RequestPayload:  string(requestBody),
@@ -242,7 +262,7 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 	}
 
 	// Fallback: direct service call
-	aiResponse, err := ctrl.AIService.ProxyRecommend(requestBody, req.StudentID)
+	aiResponse, err := ctrl.AIService.ProxyRecommend(requestBody, studentID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
 		return
