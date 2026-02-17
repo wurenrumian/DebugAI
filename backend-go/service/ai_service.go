@@ -20,7 +20,7 @@ type AIServiceIface interface {
 	ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error)
 	GetUserWeakPoints(studentID string) ([]models.UserWeakPoint, error)
 	UpdateUserWeakPoints(studentID string, weakPoints map[string]int) error
-	GetTopWeakPoints(studentID string, limit int) ([]string, error)
+	GetTopWeakPoints(studentID string, limit int) ([]map[string]interface{}, error)
 	SeedWeakPointKeywords() error
 	GetDebugRecords(studentID string) ([]models.AIRecord, error)
 	GetEvaluateRecords(studentID string) ([]models.AIRecord, error)
@@ -325,8 +325,8 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 	return nil
 }
 
-// GetTopWeakPoints returns the top N weak points for a user
-func (s *AIService) GetTopWeakPoints(studentID string, limit int) ([]string, error) {
+// GetTopWeakPoints returns the top N weak points for a user with count
+func (s *AIService) GetTopWeakPoints(studentID string, limit int) ([]map[string]interface{}, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -341,16 +341,19 @@ func (s *AIService) GetTopWeakPoints(studentID string, limit int) ([]string, err
 		return userWeakPoints[i].Count > userWeakPoints[j].Count
 	})
 
-	// Get keywords
-	keywords := make([]string, 0, limit)
+	// Get keywords with count
+	result := make([]map[string]interface{}, 0, limit)
 	for i := 0; i < len(userWeakPoints) && i < limit; i++ {
 		var wp models.WeakPoint
 		if err := s.DB.First(&wp, userWeakPoints[i].WeakPointID).Error; err == nil {
-			keywords = append(keywords, wp.Keyword)
+			result = append(result, map[string]interface{}{
+				"keyword": wp.Keyword,
+				"count":   userWeakPoints[i].Count,
+			})
 		}
 	}
 
-	return keywords, nil
+	return result, nil
 }
 
 // SeedWeakPointKeywords seeds the weak point dictionary with default keywords
