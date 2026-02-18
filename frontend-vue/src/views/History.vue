@@ -78,6 +78,24 @@
         </div>
         
         <div class="modal-body">
+          <!-- 首次提交的题目描述和代码（仅调试类型显示） -->
+          <div v-if="selectedType === 'debug' && initialSubmission" class="initial-submission">
+            <div class="submission-header" @click="showCodeModal = !showCodeModal">
+              <span class="submission-title">📝 题目描述</span>
+              <span class="expand-icon">{{ showCodeModal ? '▼' : '▶' }}</span>
+            </div>
+            <div v-if="showCodeModal" class="submission-content">
+              <div class="problem-description">
+                <h4>题目:</h4>
+                <div class="problem-text" v-html="initialSubmission.problem_description"></div>
+              </div>
+              <div class="code-section" v-if="initialSubmission.code">
+                <h4>提交的代码:</h4>
+                <pre class="code-display">{{ initialSubmission.code }}</pre>
+              </div>
+            </div>
+          </div>
+          
           <!-- 调试记录显示 -->
           <template v-if="selectedType === 'debug'">
             <div
@@ -87,23 +105,34 @@
             >
               <div class="detail-header">
                 <span class="detail-role">
-                  {{ record.role === 'student' ? '👤 学生' : '🤖 AI 助手' }}
+                  {{ getRecordRoleLabel(record) }}
                 </span>
                 <span class="detail-round">第 {{ record.round_number }} 轮</span>
               </div>
               
               <div class="detail-content">
-                <div v-if="record.role === 'student'" class="detail-payload">
-                  <h4>请求内容:</h4>
-                  <pre>{{ formatPayload(record.request_payload) }}</pre>
-                </div>
+                <!-- AI 回复使用组件 -->
+                <template v-if="record.role === 'assistant'">
+                  <AIResponseDisplay
+                    :ai-response="getRecordAIResponse(record)"
+                    :student-response="getRecordStudentResponse(record)"
+                  />
+                </template>
+                <!-- 学生回复直接显示 -->
+                <template v-else-if="record.role === 'student'">
+                  <div class="student-message">
+                    {{ getStudentContent(record) }}
+                  </div>
+                </template>
+                <!-- 其他情况 -->
+                <template v-else>
+                  <div class="detail-error">
+                    <h4>未知角色:</h4>
+                    <pre>{{ formatPayload(record) }}</pre>
+                  </div>
+                </template>
                 
-                <div v-else-if="record.role === 'assistant'" class="detail-payload">
-                  <h4>响应内容:</h4>
-                  <pre>{{ formatPayload(record.response_payload) }}</pre>
-                </div>
-                
-                <div v-else class="detail-error">
+                <div v-if="record.error" class="detail-error">
                   <h4>错误信息:</h4>
                   <pre class="error-text">{{ record.error }}</pre>
                 </div>
@@ -165,6 +194,7 @@ import { aiAPI } from '../api'
 import DebugHistoryTab from '../components/HistoryTabs/DebugHistoryTab.vue'
 import EvaluateHistoryTab from '../components/HistoryTabs/EvaluateHistoryTab.vue'
 import RecommendHistoryTab from '../components/HistoryTabs/RecommendHistoryTab.vue'
+import AIResponseDisplay from '../components/AIResponseDisplay.vue'
 
 const authStore = useAuthStore()
 
@@ -176,6 +206,8 @@ const errorMessage = ref('')
 const showModal = ref(false)
 const selectedRecords = ref([])
 const selectedType = ref('debug')
+const initialSubmission = ref(null) // 存储首次提交的题目描述和代码
+const showCodeModal = ref(false) // 是否显示代码弹窗
 
 // Tab 标题和提示
 const tabTitle = computed(() => {
@@ -274,9 +306,40 @@ const viewRecommendDetails = (record) => {
   showModal.value = true
 }
 
+// 从记录中提取首次提交的题目描述和代码
+const extractInitialSubmission = (records) => {
+  // 找到 round_number 为 1 的学生记录
+  const firstRecord = records.find(r => r.round_number === 1 && r.role === 'student')
+  if (firstRecord && firstRecord.request_payload) {
+    try {
+      const req = typeof firstRecord.request_payload === 'string'
+        ? JSON.parse(firstRecord.request_payload)
+        : firstRecord.request_payload
+      return {
+        problem_description: req.problem_description || '',
+        code: req.code || ''
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 // 查看详情
 const viewDetails = (group) => {
-  selectedRecords.value = group.records.sort((a, b) => a.round_number - b.round_number)
+  // 按轮次排序，每轮内学生在前，AI在后
+  selectedRecords.value = group.records.sort((a, b) => {
+    if (a.round_number !== b.round_number) {
+      return a.round_number - b.round_number
+    }
+    // 同一轮内：学生(role=student)在前，AI(role=assistant)在后
+    return a.role === 'student' ? -1 : 1
+  })
+  
+  // 提取首次提交的题目描述和代码
+  initialSubmission.value = extractInitialSubmission(group.records)
+  
   selectedType.value = 'debug'
   showModal.value = true
 }
@@ -316,6 +379,87 @@ const formatPayload = (payload) => {
   } catch (e) {
     return payload
   }
+}
+
+// 解析 AI 响应 JSON
+const parseAIResponse = (payload) => {
+  if (!payload) return null
+  try {
+    // payload 可能是字符串，需要解析
+    let obj = typeof payload === 'string' ? JSON.parse(payload) : payload
+    
+    // 如果有 ai_response 字段，优先使用
+    if (obj.ai_response) {
+      return obj.ai_response
+    }
+    return obj
+  } catch (e) {
+    // 如果解析失败，返回原始内容作为 content 字段
+    return { content: payload }
+  }
+}
+
+// 获取学生回复内容
+const getStudentContent = (record) => {
+  // 优先使用 record.content 或 record.student_response
+  if (record.content) return record.content
+  if (record.student_response) return record.student_response
+  
+  // 尝试从 request_payload 中获取 student_response
+  if (record.request_payload) {
+    try {
+      // 如果是字符串，解析 JSON
+      const req = typeof record.request_payload === 'string'
+        ? JSON.parse(record.request_payload)
+        : record.request_payload
+      
+      // 优先返回 student_response
+      if (req.student_response) return req.student_response
+      
+      // 如果没有 student_response，可能是一个学生单独的记录，返回整个 request
+      return typeof req === 'string' ? req : (req.code ? '提交了代码' : JSON.stringify(req, null, 2))
+    } catch {
+      return record.request_payload
+    }
+  }
+  
+  return '无'
+}
+
+// 获取记录的 role 标签
+const getRecordRoleLabel = (record) => {
+  if (record.role === 'student') return '👤 你的回复'
+  if (record.role === 'assistant') return '🤖 AI 助手'
+  return '📝 记录'
+}
+
+// 获取记录的 AI 响应
+const getRecordAIResponse = (record) => {
+  // 如果是 AI 回复
+  if (record.role === 'assistant') {
+    return parseAIResponse(record.response_payload)
+  }
+  return null
+}
+
+// 获取记录的学生回复
+const getRecordStudentResponse = (record) => {
+  // 如果是学生回复
+  if (record.role === 'student') {
+    return getStudentContent(record)
+  }
+  // 如果是 AI 回复，尝试从 request_payload 中获取上一轮的学生回复
+  if (record.role === 'assistant' && record.request_payload) {
+    try {
+      const req = typeof record.request_payload === 'string'
+        ? JSON.parse(record.request_payload)
+        : record.request_payload
+      return req.student_response || ''
+    } catch {
+      return ''
+    }
+  }
+  return ''
 }
 
 onMounted(() => {
@@ -477,6 +621,78 @@ onMounted(() => {
   padding: 20px;
 }
 
+/* 首次提交区域样式 */
+.initial-submission {
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.submission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 15px;
+  background: #409eff;
+  color: white;
+  cursor: pointer;
+}
+
+.submission-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.expand-icon {
+  font-size: 12px;
+}
+
+.submission-content {
+  padding: 15px;
+}
+
+.problem-description {
+  margin-bottom: 15px;
+}
+
+.problem-description h4,
+.code-section h4 {
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 8px;
+}
+
+.problem-text {
+  background: white;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #303133;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.code-section {
+  margin-top: 15px;
+}
+
+.code-display {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .record-detail {
   margin-bottom: 20px;
   padding: 15px;
@@ -485,11 +701,13 @@ onMounted(() => {
 }
 
 .record-detail.student {
-  background: #ecf5ff;
+  background: #f0f9eb;
+  border-left: 4px solid #67c23a;
 }
 
 .record-detail.assistant {
-  background: #f0f9eb;
+  background: #ecf5ff;
+  border-left: 4px solid #409eff;
 }
 
 .record-detail.system_error,
@@ -539,6 +757,21 @@ onMounted(() => {
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.detail-hint {
+  font-size: 13px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.student-message {
+  background: #f0f9eb;
+  padding: 12px;
+  border-radius: 6px;
+  color: #303133;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .history-content-wrapper {
