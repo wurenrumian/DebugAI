@@ -12,6 +12,27 @@
           <h2 class="subtitle">📊 您的薄弱点</h2>
           <p class="description">基于您的历史调试记录自动统计的薄弱知识点</p>
           
+          <!-- 筛选控件 -->
+          <div class="filter-controls">
+            <div class="filter-row">
+              <div class="filter-item">
+                <label>开始日期：</label>
+                <input type="date" v-model="startDate" />
+              </div>
+              <div class="filter-item">
+                <label>结束日期：</label>
+                <input type="date" v-model="endDate" />
+              </div>
+            </div>
+            <div class="filter-row">
+              <div class="filter-item">
+                <label>显示前：</label>
+                <input type="number" v-model.number="topK" min="0" max="20" style="width: 50px" />
+                <span class="filter-hint">（0 = 全部）</span>
+              </div>
+            </div>
+          </div>
+          
           <div v-if="loadingWeakPoints" class="loading-small">
             加载中...
           </div>
@@ -21,16 +42,14 @@
             <p class="hint">完成更多 AI 调试后，系统会自动统计您的薄弱点</p>
           </div>
           
-          <div v-else class="weak-points-list">
-            <div 
-              v-for="(wp, index) in userWeakPoints" 
-              :key="index"
-              :class="['weak-point-item', { selected: selectedWeakPoints.includes(wp.keyword) }]"
-              @click="toggleWeakPoint(wp.keyword)"
-            >
-              <span class="keyword">{{ wp.keyword }}</span>
-              <span class="count">出现 {{ wp.count }} 次</span>
-            </div>
+          <div v-else class="weak-points-container">
+            <WeakPointDisplay
+              :weakPoints="userWeakPoints"
+              :selectable="true"
+              v-model:selected="selectedWeakPoints"
+              :showDescription="true"
+              :maxDisplay="5"
+            />
           </div>
         </div>
         
@@ -123,11 +142,26 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { aiAPI } from '@/api'
+import WeakPointDisplay from '@/components/WeakPointDisplay.vue'
 
 const authStore = useAuthStore()
+
+// 获取今日日期字符串
+const getTodayDate = () => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// 筛选条件 - 初始为今日
+const startDate = ref(getTodayDate())
+const endDate = ref(getTodayDate())
+const topK = ref(0)  // 0 表示返回全部薄弱点
 
 // 用户薄弱点
 const userWeakPoints = ref([])
@@ -161,62 +195,44 @@ const canSubmit = computed(() => {
 // 获取用户薄弱点
 const fetchUserWeakPoints = async () => {
   loadingWeakPoints.value = true
+  
+  // 构建查询参数
+  const params = {}
+  if (startDate.value) params.start_date = startDate.value
+  if (endDate.value) params.end_date = endDate.value
+  
   try {
-    const response = await aiAPI.getWeakPoints()
-    if (response.data && response.data.length > 0) {
-      // 转换为关键词并排序
-      const weakPointMap = new Map()
-      const keywordMap = new Map()
-      for (const wp of response.data) {
-        const existing = weakPointMap.get(wp.weak_point_id)
-        if (existing) {
-          existing.count += wp.count
-        } else {
-          const item = {
-            keyword: `知识点${wp.weak_point_id}`,
-            count: wp.count
-          }
-          weakPointMap.set(wp.weak_point_id, item)
-          keywordMap.set(item.keyword, item)
-        }
+    if (topK.value > 0) {
+      // 使用 Top K 接口
+      const response = await aiAPI.getTopWeakPoints(params)
+      if (response.data && response.data.length > 0) {
+        userWeakPoints.value = response.data.slice(0, topK.value)
+      } else {
+        userWeakPoints.value = []
       }
-      
-      // 尝试获取前5个薄弱点
-      try {
-        const topResponse = await aiAPI.getTopWeakPoints()
-        if (topResponse.data && topResponse.data.length > 0) {
-          // 新格式: [{keyword: "数组", count: 4}, ...]
-          userWeakPoints.value = topResponse.data.map(item => ({
-            keyword: item.keyword,
-            count: item.count
-          }))
-          selectedWeakPoints.value = userWeakPoints.value.map(wp => wp.keyword)
-        }
-      } catch (e) {
-        console.log('No top weak points yet')
-        if (weakPointMap.size > 0) {
-          userWeakPoints.value = Array.from(weakPointMap.values())
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 5)
-        }
+    } else {
+      // 使用全部薄弱点接口
+      const response = await aiAPI.getWeakPoints(params)
+      if (response.data && response.data.length > 0) {
+        userWeakPoints.value = response.data
+      } else {
+        userWeakPoints.value = []
       }
     }
+    // 清空选中状态
+    selectedWeakPoints.value = []
   } catch (error) {
     console.error('Failed to fetch weak points:', error)
+    userWeakPoints.value = []
   } finally {
     loadingWeakPoints.value = false
   }
 }
 
-// 切换薄弱点选择
-const toggleWeakPoint = (keyword) => {
-  const index = selectedWeakPoints.value.indexOf(keyword)
-  if (index === -1) {
-    selectedWeakPoints.value.push(keyword)
-  } else {
-    selectedWeakPoints.value.splice(index, 1)
-  }
-}
+// 监听筛选条件变化，自动重新获取数据
+watch([startDate, endDate, topK], () => {
+  fetchUserWeakPoints()
+})
 
 // 提交推荐
 const submitRecommend = async () => {
@@ -287,41 +303,55 @@ onMounted(() => {
   font-size: 14px;
 }
 
-.weak-points-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.filter-controls {
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: #f5f7fa;
+  border-radius: 8px;
 }
 
-.weak-point-item {
+.filter-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.filter-row:last-child {
+  margin-bottom: 0;
+}
+
+.filter-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  background: #f5f5f5;
-  border-radius: 20px;
-  cursor: pointer;
-  transition: all 0.3s;
-  border: 2px solid transparent;
 }
 
-.weak-point-item:hover {
-  background: #e8e8e8;
+.filter-item label {
+  color: #666;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
-.weak-point-item.selected {
-  background: #e6f7ff;
-  border-color: #1890ff;
+.filter-item input[type="date"],
+.filter-item input[type="number"] {
+  padding: 6px 10px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
 }
 
-.weak-point-item .keyword {
-  font-weight: 500;
-  color: #333;
+.filter-item input[type="date"]:focus,
+.filter-item input[type="number"]:focus {
+  outline: none;
+  border-color: #409eff;
 }
 
-.weak-point-item .count {
-  font-size: 12px;
-  color: #999;
+.filter-item input[type="number"] {
+  width: 60px;
+}
+
+.weak-points-container {
+  min-height: 100px;
 }
 
 .setting-item {

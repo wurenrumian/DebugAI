@@ -42,7 +42,7 @@
         <button
           @click="startDebug"
           class="btn btn-primary start-btn"
-          :disabled="loading || !canStart || isConversationClosed"
+          :disabled="loading || !canStart || isConversationClosed || currentRound > 4"
         >
           {{ loading ? '处理中...' : isConversationClosed|currentRound>4 ? '对话已关闭' : currentRound > 1 ? '继续调试' : '开始调试' }}
         </button>

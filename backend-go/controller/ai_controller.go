@@ -324,6 +324,107 @@ func (ctrl *AIController) GetTopWeakPoints(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Top weak points fetched successfully", "data": weakPoints})
 }
 
+// GetClassWeakPoints handles the /api/v1/ai/weak_points/class endpoint
+// Requires: class_id (required), start_date (optional), end_date (optional), student_ids (optional JSON array)
+func (ctrl *AIController) GetClassWeakPoints(c *gin.Context) {
+	// Get current user info from token
+	currentUserID := c.MustGet("user_id").(uint)
+	userType := c.MustGet("user_type").(string)
+
+	// Parse class_id (required)
+	classIDStr := c.Query("class_id")
+	if classIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "class_id is required"})
+		return
+	}
+
+	var classID uint
+	if _, err := fmt.Sscanf(classIDStr, "%d", &classID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class_id format"})
+		return
+	}
+
+	// Check permission: only class admin (teacher/TA) or system admin can access
+	isAdmin := userType == "admin"
+	isClassAdmin := service.IsClassAdmin(currentUserID, classID)
+
+	if !isAdmin && !isClassAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问班级薄弱点数据"})
+		return
+	}
+
+	// Verify class exists
+	var class models.Class
+	if err := ctrl.AIService.(*service.AIService).GetDB().First(&class, classID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "班级不存在"})
+		return
+	}
+
+	// Parse optional date range parameters
+	var startDate, endDate *time.Time
+	if startDateStr := c.Query("start_date"); startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			startDate = &t
+		}
+	}
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			endDate = &t
+		}
+	}
+
+	// Parse optional student_ids (JSON array)
+	var studentIDs []string
+	if studentIDsStr := c.Query("student_ids"); studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student_ids format"})
+			return
+		}
+	}
+
+	// Verify students belong to the class if student_ids provided
+	if len(studentIDs) > 0 {
+		var members []models.ClassMember
+		if err := ctrl.AIService.(*service.AIService).GetDB().
+			Where("class_id = ? AND member_role = ?", classID, models.MemberRoleStudent).
+			Find(&members).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify class members"})
+			return
+		}
+
+		// Get user IDs from student IDs
+		var users []models.User
+		if err := ctrl.AIService.(*service.AIService).GetDB().
+			Where("student_id IN ?", studentIDs).Find(&users).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid student IDs"})
+			return
+		}
+
+		// Build a set of valid user IDs for this class
+		validUserIDs := make(map[uint]bool)
+		for _, m := range members {
+			validUserIDs[m.UserID] = true
+		}
+
+		// Verify each student belongs to this class
+		for _, u := range users {
+			if !validUserIDs[u.ID] {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "学生 " + u.StudentID + " 不属于该班级"})
+				return
+			}
+		}
+	}
+
+	// Call service to get class weak points
+	result, err := ctrl.AIService.GetClassWeakPoints(classID, studentIDs, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch class weak points"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "班级薄弱点查询成功", "data": result})
+}
+
 // GetDebugRecords handles the /api/v1/ai/records/debug endpoint
 func (ctrl *AIController) GetDebugRecords(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
