@@ -113,8 +113,7 @@ const handleRegister = async () => {
     const result = await authStore.register({
       student_id: formData.value.student_id,
       username: formData.value.username,
-      password: formData.value.password,
-      user_type: 'student'
+      password: formData.value.password
     })
     
     if (result.success) {

@@ -85,15 +85,14 @@
 
 ### 公开接口（无需认证）
 
-- **POST /auth/register**  
-  用户注册。  
+- **POST /auth/register**
+  用户注册（仅支持注册普通用户）。
   **请求体**（JSON）：
   ```json
   {
     "student_id": "12345678",
     "username": "testuser",
-    "password": "securepassword",
-    "user_type": "student"  // 可选，默认 "student"，支持 "admin"
+    "password": "securepassword"
   }
   ```
   **响应**（成功）：  
