@@ -16,7 +16,6 @@ func Register(c *gin.Context) {
 		StudentID string `json:"student_id" binding:"required"`
 		Username  string `json:"username" binding:"required"`
 		Password  string `json:"password" binding:"required"`
-		UserType  string `json:"user_type"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -31,7 +30,7 @@ func Register(c *gin.Context) {
 		StudentID: input.StudentID,
 		Username:  input.Username,
 		Password:  string(hashedPassword),
-		UserType:  input.UserType,
+		UserType:  models.TypeUser,
 	}
 
 	if err := config.DB.Create(&user).Error; err != nil {

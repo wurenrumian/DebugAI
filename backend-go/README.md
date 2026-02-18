@@ -14,6 +14,9 @@
   - 创建者自动标记为 `IsCreator`，即使角色变更也不可移除
   - 只有创建者或系统管理员可分配 `teacher`/`ta` 角色
   - 普通管理员（teacher/ta）仅可分配 `student` 角色
+- **助教权限限制**：
+  - 添加成员：助教只能添加学生，不能添加教师或助教
+  - 移除成员：助教只能移除学生，不能移除教师或助教
 - AI Debug V2 代理：代理前端的多轮 AI 调试请求 (`/api/v1/ai/debug_v2`) 给 Python AI 服务。
 - **Debug 对话关闭机制**：为多轮调试对话添加显式关闭状态，防止对话结束后被继续使用
   - 对话状态存储在独立的 `conversations` 表中
@@ -82,15 +85,14 @@
 
 ### 公开接口（无需认证）
 
-- **POST /auth/register**  
-  用户注册。  
+- **POST /auth/register**
+  用户注册（仅支持注册普通用户）。
   **请求体**（JSON）：
   ```json
   {
     "student_id": "12345678",
     "username": "testuser",
-    "password": "securepassword",
-    "user_type": "student"  // 可选，默认 "student"，支持 "admin"
+    "password": "securepassword"
   }
   ```
   **响应**（成功）：  
@@ -222,6 +224,9 @@
 
 - **POST /api/v1/classes/:id/members/add**
   批量添加班级成员（仅班级管理员 teacher/ta 可执行）。
+  **权限说明**：
+  - 教师/助教：可以添加学生
+  - 创建者/系统管理员：可以添加教师、助教、学生
   **请求体**（JSON）：
   ```json
   {
@@ -241,9 +246,14 @@
   ```
   **错误示例**：
   - 非班级管理员：HTTP 403 `{"error": "只有班级管理员可以添加成员"}`
+  - 助教尝试添加教师/助教：HTTP 403 `{"error": "只有班级创建者或管理员可以分配教师/助教角色"}`
 
 - **POST /api/v1/classes/:id/members/remove**
   批量移除班级成员（仅班级管理员 teacher/ta 可执行）。
+  **权限说明**：
+  - 教师/助教：可以移除学生
+  - 创建者/系统管理员：可以移除教师、助教、学生
+  - 班级创建者不可被移除
   **请求体**（JSON）：
   ```json
   {
@@ -259,6 +269,10 @@
     "details": [...]
   }
   ```
+  **错误示例**：
+  - 非班级管理员：HTTP 403 `{"error": "只有班级管理员可以移除成员"}`
+  - 助教尝试移除教师/助教：HTTP 403 `{"error": "助教只能移除学生，不能移除教师或助教"}`
+  - 尝试移除创建者：HTTP 403 `{"error": "班级创建者不可移除"}`
 
 - **POST /api/v1/ai/debug_v2**
   AI多轮代码调试代理接口。将前端的调试请求转发给Python AI服务，并记录交互历史。
@@ -475,31 +489,71 @@
   ```
 
 - **GET /api/v1/ai/weak_points**
-  获取当前用户的所有薄弱点统计。
+  获取当前用户的所有薄弱点统计（支持按时间范围筛选）。
+  **查询参数**（可选）：
+  - `start_date`：开始日期，格式 `2006-01-02`，不填默认当天
+  - `end_date`：结束日期，格式 `2006-01-02`，不填默认当天
   **响应**（成功）：
   HTTP 200
   ```json
   {
-    "student_id": "12345678",
-    "weak_points": {
-      "循环": 5,
-      "数组": 3,
-      "函数": 2
-    }
+    "message": "Weak points fetched successfully",
+    "data": [
+      {
+        "keyword": "数组",
+        "category": "数据结构",
+        "count": 5,
+        "description": "数组操作相关知识点"
+      }
+    ]
   }
   ```
 
 - **GET /api/v1/ai/weak_points/top**
-  获取当前用户排名前5的薄弱点（用于推荐功能）。
+  获取当前用户排名前N的薄弱点（用于推荐功能，支持按时间范围筛选）。
+  **查询参数**（可选）：
+  - `start_date`：开始日期，格式 `2006-01-02`，不填默认当天
+  - `end_date`：结束日期，格式 `2006-01-02`，不填默认当天
   **响应**（成功）：
   HTTP 200
   ```json
   {
-    "student_id": "12345678",
-    "top_weak_points": [
-      {"keyword": "循环", "count": 5},
-      {"keyword": "数组", "count": 3},
-      {"keyword": "函数", "count": 2}
+    "message": "Top weak points fetched successfully",
+    "data": [
+      {"keyword": "循环", "category": "编程基础", "count": 5, "description": "循环结构相关知识点"},
+      {"keyword": "数组", "category": "数据结构", "count": 3, "description": "数组操作相关知识点"},
+      {"keyword": "函数", "category": "编程基础", "count": 2, "description": "函数定义和使用相关知识点"}
+    ]
+  }
+  ```
+
+- **GET /api/v1/ai/weak_points/class**
+  获取班级所有学生的薄弱点统计（仅班级管理员 teacher/ta 或系统 admin 可访问）。
+  **查询参数**：
+  - `class_id`（必填）：班级ID
+  - `start_date`（可选）：开始日期，格式 `2006-01-02`，不填默认当天
+  - `end_date`（可选）：结束日期，格式 `2006-01-02`，不填默认当天
+  - `student_ids`（可选）：学生ID列表，JSON数组格式，如 `["S001","S002"]`，不填返回班级所有学生
+  **权限**：仅班级管理员（teacher/ta）或系统管理员（admin）可访问
+  **响应**（成功）：
+  HTTP 200
+  ```json
+  {
+    "message": "班级薄弱点查询成功",
+    "data": [
+      {
+        "student_id": "S001",
+        "username": "张三",
+        "weak_points": [
+          {
+            "keyword": "数组",
+            "category": "数据结构",
+            "count": 5,
+            "description": "数组操作相关知识点"
+          }
+        ],
+        "total_count": 15
+      }
     ]
   }
   ```
@@ -565,19 +619,44 @@
   - `is_closed`：对话是否已关闭
   - `closed_at`：关闭时间
 - `weak_points`：薄弱点定义
-- `user_weak_points`：用户薄弱点统计
+- `user_weak_points`：用户薄弱点统计（按天记录）
+  - `student_id`：学生 ID
+  - `weak_point_id`：薄弱点 ID
+  - `count`：该薄弱点出现次数
+  - `record_date`：记录日期（按天隔离，同一天同一薄弱点会累加计数）
+  - **复合索引**：`(student_id, weak_point_id, record_date)` 优化查询
 - `classes`：班级表
 - `class_members`：班级成员表
   - `is_creator`：标识该成员是否为班级创建者（创建者不可移除或降级）
 
 ### 班级权限体系
 
-| 角色   | user_type | member_role | 权限                        |
-| ------ | --------- | ----------- | --------------------------- |
-| 管理员 | admin     | -           | 可创建班级                  |
-| 老师   | user      | teacher     | 班级管理者，可添加/移除成员 |
-| 助教   | user      | ta          | 班级管理者，可添加/移除成员 |
-| 学生   | user      | student     | 仅访问个人数据              |
+#### 角色定义
+| 角色       | user_type | member_role | 说明                     |
+| ---------- | --------- | ----------- | ------------------------ |
+| 系统管理员 | admin     | -           | 可创建班级，管理所有班级 |
+| 班级创建者 | user      | teacher     | 班级所有者，拥有最高权限 |
+| 老师       | user      | teacher     | 班级管理者               |
+| 助教       | user      | ta          | 班级管理者（有限权限）   |
+| 学生       | user      | student     | 仅访问个人数据           |
+
+#### 操作权限矩阵
+| 操作       | 班级创建者 | 教师(teacher) | 助教(ta) | 系统管理员 |
+| ---------- | ---------- | ------------- | -------- | ---------- |
+| 创建班级   | ✅          | ❌             | ❌        | ✅          |
+| 添加学生   | ✅          | ✅             | ✅        | ✅          |
+| 添加助教   | ✅          | ❌             | ❌        | ✅          |
+| 添加教师   | ✅          | ❌             | ❌        | ✅          |
+| 移除学生   | ✅          | ✅             | ✅        | ✅          |
+| 移除助教   | ✅          | ✅             | ❌        | ✅          |
+| 移除教师   | ✅          | ✅             | ❌        | ✅          |
+| 移除创建者 | ❌          | ❌             | ❌        | ❌          |
+
+**注意**：
+- 班级创建者 (`is_creator=true`) 拥有最高权限，不可被移除
+- 教师 (`teacher`) 和助教 (`ta`) 都可管理班级，但权限有所不同
+- 助教只能操作学生角色，不能添加或移除其他教师/助教
+- 系统管理员可以操作所有班级和所有成员
 
 ## 测试
 

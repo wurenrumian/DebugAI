@@ -97,17 +97,53 @@ export const aiAPI = {
 	recommend(data) {
 		return api.post('/api/v1/ai/recommend', data)
 	},
-	// 获取用户薄弱点
-	getWeakPoints() {
-		return api.get('/api/v1/ai/weak_points')
+	// 获取用户薄弱点（支持日期筛选）
+	getWeakPoints(params = {}) {
+		return api.get('/api/v1/ai/weak_points', { params })
 	},
-	// 获取前5个薄弱点
-	getTopWeakPoints() {
-		return api.get('/api/v1/ai/weak_points/top')
+	// 获取前N个薄弱点（支持日期筛选）
+	getTopWeakPoints(params = {}) {
+		return api.get('/api/v1/ai/weak_points/top', { params })
 	},
 	// 关闭对话
 	closeConversation(conversationId) {
 		return api.post('/api/v1/ai/debug/close', { conversation_id: conversationId })
+	}
+}
+
+// 班级 API
+export const classAPI = {
+	// 获取所有班级
+	getClasses() {
+		return api.get('/api/v1/classes')
+	},
+	// 获取我的班级
+	getMyClasses() {
+		return api.get('/api/v1/classes/my')
+	},
+	// 创建班级
+	createClass(data) {
+		return api.post('/api/v1/classes', data)
+	},
+	// 加入班级
+	joinClass(classId) {
+		return api.post(`/api/v1/classes/${classId}/join`)
+	},
+	// 获取班级详情
+	getClassDetail(classId) {
+		return api.get(`/api/v1/classes/${classId}`)
+	},
+	// 获取班级成员
+	getClassMembers(classId) {
+		return api.get(`/api/v1/classes/${classId}/members`)
+	},
+	// 添加成员
+	addMembers(classId, studentIds, role) {
+		return api.post(`/api/v1/classes/${classId}/members/add`, { student_ids: studentIds, member_role: role })
+	},
+	// 移除成员
+	removeMembers(classId, studentIds) {
+		return api.post(`/api/v1/classes/${classId}/members/remove`, { student_ids: studentIds })
 	}
 }
 

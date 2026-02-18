@@ -47,6 +47,12 @@ const routes = [
 		name: 'Recommend',
 		component: () => import('../views/Recommend.vue'),
 		meta: { requiresAuth: true }
+	},
+	{
+		path: '/profile/classes',
+		name: 'ClassManage',
+		component: () => import('../views/ClassManage.vue'),
+		meta: { requiresAuth: true }
 	}
 ]
 

@@ -29,3 +29,5 @@ logs/
 .conda
 *.db
 /test_data
+
+**/todo.md

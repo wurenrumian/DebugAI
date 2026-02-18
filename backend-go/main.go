@@ -76,6 +76,8 @@ func main() {
 		api.GET("/ai/weak_points", aiController.GetUserWeakPoints)
 		// 获取用户前5个薄弱点（用于推荐）
 		api.GET("/ai/weak_points/top", aiController.GetTopWeakPoints)
+		// 获取班级薄弱点（仅班级管理员可访问）
+		api.GET("/ai/weak_points/class", aiController.GetClassWeakPoints)
 		// 分类型获取历史记录
 		api.GET("/ai/records/debug", aiController.GetDebugRecords)
 		api.GET("/ai/records/evaluate", aiController.GetEvaluateRecords)
@@ -84,6 +86,7 @@ func main() {
 		// 班级管理路由
 		api.POST("/classes", controller.CreateClass)                      // 创建班级（仅admin）
 		api.GET("/classes", controller.GetClasses)                        // 获取班级列表
+		api.GET("/classes/:id", controller.GetClassDetail)                // 获取班级详情
 		api.GET("/classes/my", controller.GetMyClasses)                   // 获取我的班级
 		api.POST("/classes/:id/join", controller.JoinClass)               // 加入班级
 		api.GET("/classes/:id/members", controller.GetClassMembers)       // 获取班级成员
