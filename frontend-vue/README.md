@@ -31,10 +31,11 @@ frontend-vue/
     ├── stores/
     │   └── auth.js        # 用户认证状态管理
     ├── components/
-    │   └── HistoryTabs/   # 历史记录标签页组件
-    │       ├── DebugHistoryTab.vue
-    │       ├── EvaluateHistoryTab.vue
-    │       └── RecommendHistoryTab.vue
+    │   ├── HistoryTabs/   # 历史记录标签页组件
+    │   │   ├── DebugHistoryTab.vue
+    │   │   ├── EvaluateHistoryTab.vue
+    │   │   └── RecommendHistoryTab.vue
+    │   └── WeakPointDisplay.vue  # 薄弱点展示组件
     └── views/
         ├── Login.vue       # 登录页面
         ├── Register.vue    # 注册页面
@@ -134,13 +135,16 @@ Vite 开发服务器代理配置：
 
 **API 端点**：
 - `POST /api/v1/ai/recommend` - 获取推荐题目
-- `GET /api/v1/ai/weak_points` - 获取用户薄弱点
-- `GET /api/v1/ai/weak_points/top` - 获取Top 5薄弱点
+- `GET /api/v1/ai/weak_points` - 获取用户薄弱点（支持日期筛选）
+- `GET /api/v1/ai/weak_points/top` - 获取Top N薄弱点（支持日期筛选）
 
 **特性**：
 - 基于薄弱点智能推荐
 - 可调整推荐数量 (3/5/8/10)
 - 显示推荐理由和相关度
+- **日期筛选**：可选择开始/结束日期范围
+- **Top K 筛选**：可选择显示前 N 个薄弱点（0=全部）
+- **可复用组件**：[`WeakPointDisplay.vue`](src/components/WeakPointDisplay.vue) 组件，支持按分类展示、选中交互、描述提示
 
 ### 5. 历史记录 ([`/history`](src/views/History.vue))
 
