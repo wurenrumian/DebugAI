@@ -14,6 +14,9 @@ type Class struct {
 	ClassName string    `gorm:"size:255;not null" json:"class_name"`
 	CreatedBy uint      `gorm:"not null" json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// 关联关系：创建者（User）
+	Creator User `gorm:"foreignKey:CreatedBy;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 }
 
 // ClassMember 班级成员表
@@ -23,4 +26,7 @@ type ClassMember struct {
 	UserID     uint   `gorm:"not null;index" json:"user_id"`
 	MemberRole string `gorm:"size:20;default:student" json:"member_role"`
 	IsCreator  bool   `gorm:"default:false" json:"is_creator"` // 是否为班级创建者
+
+	// 关联关系：用户信息
+	User User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }

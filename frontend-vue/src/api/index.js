@@ -111,4 +111,40 @@ export const aiAPI = {
 	}
 }
 
+// 班级 API
+export const classAPI = {
+	// 获取所有班级
+	getClasses() {
+		return api.get('/api/v1/classes')
+	},
+	// 获取我的班级
+	getMyClasses() {
+		return api.get('/api/v1/classes/my')
+	},
+	// 创建班级
+	createClass(data) {
+		return api.post('/api/v1/classes', data)
+	},
+	// 加入班级
+	joinClass(classId) {
+		return api.post(`/api/v1/classes/${classId}/join`)
+	},
+	// 获取班级详情
+	getClassDetail(classId) {
+		return api.get(`/api/v1/classes/${classId}`)
+	},
+	// 获取班级成员
+	getClassMembers(classId) {
+		return api.get(`/api/v1/classes/${classId}/members`)
+	},
+	// 添加成员
+	addMembers(classId, studentIds, role) {
+		return api.post(`/api/v1/classes/${classId}/members/add`, { student_ids: studentIds, member_role: role })
+	},
+	// 移除成员
+	removeMembers(classId, studentIds) {
+		return api.post(`/api/v1/classes/${classId}/members/remove`, { student_ids: studentIds })
+	}
+}
+
 export default api

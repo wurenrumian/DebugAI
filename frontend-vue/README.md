@@ -29,17 +29,23 @@ frontend-vue/
     ├── router/
     │   └── index.js       # 路由配置 (含权限守卫)
     ├── stores/
-    │   └── auth.js        # 用户认证状态管理
+    │   ├── auth.js        # 用户认证状态管理
+    │   └── class.js       # 班级状态管理
     ├── components/
     │   ├── HistoryTabs/   # 历史记录标签页组件
     │   │   ├── DebugHistoryTab.vue
     │   │   ├── EvaluateHistoryTab.vue
     │   │   └── RecommendHistoryTab.vue
-    │   └── WeakPointDisplay.vue  # 薄弱点展示组件
+    │   ├── WeakPointDisplay.vue  # 薄弱点展示组件
+    │   └── class/        # 班级管理组件
+    │       ├── ClassSelector.vue   # 班级选择器
+    │       ├── ClassInfoTab.vue    # 班级信息标签页
+    │       └── ClassManageTab.vue   # 成员管理标签页
     └── views/
         ├── Login.vue       # 登录页面
         ├── Register.vue    # 注册页面
         ├── Profile.vue     # 个人主页
+        ├── ClassManage.vue # 班级管理页面
         ├── AIDebug.vue     # AI 对话调试页面
         ├── Evaluate.vue    # AI 代码评价页面
         ├── Recommend.vue   # AI 题目推荐页面
@@ -165,17 +171,48 @@ Vite 开发服务器代理配置：
 - 功能快捷入口
 - 退出登录
 
+### 7. 班级管理 ([`/class-manage`](src/views/ClassManage.vue))
+
+**组件结构**：
+- [`ClassSelector.vue`](src/components/class/ClassSelector.vue) - 班级选择器
+- [`ClassInfoTab.vue`](src/components/class/ClassInfoTab.vue) - 班级信息标签页
+- [`ClassManageTab.vue`](src/components/class/ClassManageTab.vue) - 成员管理标签页
+
+**权限说明**（后端控制，前端会根据权限显示/隐藏相应功能）：
+| 角色       | 班级选择 | 查看信息 | 成员管理   |
+| ---------- | -------- | -------- | ---------- |
+| 系统管理员 | ✅        | ✅        | ✅          |
+| 班级创建者 | ✅        | ✅        | ✅          |
+| 教师       | ✅        | ✅        | ✅          |
+| 助教       | ✅        | ✅        | ⚠️ 有限权限 |
+| 学生       | ✅        | ✅        | ❌          |
+
+**助教权限限制**：
+- 添加成员：只能添加学生，不能添加教师或助教
+- 移除成员：只能移除学生，不能移除教师或助教
+
+**API 端点**：
+- `GET /api/v1/classes` - 获取班级列表
+- `GET /api/v1/classes/my` - 获取我的班级
+- `POST /api/v1/classes` - 创建班级（仅admin）
+- `POST /api/v1/classes/:id/join` - 加入班级
+- `GET /api/v1/classes/:id` - 获取班级详情
+- `GET /api/v1/classes/:id/members` - 获取班级成员
+- `POST /api/v1/classes/:id/members/add` - 添加成员
+- `POST /api/v1/classes/:id/members/remove` - 移除成员
+
 ## 路由权限
 
-| 路由         | 需要认证 | 说明         |
-| ------------ | -------- | ------------ |
-| `/login`     | 否       | 登录页面     |
-| `/register`  | 否       | 注册页面     |
-| `/profile`   | 是       | 个人主页     |
-| `/ai-debug`  | 是       | AI 调试页面  |
-| `/evaluate`  | 是       | AI 评价页面  |
-| `/recommend` | 是       | AI 推荐页面  |
-| `/history`   | 是       | 历史记录页面 |
+| 路由            | 需要认证 | 说明         |
+| --------------- | -------- | ------------ |
+| `/login`        | 否       | 登录页面     |
+| `/register`     | 否       | 注册页面     |
+| `/profile`      | 是       | 个人主页     |
+| `/class-manage` | 是       | 班级管理页面 |
+| `/ai-debug`     | 是       | AI 调试页面  |
+| `/evaluate`     | 是       | AI 评价页面  |
+| `/recommend`    | 是       | AI 推荐页面  |
+| `/history`      | 是       | 历史记录页面 |
 
 未登录用户访问受保护路由时，自动重定向到登录页面。
 
