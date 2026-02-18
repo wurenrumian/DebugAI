@@ -18,9 +18,10 @@ import (
 type AIServiceIface interface {
 	ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
 	ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error)
-	GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]models.UserWeakPoint, error)
+	GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error
 	GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error)
+	GetClassWeakPoints(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	SeedWeakPointKeywords() error
 	GetDebugRecords(studentID string) ([]models.AIRecord, error)
 	GetEvaluateRecords(studentID string) ([]models.AIRecord, error)
@@ -275,9 +276,18 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 }
 
 // GetUserWeakPoints fetches weak points for a user with optional date range filter
-func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]models.UserWeakPoint, error) {
+// Returns enhanced data with category and description
+// Optimized to avoid N+1 queries
+func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
 	var userWeakPoints []models.UserWeakPoint
 	query := s.DB.Where("student_id = ?", studentID)
+
+	// Default to today if no date range provided
+	if startDate == nil && endDate == nil {
+		today := time.Now().Truncate(24 * time.Hour)
+		startDate = &today
+		endDate = &today
+	}
 
 	// Apply date range filter if provided
 	if startDate != nil {
@@ -290,7 +300,41 @@ func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time
 	if err := query.Find(&userWeakPoints).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user weak points: %w", err)
 	}
-	return userWeakPoints, nil
+
+	// Batch fetch all WeakPoint details - single query instead of N queries
+	if len(userWeakPoints) == 0 {
+		return []map[string]interface{}{}, nil
+	}
+
+	weakPointIDs := make([]uint, 0, len(userWeakPoints))
+	for _, uwp := range userWeakPoints {
+		weakPointIDs = append(weakPointIDs, uwp.WeakPointID)
+	}
+
+	var weakPoints []models.WeakPoint
+	if err := s.DB.Where("id IN ?", weakPointIDs).Find(&weakPoints).Error; err != nil {
+		return nil, fmt.Errorf("failed to get weak points: %w", err)
+	}
+
+	// Build ID -> WeakPoint map
+	wpMap := make(map[uint]models.WeakPoint)
+	for _, wp := range weakPoints {
+		wpMap[wp.ID] = wp
+	}
+
+	// Transform to include WeakPoint details (category, description)
+	result := make([]map[string]interface{}, 0, len(userWeakPoints))
+	for _, uwp := range userWeakPoints {
+		if wp, ok := wpMap[uwp.WeakPointID]; ok {
+			result = append(result, map[string]interface{}{
+				"keyword":     wp.Keyword,
+				"category":    wp.Category,
+				"count":       uwp.Count,
+				"description": wp.Description,
+			})
+		}
+	}
+	return result, nil
 }
 
 // UpdateUserWeakPoints updates the user's weak points count with date isolation
@@ -338,6 +382,7 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 }
 
 // GetTopWeakPoints returns the top N weak points for a user with count and optional date range
+// Returns enhanced data with category and description
 func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
 	if limit <= 0 {
 		limit = 5
@@ -345,6 +390,13 @@ func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, end
 
 	var userWeakPoints []models.UserWeakPoint
 	query := s.DB.Where("student_id = ?", studentID)
+
+	// Default to today if no date range provided
+	if startDate == nil && endDate == nil {
+		today := time.Now().Truncate(24 * time.Hour)
+		startDate = &today
+		endDate = &today
+	}
 
 	// Apply date range filter if provided
 	if startDate != nil {
@@ -363,16 +415,145 @@ func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, end
 		return userWeakPoints[i].Count > userWeakPoints[j].Count
 	})
 
-	// Get keywords with count
+	// Get keywords with count, category and description
 	result := make([]map[string]interface{}, 0, limit)
 	for i := 0; i < len(userWeakPoints) && i < limit; i++ {
 		var wp models.WeakPoint
 		if err := s.DB.First(&wp, userWeakPoints[i].WeakPointID).Error; err == nil {
 			result = append(result, map[string]interface{}{
-				"keyword": wp.Keyword,
-				"count":   userWeakPoints[i].Count,
+				"keyword":     wp.Keyword,
+				"category":    wp.Category,
+				"count":       userWeakPoints[i].Count,
+				"description": wp.Description,
 			})
 		}
+	}
+
+	return result, nil
+}
+
+// GetClassWeakPoints returns weak points for all students in a class
+// Optimized to avoid N+1 queries by fetching all data in bulk
+// classID: 班级ID
+// studentIDs: 可选的學生ID列表，为空时返回班级所有学生
+// startDate, endDate: 日期范围，默认当天
+func (s *AIService) GetClassWeakPoints(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
+	// Default to today if no date range provided
+	if startDate == nil && endDate == nil {
+		today := time.Now().Truncate(24 * time.Hour)
+		startDate = &today
+		endDate = &today
+	}
+
+	// Get class members (students only) - single query
+	var classMembers []models.ClassMember
+	memberQuery := s.DB.Where("class_id = ? AND member_role = ?", classID, models.MemberRoleStudent)
+	if len(studentIDs) > 0 {
+		// Get user IDs from student IDs
+		var users []models.User
+		if err := s.DB.Where("student_id IN ?", studentIDs).Find(&users).Error; err != nil {
+			return nil, fmt.Errorf("failed to get users: %w", err)
+		}
+		userIDs := make([]uint, len(users))
+		for i, u := range users {
+			userIDs[i] = u.ID
+		}
+		memberQuery = memberQuery.Where("user_id IN ?", userIDs)
+	}
+
+	if err := memberQuery.Find(&classMembers).Error; err != nil {
+		return nil, fmt.Errorf("failed to get class members: %w", err)
+	}
+
+	// Collect all user IDs
+	userIDs := make([]uint, 0, len(classMembers))
+	for _, cm := range classMembers {
+		userIDs = append(userIDs, cm.UserID)
+	}
+
+	// Batch fetch all users - single query
+	var users []models.User
+	if err := s.DB.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("failed to get users: %w", err)
+	}
+
+	// Build studentID -> username map
+	studentIDMap := make(map[string]string) // studentID -> username
+	studentIDsList := make([]string, 0, len(users))
+	for _, u := range users {
+		studentIDMap[u.StudentID] = u.Username
+		studentIDsList = append(studentIDsList, u.StudentID)
+	}
+
+	// Batch fetch all weak points for these students - single query
+	var allUserWeakPoints []models.UserWeakPoint
+	wpQuery := s.DB.Where("student_id IN ?", studentIDsList)
+	if startDate != nil {
+		wpQuery = wpQuery.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
+	}
+	if endDate != nil {
+		wpQuery = wpQuery.Where("DATE(record_date) <= ?", endDate.Format("2006-01-02"))
+	}
+	if err := wpQuery.Find(&allUserWeakPoints).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user weak points: %w", err)
+	}
+
+	// Collect all weak point IDs
+	weakPointIDs := make([]uint, 0, len(allUserWeakPoints))
+	for _, uwp := range allUserWeakPoints {
+		weakPointIDs = append(weakPointIDs, uwp.WeakPointID)
+	}
+
+	// Batch fetch all WeakPoint details - single query
+	var weakPoints []models.WeakPoint
+	if err := s.DB.Where("id IN ?", weakPointIDs).Find(&weakPoints).Error; err != nil {
+		return nil, fmt.Errorf("failed to get weak points: %w", err)
+	}
+
+	// Build weak point ID -> details map
+	wpMap := make(map[uint]models.WeakPoint)
+	for _, wp := range weakPoints {
+		wpMap[wp.ID] = wp
+	}
+
+	// Group weak points by student ID - in-memory aggregation
+	studentWPMaps := make(map[string][]models.UserWeakPoint) // studentID -> []UserWeakPoint
+	for _, uwp := range allUserWeakPoints {
+		studentWPMaps[uwp.StudentID] = append(studentWPMaps[uwp.StudentID], uwp)
+	}
+
+	// Build final result
+	result := make([]map[string]interface{}, 0, len(studentIDsList))
+	for _, studentID := range studentIDsList {
+		username := studentIDMap[studentID]
+		userWPs := studentWPMaps[studentID]
+
+		// Sort by count descending
+		sort.Slice(userWPs, func(i, j int) bool {
+			return userWPs[i].Count > userWPs[j].Count
+		})
+
+		// Build weak points list with details
+		weakPointsList := make([]map[string]interface{}, 0)
+		totalCount := 0
+		for _, uwp := range userWPs {
+			if wp, ok := wpMap[uwp.WeakPointID]; ok {
+				weakPointsList = append(weakPointsList, map[string]interface{}{
+					"keyword":     wp.Keyword,
+					"category":    wp.Category,
+					"count":       uwp.Count,
+					"description": wp.Description,
+				})
+				totalCount += uwp.Count
+			}
+		}
+
+		result = append(result, map[string]interface{}{
+			"student_id":  studentID,
+			"username":    username,
+			"weak_points": weakPointsList,
+			"total_count": totalCount,
+		})
 	}
 
 	return result, nil
