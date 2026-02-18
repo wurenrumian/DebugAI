@@ -80,9 +80,9 @@
               <p class="hint">请在左侧输入问题和代码，点击"开始调试"</p>
             </div>
             
-            <div 
-              v-for="(item, index) in dialogueHistory" 
-              :key="index" 
+            <div
+              v-for="(item, index) in dialogueHistory"
+              :key="index"
               :class="['dialogue-item', item.role]"
             >
               <div class="dialogue-avatar">
@@ -90,7 +90,15 @@
               </div>
               <div class="dialogue-bubble">
                 <div class="dialogue-label">{{ item.role === 'student' ? '你' : 'AI 助手' }}</div>
-                <div class="dialogue-text" v-html="formatContent(item.content)"></div>
+                <!-- 学生消息直接显示 -->
+                <div v-if="item.role === 'student'" class="dialogue-text" v-html="formatContent(item.content)"></div>
+                <!-- AI 消息使用专用组件解析显示 -->
+                <AIResponseDisplay
+                  v-else-if="item.role === 'assistant'"
+                  :ai-response="item.ai_response || parseAIResponse(item.content)"
+                  :student-response="item.student_response || ''"
+                />
+                <div v-else class="dialogue-text" v-html="formatContent(item.content)"></div>
               </div>
             </div>
             
@@ -245,6 +253,7 @@
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { aiAPI } from '../api'
+import AIResponseDisplay from '../components/AIResponseDisplay.vue'
 
 const authStore = useAuthStore()
 
@@ -392,11 +401,12 @@ const startDebug = async () => {
       if (response.dialogue_turn) {
         const aiMessage = response.dialogue_turn
         
-        // 添加 AI 消息到对话历史
+        // 添加 AI 消息到对话历史，保存原始的 ai_response 数据
         dialogueHistory.value.push({
           round_number: currentRound.value,
           role: 'assistant',
-          content: aiMessage.content
+          content: aiMessage.content,
+          ai_response: response.ai_response || null
         })
       }
       
@@ -469,6 +479,22 @@ const formatContent = (content) => {
   formatted = formatted.replace(/\n/g, '<br>')
   
   return formatted
+}
+
+// 解析 AI 响应 JSON
+const parseAIResponse = (content) => {
+  if (!content) return null
+  try {
+    // 尝试解析 JSON
+    if (typeof content === 'string') {
+      const parsed = JSON.parse(content)
+      return parsed
+    }
+    return content
+  } catch (e) {
+    // 如果不是 JSON，返回原始内容作为 content 字段
+    return { content: content }
+  }
 }
 
 // 监听轮次变化，获取轮次信息
