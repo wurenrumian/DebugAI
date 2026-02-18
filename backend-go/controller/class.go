@@ -6,8 +6,10 @@ import (
 	"backend-go/service"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // CreateClass 创建班级（仅 admin 可执行）
@@ -61,14 +63,40 @@ func CreateClass(c *gin.Context) {
 	})
 }
 
-// GetClasses 获取班级列表
+// GetClasses 获取班级列表（包含创建者信息）
 func GetClasses(c *gin.Context) {
 	var classes []models.Class
-	if err := config.DB.Find(&classes).Error; err != nil {
+	// 预加载创建者信息
+	if err := config.DB.Preload("Creator").Find(&classes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取班级列表失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": classes})
+
+	// 转换为前端需要的格式
+	type ClassResponse struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		CreatedBy   uint      `json:"created_by"`
+		CreatorName string    `json:"creator_name"`
+		CreatedAt   time.Time `json:"created_at"`
+	}
+
+	response := make([]ClassResponse, 0, len(classes))
+	for _, class := range classes {
+		creatorName := ""
+		if class.Creator.ID != 0 {
+			creatorName = class.Creator.Username
+		}
+		response = append(response, ClassResponse{
+			ID:          class.ID,
+			Name:        class.ClassName,
+			CreatedBy:   class.CreatedBy,
+			CreatorName: creatorName,
+			CreatedAt:   class.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": response})
 }
 
 // JoinClass 加入班级
@@ -114,7 +142,51 @@ func JoinClass(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "加入班级成功", "data": member})
 }
 
-// GetClassMembers 获取班级成员
+// GetClassDetail 获取班级详情（包含创建者信息）
+func GetClassDetail(c *gin.Context) {
+	classID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的班级ID"})
+		return
+	}
+
+	var class models.Class
+	// 预加载创建者信息
+	if err := config.DB.Preload("Creator").First(&class, classID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "班级不存在"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取班级详情失败"})
+		}
+		return
+	}
+
+	// 转换为前端需要的格式
+	type ClassResponse struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		CreatedBy   uint      `json:"created_by"`
+		CreatorName string    `json:"creator_name"`
+		CreatedAt   time.Time `json:"created_at"`
+	}
+
+	creatorName := ""
+	if class.Creator.ID != 0 {
+		creatorName = class.Creator.Username
+	}
+
+	response := ClassResponse{
+		ID:          class.ID,
+		Name:        class.ClassName,
+		CreatedBy:   class.CreatedBy,
+		CreatorName: creatorName,
+		CreatedAt:   class.CreatedAt,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": response})
+}
+
+// GetClassMembers 获取班级成员（包含用户信息）
 func GetClassMembers(c *gin.Context) {
 	classID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -123,15 +195,40 @@ func GetClassMembers(c *gin.Context) {
 	}
 
 	var members []models.ClassMember
-	if err := config.DB.Where("class_id = ?", classID).Find(&members).Error; err != nil {
+	// 预加载用户信息
+	if err := config.DB.Preload("User").Where("class_id = ?", classID).Find(&members).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取成员列表失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": members})
+	// 转换为前端需要的格式
+	type MemberResponse struct {
+		ID        uint   `json:"id"`
+		ClassID   uint   `json:"class_id"`
+		UserID    uint   `json:"user_id"`
+		StudentID string `json:"student_id"`
+		Username  string `json:"username"`
+		Role      string `json:"role"`
+		IsCreator bool   `json:"is_creator"`
+	}
+
+	response := make([]MemberResponse, 0, len(members))
+	for _, member := range members {
+		response = append(response, MemberResponse{
+			ID:        member.ID,
+			ClassID:   member.ClassID,
+			UserID:    member.UserID,
+			StudentID: member.User.StudentID,
+			Username:  member.User.Username,
+			Role:      member.MemberRole,
+			IsCreator: member.IsCreator,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": response})
 }
 
-// GetMyClasses 获取用户加入的班级
+// GetMyClasses 获取用户加入的班级（包含创建者信息）
 func GetMyClasses(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -145,17 +242,41 @@ func GetMyClasses(c *gin.Context) {
 		return
 	}
 
-	// 关联查询班级信息
+	// 关联查询班级信息（预加载创建者）
 	var classes []models.Class
 	for _, m := range members {
 		var class models.Class
-		if err := config.DB.First(&class, m.ClassID).Error; err == nil {
+		if err := config.DB.Preload("Creator").First(&class, m.ClassID).Error; err == nil {
 			class.CreatedAt = class.CreatedAt // 保持原样
 			classes = append(classes, class)
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": classes})
+	// 转换为前端需要的格式（与 GetClasses 一致）
+	type ClassResponse struct {
+		ID          uint      `json:"id"`
+		Name        string    `json:"name"`
+		CreatedBy   uint      `json:"created_by"`
+		CreatorName string    `json:"creator_name"`
+		CreatedAt   time.Time `json:"created_at"`
+	}
+
+	response := make([]ClassResponse, 0, len(classes))
+	for _, class := range classes {
+		creatorName := ""
+		if class.Creator.ID != 0 {
+			creatorName = class.Creator.Username
+		}
+		response = append(response, ClassResponse{
+			ID:          class.ID,
+			Name:        class.ClassName,
+			CreatedBy:   class.CreatedBy,
+			CreatorName: creatorName,
+			CreatedAt:   class.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": response})
 }
 
 // AddMembers 添加班级成员（批量）- 仅班级管理员(teacher)可操作
@@ -367,6 +488,9 @@ func RemoveMembers(c *gin.Context) {
 		return
 	}
 
+	// 获取当前用户在班级中的角色
+	currentUserRole := service.GetUserRoleInClass(currentUserID, uint(classID))
+
 	var input struct {
 		StudentIDs []string `json:"student_ids" binding:"required"`
 	}
@@ -374,6 +498,23 @@ func RemoveMembers(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供学生ID列表"})
 		return
+	}
+
+	// 助教权限限制：只能移除学生
+	if currentUserRole == models.MemberRoleTA {
+		for _, studentID := range input.StudentIDs {
+			// 查询该学生的用户ID
+			var targetUser models.User
+			if err := config.DB.Where("student_id = ?", studentID).First(&targetUser).Error; err != nil {
+				continue
+			}
+			// 查询该学生在班级中的角色
+			targetUserRole := service.GetUserRoleInClass(targetUser.ID, uint(classID))
+			if targetUserRole != models.MemberRoleStudent {
+				c.JSON(http.StatusForbidden, gin.H{"error": "助教只能移除学生，不能移除教师或助教"})
+				return
+			}
+		}
 	}
 
 	// 查询所有student_id对应的用户

@@ -32,6 +32,8 @@
         </div>
       </div>
       
+
+      
       <div class="card actions-card">
         <h2 class="subtitle">AI 功能</h2>
         
@@ -70,6 +72,18 @@
           <div class="action-text">
             <h3>查看历史</h3>
             <p>查看评分记录、对话历史、推荐题目</p>
+          </div>
+        </router-link>
+      </div>
+      
+      <div class="card class-card">
+        <h2 class="subtitle">班级管理</h2>
+        
+        <router-link to="/profile/classes" class="action-btn full-width">
+          <div class="action-icon">👥</div>
+          <div class="action-text">
+            <h3>我的班级</h3>
+            <p>管理班级成员、查看班级信息</p>
           </div>
         </router-link>
       </div>
@@ -219,6 +233,10 @@ onMounted(() => {
   color: #303133;
   font-size: 14px;
   font-weight: 500;
+}
+
+.class-card {
+  margin-bottom: 20px;
 }
 
 .actions-card, .history-card {

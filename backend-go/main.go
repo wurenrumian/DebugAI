@@ -86,6 +86,7 @@ func main() {
 		// 班级管理路由
 		api.POST("/classes", controller.CreateClass)                      // 创建班级（仅admin）
 		api.GET("/classes", controller.GetClasses)                        // 获取班级列表
+		api.GET("/classes/:id", controller.GetClassDetail)                // 获取班级详情
 		api.GET("/classes/my", controller.GetMyClasses)                   // 获取我的班级
 		api.POST("/classes/:id/join", controller.JoinClass)               // 加入班级
 		api.GET("/classes/:id/members", controller.GetClassMembers)       // 获取班级成员
