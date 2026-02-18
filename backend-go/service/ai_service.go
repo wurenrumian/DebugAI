@@ -18,10 +18,13 @@ import (
 type AIServiceIface interface {
 	ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
 	ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error)
-	GetUserWeakPoints(studentID string) ([]models.UserWeakPoint, error)
-	UpdateUserWeakPoints(studentID string, weakPoints map[string]int) error
-	GetTopWeakPoints(studentID string, limit int) ([]string, error)
+	GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]models.UserWeakPoint, error)
+	UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error
+	GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	SeedWeakPointKeywords() error
+	GetDebugRecords(studentID string) ([]models.AIRecord, error)
+	GetEvaluateRecords(studentID string) ([]models.AIRecord, error)
+	GetRecommendRecords(studentID string) ([]models.AIRecord, error)
 }
 
 // AIService handles communication with the AI Python backend
@@ -36,6 +39,11 @@ func NewAIService(db *gorm.DB, pythonServiceURL string) *AIService {
 		DB:               db,
 		PythonServiceURL: pythonServiceURL,
 	}
+}
+
+// GetDB returns the database connection
+func (s *AIService) GetDB() *gorm.DB {
+	return s.DB
 }
 
 // ProxyEvaluate proxies the evaluate request to the Python AI service
@@ -114,6 +122,76 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
 	}
 
+	// 5. Save to EvaluateRecord table
+	func() {
+		// Extract nested fields from response
+		getString := func(m map[string]interface{}, key string) string {
+			if v, ok := m[key]; ok {
+				return fmt.Sprintf("%v", v)
+			}
+			return ""
+		}
+		getGradeAndAnalysis := func(m map[string]interface{}) (grade, analysis string) {
+			if v, ok := m["grade"]; ok {
+				grade = fmt.Sprintf("%v", v)
+			}
+			if v, ok := m["analysis"]; ok {
+				analysis = fmt.Sprintf("%v", v)
+			}
+			return
+		}
+
+		// Get code and problem description from request
+		var reqData map[string]interface{}
+		json.Unmarshal(requestBody, &reqData)
+		code := ""
+		problemDesc := ""
+		if v, ok := reqData["code"]; ok {
+			code = fmt.Sprintf("%v", v)
+		}
+		if v, ok := reqData["problem_description"]; ok {
+			problemDesc = fmt.Sprintf("%v", v)
+		}
+
+		// Get nested objects
+		var fcGrade, fcAnalysis string
+		var lrGrade, lrAnalysis string
+		var aqGrade, aqAnalysis string
+		var snGrade, snAnalysis string
+
+		if fc, ok := result["functional_correctness"].(map[string]interface{}); ok {
+			fcGrade, fcAnalysis = getGradeAndAnalysis(fc)
+		}
+		if lr, ok := result["logical_rigor"].(map[string]interface{}); ok {
+			lrGrade, lrAnalysis = getGradeAndAnalysis(lr)
+		}
+		if aq, ok := result["algorithm_quality"].(map[string]interface{}); ok {
+			aqGrade, aqAnalysis = getGradeAndAnalysis(aq)
+		}
+		if sn, ok := result["structural_normativity"].(map[string]interface{}); ok {
+			snGrade, snAnalysis = getGradeAndAnalysis(sn)
+		}
+
+		evalRecord := models.EvaluateRecord{
+			StudentID:                studentID,
+			ConversationID:           conversationID,
+			Code:                     code,
+			ProblemDescription:       problemDesc,
+			OverallEvaluation:        getString(result, "overall_evaluation"),
+			ReadabilityScore:         snGrade,
+			ReadabilityAnalysis:      snAnalysis,
+			LogicalRigorScore:        lrGrade,
+			LogicalRigorAnalysis:     lrAnalysis,
+			AlgorithmQualityScore:    aqGrade,
+			AlgorithmQualityAnalysis: aqAnalysis,
+			EfficiencyScore:          fcGrade,
+			EfficiencyAnalysis:       fcAnalysis,
+		}
+		if err := s.DB.Create(&evalRecord).Error; err != nil {
+			fmt.Printf("Failed to save evaluate record: %v\n", err)
+		}
+	}()
+
 	return result, nil
 }
 
@@ -126,7 +204,7 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 	}
 
 	// 2. Update user's weak points
-	if err := s.UpdateUserWeakPoints(studentID, req.WeakPoints); err != nil {
+	if err := s.UpdateUserWeakPoints(studentID, req.WeakPoints, time.Now()); err != nil {
 		fmt.Printf("Warning: failed to update user weak points: %v\n", err)
 	}
 
@@ -165,20 +243,58 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
 	}
 
+	// 5. Save to AIRecord table (for unified history query)
+	conversationID := fmt.Sprintf("rec_%d", time.Now().Unix())
+	aiRecord := models.AIRecord{
+		ConversationID:  conversationID,
+		StudentID:       studentID,
+		RoundNumber:     0,
+		Role:            "assistant",
+		RequestPayload:  string(requestBody),
+		ResponsePayload: string(responseBody),
+	}
+	if err := s.DB.Create(&aiRecord).Error; err != nil {
+		fmt.Printf("Warning: failed to save AIRecord for recommend: %v\n", err)
+	}
+
+	// Also save to RecommendationRecord table (for backward compatibility)
+	recommendationsJSON, _ := json.Marshal(result["recommendations"])
+	weakPointsJSON, _ := json.Marshal(req.WeakPoints)
+	record := models.RecommendationRecord{
+		StudentID:           studentID,
+		ConversationID:      conversationID,
+		RequestedWeakPoints: string(weakPointsJSON),
+		Recommendations:     string(recommendationsJSON),
+		Analysis:            fmt.Sprintf("%v", result["analysis"]),
+	}
+	if err := s.DB.Create(&record).Error; err != nil {
+		fmt.Printf("Warning: failed to save recommendation record: %v\n", err)
+	}
+
 	return result, nil
 }
 
-// GetUserWeakPoints fetches all weak points for a user
-func (s *AIService) GetUserWeakPoints(studentID string) ([]models.UserWeakPoint, error) {
+// GetUserWeakPoints fetches weak points for a user with optional date range filter
+func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]models.UserWeakPoint, error) {
 	var userWeakPoints []models.UserWeakPoint
-	if err := s.DB.Where("student_id = ?", studentID).Find(&userWeakPoints).Error; err != nil {
+	query := s.DB.Where("student_id = ?", studentID)
+
+	// Apply date range filter if provided
+	if startDate != nil {
+		query = query.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
+	}
+	if endDate != nil {
+		query = query.Where("DATE(record_date) <= ?", endDate.Format("2006-01-02"))
+	}
+
+	if err := query.Find(&userWeakPoints).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user weak points: %w", err)
 	}
 	return userWeakPoints, nil
 }
 
-// UpdateUserWeakPoints updates the user's weak points count
-func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string]int) error {
+// UpdateUserWeakPoints updates the user's weak points count with date isolation
+func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error {
 	for keyword, count := range weakPoints {
 		// Find or create the weak point in the dictionary
 		var wp models.WeakPoint
@@ -198,16 +314,18 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 			continue
 		}
 
-		// Update or create user weak point association
+		// Find or create user weak point association by date
 		var userWP models.UserWeakPoint
-		result = s.DB.Where("student_id = ? AND weak_point_id = ?", studentID, wp.ID).First(&userWP)
+		result = s.DB.Where("student_id = ? AND weak_point_id = ? AND DATE(record_date) = ?",
+			studentID, wp.ID, recordDate.Format("2006-01-02")).First(&userWP)
 
 		if result.Error == gorm.ErrRecordNotFound {
-			// Create new association
+			// Create new association with date
 			userWP = models.UserWeakPoint{
 				StudentID:   studentID,
 				WeakPointID: wp.ID,
 				Count:       count,
+				RecordDate:  recordDate,
 			}
 			s.DB.Create(&userWP)
 		} else if result.Error == nil {
@@ -219,14 +337,24 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 	return nil
 }
 
-// GetTopWeakPoints returns the top N weak points for a user
-func (s *AIService) GetTopWeakPoints(studentID string, limit int) ([]string, error) {
+// GetTopWeakPoints returns the top N weak points for a user with count and optional date range
+func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
 	if limit <= 0 {
 		limit = 5
 	}
 
 	var userWeakPoints []models.UserWeakPoint
-	if err := s.DB.Where("student_id = ?", studentID).Find(&userWeakPoints).Error; err != nil {
+	query := s.DB.Where("student_id = ?", studentID)
+
+	// Apply date range filter if provided
+	if startDate != nil {
+		query = query.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
+	}
+	if endDate != nil {
+		query = query.Where("DATE(record_date) <= ?", endDate.Format("2006-01-02"))
+	}
+
+	if err := query.Find(&userWeakPoints).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user weak points: %w", err)
 	}
 
@@ -235,16 +363,19 @@ func (s *AIService) GetTopWeakPoints(studentID string, limit int) ([]string, err
 		return userWeakPoints[i].Count > userWeakPoints[j].Count
 	})
 
-	// Get keywords
-	keywords := make([]string, 0, limit)
+	// Get keywords with count
+	result := make([]map[string]interface{}, 0, limit)
 	for i := 0; i < len(userWeakPoints) && i < limit; i++ {
 		var wp models.WeakPoint
 		if err := s.DB.First(&wp, userWeakPoints[i].WeakPointID).Error; err == nil {
-			keywords = append(keywords, wp.Keyword)
+			result = append(result, map[string]interface{}{
+				"keyword": wp.Keyword,
+				"count":   userWeakPoints[i].Count,
+			})
 		}
 	}
 
-	return keywords, nil
+	return result, nil
 }
 
 // SeedWeakPointKeywords seeds the weak point dictionary with default keywords
@@ -310,4 +441,33 @@ func (s *AIService) SeedWeakPointKeywords() error {
 		}
 	}
 	return nil
+}
+
+// GetDebugRecords fetches debug records (round_number > 0) for a student
+func (s *AIService) GetDebugRecords(studentID string) ([]models.AIRecord, error) {
+	var records []models.AIRecord
+	if err := s.DB.Where("student_id = ? AND round_number > 0", studentID).Order("created_at desc").Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("failed to get debug records: %w", err)
+	}
+	return records, nil
+}
+
+// GetEvaluateRecords fetches evaluation records for a student (from AIRecord table)
+func (s *AIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, error) {
+	var records []models.AIRecord
+	// Only fetch records with conversation_id starting with "eval_"
+	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'eval_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("failed to get evaluate records: %w", err)
+	}
+	return records, nil
+}
+
+// GetRecommendRecords fetches recommendation records for a student (from AIRecord table)
+func (s *AIService) GetRecommendRecords(studentID string) ([]models.AIRecord, error) {
+	var records []models.AIRecord
+	// Only fetch records with conversation_id starting with "rec_"
+	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'rec_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("failed to get recommend records: %w", err)
+	}
+	return records, nil
 }

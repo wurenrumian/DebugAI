@@ -1,11 +1,11 @@
 <template>
-  <div class="ai-debug-container">
-    <div class="ai-debug-header">
+  <div class="page-container">
+    <div class="page-header">
       <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
       <h1>📚 AI 题目推荐</h1>
     </div>
     
-    <div class="ai-debug-content">
+    <div class="content-wrapper ai-debug-content">
       <!-- 左侧：薄弱点选择 -->
       <div class="left-panel">
         <div class="card">
@@ -166,17 +166,18 @@ const fetchUserWeakPoints = async () => {
     if (response.data && response.data.length > 0) {
       // 转换为关键词并排序
       const weakPointMap = new Map()
+      const keywordMap = new Map()
       for (const wp of response.data) {
         const existing = weakPointMap.get(wp.weak_point_id)
         if (existing) {
           existing.count += wp.count
         } else {
-          // 这里需要通过 ID 获取关键词
-          // 由于 API 返回的是关联表数据，我们使用一个简化的方法
-          weakPointMap.set(wp.weak_point_id, {
+          const item = {
             keyword: `知识点${wp.weak_point_id}`,
             count: wp.count
-          })
+          }
+          weakPointMap.set(wp.weak_point_id, item)
+          keywordMap.set(item.keyword, item)
         }
       }
       
@@ -184,14 +185,20 @@ const fetchUserWeakPoints = async () => {
       try {
         const topResponse = await aiAPI.getTopWeakPoints()
         if (topResponse.data && topResponse.data.length > 0) {
-          selectedWeakPoints.value = topResponse.data
-          userWeakPoints.value = topResponse.data.map(kw => ({
-            keyword: kw,
-            count: 1
+          // 新格式: [{keyword: "数组", count: 4}, ...]
+          userWeakPoints.value = topResponse.data.map(item => ({
+            keyword: item.keyword,
+            count: item.count
           }))
+          selectedWeakPoints.value = userWeakPoints.value.map(wp => wp.keyword)
         }
       } catch (e) {
         console.log('No top weak points yet')
+        if (weakPointMap.size > 0) {
+          userWeakPoints.value = Array.from(weakPointMap.values())
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+        }
       }
     }
   } catch (error) {
@@ -261,79 +268,23 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-debug-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-}
-
-.ai-debug-header {
-  max-width: 1400px;
-  margin: 0 auto 20px;
-  padding: 20px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.ai-debug-header h1 {
-  margin: 10px 0 0;
-  color: #333;
-}
-
-.back-link {
-  color: #667eea;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.back-link:hover {
-  text-decoration: underline;
-}
-
 .ai-debug-content {
-  max-width: 1400px;
-  margin: 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
 
-.left-panel, .right-panel {
+.left-panel,
+.right-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.card {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.subtitle {
-  margin: 0 0 8px;
-  font-size: 16px;
-  color: #333;
-  font-weight: 600;
 }
 
 .description {
   margin: 0 0 16px;
   color: #666;
   font-size: 14px;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 20px;
-  color: #999;
-}
-
-.empty-state .hint {
-  font-size: 13px;
-  margin-top: 8px;
 }
 
 .weak-points-list {
@@ -395,41 +346,8 @@ onMounted(() => {
   border-color: #667eea;
 }
 
-.btn {
-  padding: 14px 28px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: #e0e0e0;
-  color: #333;
-}
-
-.btn-secondary:hover {
-  background: #d0d0d0;
-}
-
-.start-btn, .reset-btn {
+.start-btn,
+.reset-btn {
   width: 100%;
 }
 
@@ -445,20 +363,6 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
-}
-
-.empty-dialogue {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  color: #999;
-}
-
-.empty-dialogue .hint {
-  font-size: 14px;
-  margin-top: 8px;
 }
 
 .recommendation-result {
@@ -535,59 +439,6 @@ onMounted(() => {
   color: #666;
   font-size: 14px;
   line-height: 1.5;
-}
-
-.loading-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
-  background: #f5f7fa;
-  border-radius: 12px;
-  margin-top: 16px;
-}
-
-.loading-item .dialogue-avatar {
-  font-size: 32px;
-}
-
-.loading-item .dialogue-bubble {
-  flex: 1;
-}
-
-.loading-item .dialogue-label {
-  font-size: 14px;
-  color: #667eea;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.loading-item .dialogue-text {
-  color: #666;
-}
-
-.loading .dots {
-  animation: blink 1.5s infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.loading-small {
-  text-align: center;
-  padding: 20px;
-  color: #999;
-}
-
-.error-message {
-  background: #fee;
-  border: 1px solid #fcc;
-  color: #c33;
-  padding: 12px;
-  border-radius: 8px;
-  margin-top: 16px;
 }
 
 @media (max-width: 900px) {

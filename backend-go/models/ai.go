@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // ==================== Evaluator Models ====================
 
@@ -67,18 +71,17 @@ type WeakPoint struct {
 // UserWeakPoint represents the association between user and weak points
 type UserWeakPoint struct {
 	gorm.Model
-	StudentID   string `json:"student_id" gorm:"index"`
-	WeakPointID uint   `json:"weak_point_id"`
-	Count       int    `json:"count" gorm:"default:1"` // Number of times this weak point was recorded
+	StudentID   string    `json:"student_id" gorm:"index:idx_user_weak_point"`
+	WeakPointID uint      `json:"weak_point_id" gorm:"index:idx_user_weak_point"`
+	Count       int       `json:"count" gorm:"default:1"`                       // Number of times this weak point was recorded
+	RecordDate  time.Time `json:"record_date" gorm:"index:idx_user_weak_point"` // Recording date (per day)
 }
 
 // ==================== Validation ====================
 
 // ValidateEvaluateRequest validates the evaluate request
+// Note: StudentID is now obtained from token, not from request body
 func ValidateEvaluateRequest(req *EvaluateRequest) error {
-	if req.StudentID == "" {
-		return &ValidationError{Field: "student_id", Message: "学生ID不能为空"}
-	}
 	if req.Code == "" {
 		return &ValidationError{Field: "code", Message: "代码不能为空"}
 	}
@@ -89,10 +92,8 @@ func ValidateEvaluateRequest(req *EvaluateRequest) error {
 }
 
 // ValidateRecommendRequest validates the recommend request
+// Note: StudentID is now obtained from token, not from request body
 func ValidateRecommendRequest(req *RecommendRequest) error {
-	if req.StudentID == "" {
-		return &ValidationError{Field: "student_id", Message: "学生ID不能为空"}
-	}
 	if req.MaxRecommendations <= 0 {
 		req.MaxRecommendations = 5 // Default value
 	}

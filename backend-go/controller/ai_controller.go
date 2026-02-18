@@ -13,20 +13,32 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// DispatcherIface defines the interface for dispatcher operations
+type DispatcherIface interface {
+	SubmitAndWait(job *models.AIJob, timeout time.Duration) (interface{}, error)
+	SubmitJob(job *models.AIJob) bool
+	SubmitJobWithError(job *models.AIJob) (bool, error)
+}
+
 // AIController handles AI evaluate and recommend requests
 type AIController struct {
-	AIService service.AIServiceIface
+	AIService  service.AIServiceIface
+	Dispatcher DispatcherIface
 }
 
 // NewAIController creates a new AIController
-func NewAIController(aiService service.AIServiceIface) *AIController {
+func NewAIController(aiService service.AIServiceIface, dispatcher DispatcherIface) *AIController {
 	return &AIController{
-		AIService: aiService,
+		AIService:  aiService,
+		Dispatcher: dispatcher,
 	}
 }
 
 // HandleEvaluate handles the /api/v1/ai/evaluate endpoint
 func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
+	// Get student ID from token (secure way)
+	studentID := c.MustGet("student_id").(string)
+
 	// Read request body
 	requestBody, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -41,7 +53,14 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		return
 	}
 
-	// Validate request
+	// Security check: if request body contains student_id, it must match the token
+	// This prevents privilege escalation attacks
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request (student_id validation removed - now from token)
 	if err := models.ValidateEvaluateRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -52,8 +71,80 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 		req.ConversationID = generateConversationID()
 	}
 
-	// Call AI proxy service
-	aiResponse, err := ctrl.AIService.ProxyEvaluate(requestBody, req.StudentID, req.ConversationID)
+	// Use dispatcher if available, otherwise fall back to direct service call
+	if ctrl.Dispatcher != nil {
+		// Save request record to DB first
+		requestRecord := models.AIRecord{
+			ConversationID: req.ConversationID,
+			StudentID:      studentID,
+			RoundNumber:    0,
+			Role:           "student",
+			RequestPayload: string(requestBody),
+		}
+		if db, ok := ctrl.AIService.(*service.AIService); ok {
+			db.GetDB().Create(&requestRecord)
+		}
+
+		// Create job - pass the parsed struct, not raw bytes
+		job := service.NewAIJob(models.JobTypeEvaluate, req, studentID, req.ConversationID)
+
+		// Try to submit job (non-blocking)
+		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
+			// Return appropriate error message based on the reason
+			errorMsg := "Server busy, please try again later"
+			if err != nil {
+				switch err.Error() {
+				case "User task limit exceeded":
+					errorMsg = "User task limit exceeded"
+				case "Rate limit exceeded, please try again later":
+					errorMsg = "Rate limit exceeded, please try again later"
+				}
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
+			return
+		}
+
+		// Wait for result with timeout
+		select {
+		case result := <-job.ResultChan:
+			if result.Err != nil {
+				// Save error record
+				if db, ok := ctrl.AIService.(*service.AIService); ok {
+					errorRecord := models.AIRecord{
+						ConversationID: req.ConversationID,
+						StudentID:      studentID,
+						RoundNumber:    0,
+						Role:           "system_error",
+						RequestPayload: string(requestBody),
+						Error:          result.Err.Error(),
+					}
+					db.GetDB().Create(&errorRecord)
+				}
+				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
+				return
+			}
+			// Save response record
+			if db, ok := ctrl.AIService.(*service.AIService); ok {
+				responseData, _ := json.Marshal(result.Data)
+				responseRecord := models.AIRecord{
+					ConversationID:  req.ConversationID,
+					StudentID:       studentID,
+					RoundNumber:     0,
+					Role:            "assistant",
+					RequestPayload:  string(requestBody),
+					ResponsePayload: string(responseData),
+				}
+				db.GetDB().Create(&responseRecord)
+			}
+			c.JSON(http.StatusOK, result.Data)
+		case <-time.After(30 * time.Second):
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
+		}
+		return
+	}
+
+	// Fallback: direct service call
+	aiResponse, err := ctrl.AIService.ProxyEvaluate(requestBody, studentID, req.ConversationID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
 		return
@@ -65,6 +156,9 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 
 // HandleRecommend handles the /api/v1/ai/recommend endpoint
 func (ctrl *AIController) HandleRecommend(c *gin.Context) {
+	// Get student ID from token (secure way)
+	studentID := c.MustGet("student_id").(string)
+
 	// Read request body
 	requestBody, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -79,14 +173,96 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		return
 	}
 
-	// Validate request
+	// Security check: if request body contains student_id, it must match the token
+	// This prevents privilege escalation attacks
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request (student_id validation removed - now from token)
 	if err := models.ValidateRecommendRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Call AI proxy service
-	aiResponse, err := ctrl.AIService.ProxyRecommend(requestBody, req.StudentID)
+	// Use dispatcher if available, otherwise fall back to direct service call
+	if ctrl.Dispatcher != nil {
+		// Generate conversation ID for recommend
+		conversationID := fmt.Sprintf("rec_%d", time.Now().UnixNano())
+
+		// Save request record to DB first
+		requestRecord := models.AIRecord{
+			ConversationID: conversationID,
+			StudentID:      studentID,
+			RoundNumber:    0,
+			Role:           "student",
+			RequestPayload: string(requestBody),
+		}
+		if db, ok := ctrl.AIService.(*service.AIService); ok {
+			db.GetDB().Create(&requestRecord)
+		}
+
+		// Create job - pass the parsed struct, not raw bytes
+		job := service.NewAIJob(models.JobTypeRecommend, req, studentID, conversationID)
+
+		// Try to submit job (non-blocking)
+		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
+			// Return appropriate error message based on the reason
+			errorMsg := "Server busy, please try again later"
+			if err != nil {
+				switch err.Error() {
+				case "User task limit exceeded":
+					errorMsg = "User task limit exceeded"
+				case "Rate limit exceeded, please try again later":
+					errorMsg = "Rate limit exceeded, please try again later"
+				}
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
+			return
+		}
+
+		// Wait for result with timeout
+		select {
+		case result := <-job.ResultChan:
+			if result.Err != nil {
+				// Save error record
+				if db, ok := ctrl.AIService.(*service.AIService); ok {
+					errorRecord := models.AIRecord{
+						ConversationID: conversationID,
+						StudentID:      studentID,
+						RoundNumber:    0,
+						Role:           "system_error",
+						RequestPayload: string(requestBody),
+						Error:          result.Err.Error(),
+					}
+					db.GetDB().Create(&errorRecord)
+				}
+				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
+				return
+			}
+			// Save response record
+			if db, ok := ctrl.AIService.(*service.AIService); ok {
+				responseData, _ := json.Marshal(result.Data)
+				responseRecord := models.AIRecord{
+					ConversationID:  conversationID,
+					StudentID:       studentID,
+					RoundNumber:     0,
+					Role:            "assistant",
+					RequestPayload:  string(requestBody),
+					ResponsePayload: string(responseData),
+				}
+				db.GetDB().Create(&responseRecord)
+			}
+			c.JSON(http.StatusOK, result.Data)
+		case <-time.After(20 * time.Second):
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
+		}
+		return
+	}
+
+	// Fallback: direct service call
+	aiResponse, err := ctrl.AIService.ProxyRecommend(requestBody, studentID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
 		return
@@ -100,7 +276,20 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 func (ctrl *AIController) GetUserWeakPoints(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
-	weakPoints, err := ctrl.AIService.GetUserWeakPoints(studentID)
+	// Parse optional date range parameters
+	var startDate, endDate *time.Time
+	if startDateStr := c.Query("start_date"); startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			startDate = &t
+		}
+	}
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			endDate = &t
+		}
+	}
+
+	weakPoints, err := ctrl.AIService.GetUserWeakPoints(studentID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch weak points"})
 		return
@@ -113,13 +302,65 @@ func (ctrl *AIController) GetUserWeakPoints(c *gin.Context) {
 func (ctrl *AIController) GetTopWeakPoints(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
-	weakPoints, err := ctrl.AIService.GetTopWeakPoints(studentID, 5)
+	// Parse optional date range parameters
+	var startDate, endDate *time.Time
+	if startDateStr := c.Query("start_date"); startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			startDate = &t
+		}
+	}
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			endDate = &t
+		}
+	}
+
+	weakPoints, err := ctrl.AIService.GetTopWeakPoints(studentID, 5, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top weak points"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Top weak points fetched successfully", "data": weakPoints})
+}
+
+// GetDebugRecords handles the /api/v1/ai/records/debug endpoint
+func (ctrl *AIController) GetDebugRecords(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	records, err := ctrl.AIService.GetDebugRecords(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch debug records"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Debug records fetched successfully", "data": records})
+}
+
+// GetEvaluateRecords handles the /api/v1/ai/records/evaluate endpoint
+func (ctrl *AIController) GetEvaluateRecords(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	records, err := ctrl.AIService.GetEvaluateRecords(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch evaluate records"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Evaluate records fetched successfully", "data": records})
+}
+
+// GetRecommendRecords handles the /api/v1/ai/records/recommend endpoint
+func (ctrl *AIController) GetRecommendRecords(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	records, err := ctrl.AIService.GetRecommendRecords(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommend records"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Recommend records fetched successfully", "data": records})
 }
 
 // generateConversationID generates a unique conversation ID

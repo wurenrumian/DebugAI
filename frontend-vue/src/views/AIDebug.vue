@@ -1,11 +1,11 @@
 <template>
-  <div class="ai-debug-container">
-    <div class="ai-debug-header">
+  <div class="page-container">
+    <div class="page-header">
       <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
       <h1>🤖 AI 代码调试</h1>
     </div>
     
-    <div class="ai-debug-content">
+    <div class="content-wrapper ai-debug-content">
       <!-- 左侧：问题描述和代码输入 -->
       <div class="left-panel">
         <div class="card">
@@ -39,12 +39,12 @@
           ></textarea>
         </div>
         
-        <button 
-          @click="startDebug" 
-          class="btn btn-primary start-btn" 
-          :disabled="loading || !canStart"
+        <button
+          @click="startDebug"
+          class="btn btn-primary start-btn"
+          :disabled="loading || !canStart || isConversationClosed"
         >
-          {{ loading ? '处理中...' : currentRound > 1 ? '继续调试' : '开始调试' }}
+          {{ loading ? '处理中...' : isConversationClosed|currentRound>4 ? '对话已关闭' : currentRound > 1 ? '继续调试' : '开始调试' }}
         </button>
         
         <button 
@@ -62,7 +62,8 @@
           <div class="dialogue-header">
             <h2 class="subtitle">对话记录</h2>
             <div class="round-info">
-              <span class="round-badge">第 {{ currentRound }} / 4 轮</span>
+              <span v-if="currentRound<=4" class="round-badge">第 {{ currentRound }} / 4 轮</span>
+              <span v-else class="round-badge">已完成</span>
               <span v-if="roundInfo" class="round-title">{{ roundInfo.round_title }}</span>
             </div>
           </div>
@@ -97,7 +98,7 @@
               <div class="dialogue-avatar">🤖</div>
               <div class="dialogue-bubble">
                 <div class="dialogue-label">AI 助手</div>
-                <div class="dialogue-text loading">
+                <div class="dialogue-text loading-dots">
                   <span>正在思考</span>
                   <span class="dots">...</span>
                 </div>
@@ -107,27 +108,126 @@
           
           <!-- 学生回复输入 -->
           <div v-if="showStudentInput" class="student-input-area">
-            <div class="input-hint">
-              <span v-if="currentRound === 2">请确认 AI 对你思路的理解是否正确，或提出补充说明：</span>
-              <span v-else-if="currentRound === 3">请选择需要帮助的问题，或请求更详细的指导：</span>
-              <span v-else-if="currentRound === 4">请告诉 AI 你需要什么帮助：</span>
+            <!-- 第2轮：按钮选择 -->
+            <div v-if="currentRound === 2" class="round-2-input">
+              <div class="input-hint">
+                <span>请确认 AI 对你思路的理解是否正确：</span>
+              </div>
+              <!-- 按钮选择模式 -->
+              <div v-if="buttonSelection === ''" class="button-choice">
+                <button
+                  @click="handleRound2Choice('correct')"
+                  class="btn btn-primary"
+                  :disabled="loading"
+                >
+                  理解正确
+                </button>
+                <button
+                  @click="handleRound2Choice('need_correction')"
+                  class="btn btn-secondary"
+                  :disabled="loading"
+                >
+                  需要修正思路
+                </button>
+              </div>
+              <!-- 输入框模式（选择需要修正思路后显示） -->
+              <div v-else class="text-input-mode">
+                <textarea
+                  v-model="studentResponse"
+                  placeholder="请输入你对思路的修正说明..."
+                  rows="3"
+                ></textarea>
+                <button
+                  @click="submitStudentResponse"
+                  class="btn btn-primary"
+                  :disabled="!studentResponse.trim() || loading"
+                >
+                  发送
+                </button>
+              </div>
             </div>
-            <textarea 
-              v-model="studentResponse" 
-              placeholder="请输入你的回答..."
-              rows="3"
-            ></textarea>
-            <button 
-              @click="submitStudentResponse" 
-              class="btn btn-primary"
-              :disabled="!studentResponse.trim() || loading"
-            >
-              发送
-            </button>
+
+            <!-- 第3轮：按钮选择 -->
+            <div v-else-if="currentRound === 3" class="round-3-input">
+              <div class="input-hint">
+                <span>请选择是否需要进一步帮助：</span>
+              </div>
+              <!-- 按钮选择模式 -->
+              <div v-if="buttonSelection === ''" class="button-choice">
+                <button
+                  @click="handleRound3Choice('need')"
+                  class="btn btn-primary"
+                  :disabled="loading"
+                >
+                  需要
+                </button>
+                <button
+                  @click="handleRound3Choice('not_need')"
+                  class="btn btn-secondary"
+                  :disabled="loading"
+                >
+                  不需要
+                </button>
+              </div>
+              <!-- 输入框模式（选择需要后显示） -->
+              <div v-else class="text-input-mode">
+                <textarea
+                  v-model="studentResponse"
+                  placeholder="请告诉 AI 你需要什么帮助..."
+                  rows="3"
+                ></textarea>
+                <button
+                  @click="submitStudentResponse"
+                  class="btn btn-primary"
+                  :disabled="!studentResponse.trim() || loading"
+                >
+                  发送
+                </button>
+              </div>
+            </div>
+
+            <!-- 第4轮：按钮选择 -->
+            <div v-else-if="currentRound === 4" class="round-4-input">
+              <div class="input-hint">
+                <span>请选择是否需要进一步帮助：</span>
+              </div>
+              <!-- 按钮选择模式 -->
+              <div v-if="buttonSelection === ''" class="button-choice">
+                <button
+                  @click="handleRound3Choice('need')"
+                  class="btn btn-primary"
+                  :disabled="loading"
+                >
+                  需要
+                </button>
+                <button
+                  @click="handleRound3Choice('not_need')"
+                  class="btn btn-secondary"
+                  :disabled="loading"
+                >
+                  不需要
+                </button>
+              </div>
+              <!-- 输入框模式（选择需要后显示） -->
+              <div v-else class="text-input-mode">
+                <textarea
+                  v-model="studentResponse"
+                  placeholder="请告诉 AI 你需要什么帮助..."
+                  rows="3"
+                ></textarea>
+                <button
+                  @click="submitStudentResponse"
+                  class="btn btn-primary"
+                  :disabled="!studentResponse.trim() || loading"
+                >
+                  发送
+                </button>
+              </div>
+            </div>
           </div>
           
           <!-- 对话完成提示 -->
-          <div v-if="currentRound > 4 || (roundInfo && roundInfo.is_completed)" class="completion-notice">
+          <div v-if="currentRound > 4 && (roundInfo && roundInfo.is_completed)" class="completion-notice">
             <p>🎉 对话已完成！如需继续调试，请新建对话。</p>
           </div>
         </div>
@@ -165,9 +265,58 @@ const studentResponse = ref('')
 const showStudentInput = ref(false)
 const roundInfo = ref(null)
 
+// 按钮选择状态
+const buttonSelection = ref('') // '' | 'correct' | 'need_correction' | 'need' | 'not_need'
+
+// 对话关闭状态
+const isConversationClosed = ref(false)
+
 // 加载状态
 const loading = ref(false)
 const errorMessage = ref('')
+
+// 第2轮处理
+const handleRound2Choice = (choice) => {
+  buttonSelection.value = choice
+  if (choice === 'correct') {
+    // 理解正确，直接发送
+    studentResponse.value = '理解正确'
+    submitStudentResponse()
+  }
+  // need_correction 时，显示输入框让学生填写
+}
+
+// 第3轮处理
+const handleRound3Choice = async (choice) => {
+  buttonSelection.value = choice
+  if (choice === 'not_need') {
+    // 不需要帮助，关闭对话
+    try {
+      await aiAPI.closeConversation(conversationId.value)
+      // 显示完成提示，不再发送请求
+      isConversationClosed.value = true
+      showStudentInput.value = false
+      roundInfo.value = { is_completed: true }
+    } catch (error) {
+      console.error('关闭对话失败:', error)
+      errorMessage.value = '关闭对话失败，请重试'
+    }
+  }
+  // need 时，显示输入框让学生填写
+}
+
+// 关闭对话并结束
+const closeConversation = async () => {
+  try {
+    await aiAPI.closeConversation(conversationId.value)
+    isConversationClosed.value = true
+    showStudentInput.value = false
+    roundInfo.value = { is_completed: true }
+  } catch (error) {
+    console.error('关闭对话失败:', error)
+    errorMessage.value = '关闭对话失败，请重试'
+  }
+}
 
 // 计算是否能开始调试
 const canStart = computed(() => {
@@ -257,8 +406,9 @@ const startDebug = async () => {
       // 检查是否还有后续输入
       showStudentInput.value = currentRound.value <= 4
       
-      // 清空学生回复
+      // 清空学生回复和按钮选择状态
       studentResponse.value = ''
+      buttonSelection.value = ''
     }
   } catch (error) {
     errorMessage.value = error.error || '请求失败，请稍后重试'
@@ -283,6 +433,8 @@ const resetConversation = () => {
   studentResponse.value = ''
   showStudentInput.value = false
   roundInfo.value = null
+  buttonSelection.value = ''
+  isConversationClosed.value = false
   formData.value = {
     problem_description: '',
     code: '',
@@ -339,69 +491,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-debug-container {
-  min-height: 100vh;
-  background-color: #f5f7fa;
-}
-
-.ai-debug-header {
-  background: white;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.ai-debug-header h1 {
-  font-size: 24px;
-  color: #303133;
-  margin-top: 10px;
-}
-
-.back-link {
-  color: #409eff;
-  font-size: 14px;
-}
-
-.back-link:hover {
-  text-decoration: underline;
-}
-
 .ai-debug-content {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 20px;
 }
 
 .left-panel .card {
   margin-bottom: 15px;
-}
-
-.left-panel textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  resize: vertical;
-  font-family: inherit;
-}
-
-.left-panel textarea:focus {
-  border-color: #409eff;
-  outline: none;
-}
-
-.left-panel textarea:disabled {
-  background-color: #f5f7fa;
-  cursor: not-allowed;
-}
-
-.code-input {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-  background-color: #f8f9fa;
 }
 
 .start-btn {
@@ -484,96 +581,7 @@ onMounted(() => {
   max-height: 400px;
 }
 
-.empty-dialogue {
-  text-align: center;
-  padding: 40px;
-  color: #909399;
-}
-
-.empty-dialogue .hint {
-  font-size: 12px;
-  margin-top: 10px;
-}
-
-.dialogue-item {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.dialogue-item.student {
-  flex-direction: row-reverse;
-}
-
-.dialogue-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #f0f0f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.dialogue-item.assistant .dialogue-avatar {
-  background: #e6f7ff;
-}
-
-.dialogue-bubble {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: #f5f7fa;
-}
-
-.dialogue-item.student .dialogue-bubble {
-  background: #409eff;
-  color: white;
-}
-
-.dialogue-label {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 5px;
-}
-
-.dialogue-item.student .dialogue-label {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.dialogue-text {
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.dialogue-text pre {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 10px 0;
-}
-
-.dialogue-text code {
-  background: #f0f0f0;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-}
-
-.dialogue-item.student .dialogue-text code {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.loading-item {
-  opacity: 0.7;
-}
-
-.loading .dots {
+.loading-dots .dots {
   animation: blink 1.5s infinite;
 }
 
@@ -595,11 +603,6 @@ onMounted(() => {
 }
 
 .student-input-area textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
   resize: none;
   margin-bottom: 10px;
 }
@@ -608,31 +611,46 @@ onMounted(() => {
   width: 100%;
 }
 
-.completion-notice {
-  text-align: center;
-  padding: 15px;
-  background: #f0f9eb;
-  border: 1px solid #e1f3d8;
-  border-radius: 6px;
-  margin-top: 15px;
+/* 按钮选择样式 */
+.button-choice {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
 }
 
-.completion-notice p {
-  color: #67c23a;
+.button-choice .btn {
+  flex: 1;
+  padding: 12px;
   font-size: 14px;
 }
 
-.error-toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #f56c6c;
+.text-input-mode textarea {
+  width: 100%;
+  resize: none;
+  margin-bottom: 10px;
+}
+
+.text-input-mode .btn {
+  width: 100%;
+}
+
+/* 辅助按钮样式 */
+.btn-secondary {
+  background-color: #909399;
   color: white;
-  padding: 12px 24px;
-  border-radius: 6px;
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(245, 108, 108, 0.3);
+  transition: background-color 0.3s;
+}
+
+.btn-secondary:hover {
+  background-color: #82848a;
+}
+
+.btn-secondary:disabled {
+  background-color: #c0c4cc;
+  cursor: not-allowed;
 }
 
 @media (max-width: 900px) {

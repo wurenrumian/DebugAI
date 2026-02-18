@@ -65,9 +65,19 @@ export const aiAPI = {
 	debugV2(data) {
 		return api.post('/api/v1/ai/debug_v2', data)
 	},
-	// 获取AI交互历史
+	// 获取AI交互历史（所有类型）
 	getRecords() {
 		return api.get('/api/v1/ai/records')
+	},
+	// 分类型获取历史记录
+	getDebugRecords() {
+		return api.get('/api/v1/ai/records/debug')
+	},
+	getEvaluateRecords() {
+		return api.get('/api/v1/ai/records/evaluate')
+	},
+	getRecommendRecords() {
+		return api.get('/api/v1/ai/records/recommend')
 	},
 	// 获取轮次信息
 	getRoundInfo(round, response = '') {
@@ -94,6 +104,10 @@ export const aiAPI = {
 	// 获取前5个薄弱点
 	getTopWeakPoints() {
 		return api.get('/api/v1/ai/weak_points/top')
+	},
+	// 关闭对话
+	closeConversation(conversationId) {
+		return api.post('/api/v1/ai/debug/close', { conversation_id: conversationId })
 	}
 }
 

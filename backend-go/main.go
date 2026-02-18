@@ -4,6 +4,7 @@ import (
 	"backend-go/config"
 	"backend-go/controller"
 	"backend-go/middleware"
+	"backend-go/models"
 	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
@@ -12,15 +13,20 @@ import (
 func main() {
 	config.InitDB()
 
+	// Initialize Python AI service URL
+	pythonBaseURL := "http://localhost:8000"
+
+	// Initialize Dispatcher with worker pools
+	dispatcher := service.NewDispatcher(pythonBaseURL, config.DB, models.PoolConfigs())
+	dispatcher.Start()
+
 	// Initialize AI Proxy Service and Controller (for debug_v2)
-	pythonDebugURL := "http://localhost:8000/debug_v2" // Python AI debug service URL
-	aiProxyService := service.NewAIProxyService(config.DB, pythonDebugURL)
-	aiProxyController := controller.NewAIProxyController(aiProxyService)
+	aiProxyService := service.NewAIProxyService(config.DB, pythonBaseURL+"/debug_v2")
+	aiProxyController := controller.NewAIProxyController(aiProxyService, dispatcher)
 
 	// Initialize AI Service and Controller (for evaluate and recommend)
-	pythonBaseURL := "http://localhost:8000" // Python AI service base URL
 	aiService := service.NewAIService(config.DB, pythonBaseURL)
-	aiController := controller.NewAIController(aiService)
+	aiController := controller.NewAIController(aiService, dispatcher)
 
 	// Seed default weak point keywords
 	aiService.SeedWeakPointKeywords()
@@ -53,6 +59,8 @@ func main() {
 
 		// AI Debug V2 代理路由
 		api.POST("/ai/debug_v2", aiProxyController.HandleDebugV2)
+		// 关闭对话
+		api.POST("/ai/debug/close", aiProxyController.HandleCloseConversation)
 		// 获取AI交互历史记录
 		api.GET("/ai/records", aiProxyController.GetAIRecords)
 		// 获取轮次信息
@@ -68,6 +76,19 @@ func main() {
 		api.GET("/ai/weak_points", aiController.GetUserWeakPoints)
 		// 获取用户前5个薄弱点（用于推荐）
 		api.GET("/ai/weak_points/top", aiController.GetTopWeakPoints)
+		// 分类型获取历史记录
+		api.GET("/ai/records/debug", aiController.GetDebugRecords)
+		api.GET("/ai/records/evaluate", aiController.GetEvaluateRecords)
+		api.GET("/ai/records/recommend", aiController.GetRecommendRecords)
+
+		// 班级管理路由
+		api.POST("/classes", controller.CreateClass)                      // 创建班级（仅admin）
+		api.GET("/classes", controller.GetClasses)                        // 获取班级列表
+		api.GET("/classes/my", controller.GetMyClasses)                   // 获取我的班级
+		api.POST("/classes/:id/join", controller.JoinClass)               // 加入班级
+		api.GET("/classes/:id/members", controller.GetClassMembers)       // 获取班级成员
+		api.POST("/classes/:id/members/add", controller.AddMembers)       // 批量添加成员（仅teacher）
+		api.POST("/classes/:id/members/remove", controller.RemoveMembers) // 批量移除成员（仅teacher）
 	}
 
 	r.Run(":8080")
