@@ -79,21 +79,38 @@
 - `maxDisplay` 限制显示数量，超出显示"查看更多"
 - 支持 `v-model:selected` 双向绑定
 
+**注意**：
+- 组件仅负责展示和选择交互，不包含时间范围或 topK 筛选逻辑
+- 数据获取由父组件负责，通过 props 传递已筛选好的数据
+
 ### 2. 集成到 Recommend 页面
 **路径**: `frontend-vue/src/views/Recommend.vue`
 
 **改造步骤**:
 1. 引入 WeakPointDisplay 组件
-2. 替换第 10-35 行的薄弱点列表
-3. 绑定: `:weakPoints="userWeakPoints" :selectable="true" v-model:selected="selectedWeakPoints"`
-4. 删除原 `v-for` 循环和 `toggleWeakPoint` 方法
-5. 保留推荐数量设置和 `submitRecommend` 逻辑
-6. 删除第 193 行自动全选逻辑
+2. 在左侧面板顶部添加筛选控件：
+   - 时间范围选择：开始日期 `input type="date"`、结束日期 `input type="date"`
+   - Top K 输入：数字输入框 `input type="number"`（默认值 5）
+3. 将筛选条件绑定到响应式变量：`startDate`、`endDate`、`topK`
+4. 修改 `fetchUserWeakPoints` 方法，根据筛选条件调用不同接口：
+   - 如果 `topK > 0`：调用 `aiAPI.getTopWeakPoints({ start_date: startDate, end_date: endDate })`
+   - 否则：调用 `aiAPI.getWeakPoints({ start_date: startDate, end_date: endDate })`
+5. 替换第 10-35 行的薄弱点列表为 WeakPointDisplay 组件
+6. 绑定: `:weakPoints="userWeakPoints" :selectable="true" v-model:selected="selectedWeakPoints"`
+7. 删除原 `v-for` 循环和 `toggleWeakPoint` 方法
+8. 保留推荐数量设置和 `submitRecommend` 逻辑
+9. 删除第 193 行自动全选逻辑
+10. 监听筛选条件变化，自动重新获取数据（使用 `watch`）
 
 **数据流**:
 - Recommend 通过 `v-model:selected` 绑定 `selectedWeakPoints`
 - WeakPointDisplay emit `update:selected` 更新
 - `submitRecommend` 直接使用 `selectedWeakPoints` 构建 `weak_points` 字典
+- 筛选条件变化 → 重新调用 `fetchUserWeakPoints` → 更新 `userWeakPoints`
+
+**新增 API 调用**:
+- `aiAPI.getWeakPoints({ start_date, end_date })` - 获取指定时间范围的薄弱点
+- `aiAPI.getTopWeakPoints({ start_date, end_date })` - 获取指定时间范围的 Top K 薄弱点
 
 ## 测试验证
 
