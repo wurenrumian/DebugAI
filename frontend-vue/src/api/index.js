@@ -97,13 +97,13 @@ export const aiAPI = {
 	recommend(data) {
 		return api.post('/api/v1/ai/recommend', data)
 	},
-	// 获取用户薄弱点
-	getWeakPoints() {
-		return api.get('/api/v1/ai/weak_points')
+	// 获取用户薄弱点（支持日期筛选）
+	getWeakPoints(params = {}) {
+		return api.get('/api/v1/ai/weak_points', { params })
 	},
-	// 获取前5个薄弱点
-	getTopWeakPoints() {
-		return api.get('/api/v1/ai/weak_points/top')
+	// 获取前N个薄弱点（支持日期筛选）
+	getTopWeakPoints(params = {}) {
+		return api.get('/api/v1/ai/weak_points/top', { params })
 	},
 	// 关闭对话
 	closeConversation(conversationId) {
