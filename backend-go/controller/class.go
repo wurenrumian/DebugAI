@@ -247,7 +247,6 @@ func GetMyClasses(c *gin.Context) {
 	for _, m := range members {
 		var class models.Class
 		if err := config.DB.Preload("Creator").First(&class, m.ClassID).Error; err == nil {
-			class.CreatedAt = class.CreatedAt // 保持原样
 			classes = append(classes, class)
 		}
 	}
