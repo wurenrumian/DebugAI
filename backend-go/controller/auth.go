@@ -23,6 +23,18 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// 检查学号是否已存在
+	var existingUser models.User
+	if err := config.DB.Where("student_id = ?", input.StudentID).First(&existingUser).Error; err == nil {
+		// 找到记录，学号已被占用
+		c.JSON(http.StatusConflict, gin.H{"error": "学号不可用"})
+		return
+	} else if err != nil && err != gorm.ErrRecordNotFound {
+		// 数据库查询错误
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
+		return
+	}
+
 	// 密码哈希
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 
@@ -34,7 +46,7 @@ func Register(c *gin.Context) {
 	}
 
 	if err := config.DB.Create(&user).Error; err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "学号已存在"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "注册失败"})
 		return
 	}
 
