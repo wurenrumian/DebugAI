@@ -11,7 +11,7 @@
           <span class="group-time">{{ formatDate(group.latest_time) }}</span>
         </div>
         <button
-          @click="$emit('view-details', group)"
+          @click="viewDetails(group)"
           class="btn btn-secondary btn-sm"
         >
           查看详情
@@ -42,7 +42,54 @@ const props = defineProps({
   }
 })
 
-defineEmits(['view-details'])
+const emit = defineEmits(['view-details'])
+
+// 查看详情
+const viewDetails = (group) => {
+  // 按轮次排序，每轮内学生在前，AI在后
+  const sortedRecords = group.records.sort((a, b) => {
+    if (a.round_number !== b.round_number) {
+      return a.round_number - b.round_number
+    }
+    // 同一轮内：学生(role=student)在前，AI(role=assistant)在后
+    return a.role === 'student' ? -1 : 1
+  })
+  
+  // 提取首次提交的题目描述和代码
+  const initialSubmission = extractInitialSubmission(group.records)
+  
+  emit('view-details', {
+    records: sortedRecords,
+    initialSubmission,
+    type: 'debug'
+  })
+}
+
+// 从记录中提取首次提交的题目描述和代码
+const extractInitialSubmission = (records) => {
+  // 优先找 round_number 为 1 的学生记录（debug类型）
+  let firstRecord = records.find(r => r.round_number === 1 && r.role === 'student')
+  
+  // 如果没找到，尝试找第一个学生记录（evaluate类型）
+  if (!firstRecord) {
+    firstRecord = records.find(r => r.role === 'student')
+  }
+  
+  if (firstRecord && firstRecord.request_payload) {
+    try {
+      const req = typeof firstRecord.request_payload === 'string'
+        ? JSON.parse(firstRecord.request_payload)
+        : firstRecord.request_payload
+      return {
+        problem_description: req.problem_description || '',
+        code: req.code || ''
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
 
 // 按会话分组的记录（调试）
 const groupedRecords = computed(() => {

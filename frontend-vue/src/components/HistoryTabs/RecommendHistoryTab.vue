@@ -11,7 +11,7 @@
           <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
         </div>
         <button
-          @click="$emit('view-details', record)"
+          @click="viewDetails(record)"
           class="btn btn-secondary btn-sm"
         >
           查看详情
@@ -36,7 +36,16 @@ defineProps({
   }
 })
 
-defineEmits(['view-details'])
+const emit = defineEmits(['view-details'])
+
+// 查看详情
+const viewDetails = (record) => {
+  emit('view-details', {
+    records: [record],
+    initialSubmission: null,
+    type: 'recommend'
+  })
+}
 
 // 格式化日期
 const formatDate = (timestamp) => {

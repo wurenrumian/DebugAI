@@ -32,10 +32,11 @@ frontend-vue/
     │   ├── auth.js        # 用户认证状态管理
     │   └── class.js       # 班级状态管理
     ├── components/
-    │   ├── HistoryTabs/   # 历史记录标签页组件
-    │   │   ├── DebugHistoryTab.vue
-    │   │   ├── EvaluateHistoryTab.vue
-    │   │   └── RecommendHistoryTab.vue
+    │   ├── HistoryTabs/   # 历史记录标签页组件（可复用）
+    │   │   ├── DebugHistoryTab.vue     # 调试历史组件
+    │   │   ├── EvaluateHistoryTab.vue  # 评价历史组件
+    │   │   ├── RecommendHistoryTab.vue # 推荐历史组件
+    │   │   └── HistoryDetailModal.vue  # 详情弹窗组件（可复用）
     │   ├── WeakPointDisplay.vue  # 薄弱点展示组件
     │   └── class/        # 班级管理组件
     │       ├── ClassSelector.vue   # 班级选择器
@@ -163,7 +164,52 @@ Vite 开发服务器代理配置：
 **特性**：
 - 标签页切换 (调试/评价/推荐)
 - 按类型筛选
-- 查看详细内容
+- 查看详细内容（包含题目描述和提交代码）
+
+**可复用组件**：
+历史记录相关组件已封装为独立可复用组件，适用于班级管理等场景：
+
+| 组件                                                                            | 说明         | 事件输出                                                                 |
+| ------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------ |
+| [`DebugHistoryTab.vue`](src/components/HistoryTabs/DebugHistoryTab.vue)         | 调试历史列表 | `@view-details` 返回 `{ records, initialSubmission, type: 'debug' }`     |
+| [`EvaluateHistoryTab.vue`](src/components/HistoryTabs/EvaluateHistoryTab.vue)   | 评价历史列表 | `@view-details` 返回 `{ records, initialSubmission, type: 'evaluate' }`  |
+| [`RecommendHistoryTab.vue`](src/components/HistoryTabs/RecommendHistoryTab.vue) | 推荐历史列表 | `@view-details` 返回 `{ records, initialSubmission, type: 'recommend' }` |
+| [`HistoryDetailModal.vue`](src/components/HistoryTabs/HistoryDetailModal.vue)   | 详情弹窗     | 接收 `records`, `initialSubmission`, `type` props，发出 `@close` 事件    |
+
+**复用示例**：
+```vue
+<template>
+  <DebugHistoryTab
+    :records="classDebugRecords"
+    @view-details="handleViewDetails"
+  />
+  
+  <HistoryDetailModal
+    v-if="showModal"
+    :records="selectedRecords"
+    :initial-submission="initialSubmission"
+    :type="selectedType"
+    @close="showModal = false"
+  />
+</template>
+
+<script setup>
+import DebugHistoryTab from '@/components/HistoryTabs/DebugHistoryTab.vue'
+import HistoryDetailModal from '@/components/HistoryTabs/HistoryDetailModal.vue'
+
+const showModal = ref(false)
+const selectedRecords = ref([])
+const initialSubmission = ref(null)
+const selectedType = ref('debug')
+
+const handleViewDetails = ({ records, initialSubmission: initSub, type }) => {
+  selectedRecords.value = records
+  initialSubmission.value = initSub
+  selectedType.value = type
+  showModal.value = true
+}
+</script>
+```
 
 ### 6. 个人主页 ([`/profile`](src/views/Profile.vue))
 

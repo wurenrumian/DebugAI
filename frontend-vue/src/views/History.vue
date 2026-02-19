@@ -50,140 +50,33 @@
         <DebugHistoryTab
           v-if="activeTab === 'debug'"
           :records="records"
-          @view-details="viewDetails"
+          @view-details="handleViewDetails"
         />
         
         <!-- 评价历史 -->
         <EvaluateHistoryTab
           v-else-if="activeTab === 'evaluate'"
           :records="records"
-          @view-details="viewEvaluateDetails"
+          @view-details="handleViewDetails"
         />
         
         <!-- 推荐历史 -->
         <RecommendHistoryTab
           v-else-if="activeTab === 'recommend'"
           :records="records"
-          @view-details="viewRecommendDetails"
+          @view-details="handleViewDetails"
         />
       </div>
     </div>
     
-    <!-- 详情模态框 -->
-    <div v-if="showModal" class="modal-overlay" @click="closeModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h2>会话详情</h2>
-          <button @click="closeModal" class="close-btn">×</button>
-        </div>
-        
-        <div class="modal-body">
-          <!-- 首次提交的题目描述和代码（仅调试类型显示） -->
-          <div v-if="selectedType === 'debug' && initialSubmission" class="initial-submission">
-            <div class="submission-header" @click="showCodeModal = !showCodeModal">
-              <span class="submission-title">📝 题目描述</span>
-              <span class="expand-icon">{{ showCodeModal ? '▼' : '▶' }}</span>
-            </div>
-            <div v-if="showCodeModal" class="submission-content">
-              <div class="problem-description">
-                <h4>题目:</h4>
-                <div class="problem-text" v-html="initialSubmission.problem_description"></div>
-              </div>
-              <div class="code-section" v-if="initialSubmission.code">
-                <h4>提交的代码:</h4>
-                <pre class="code-display">{{ initialSubmission.code }}</pre>
-              </div>
-            </div>
-          </div>
-          
-          <!-- 调试记录显示 -->
-          <template v-if="selectedType === 'debug'">
-            <div
-              v-for="(record, index) in selectedRecords"
-              :key="index"
-              :class="['record-detail', record.role]"
-            >
-              <div class="detail-header">
-                <span class="detail-role">
-                  {{ getRecordRoleLabel(record) }}
-                </span>
-                <span class="detail-round">第 {{ record.round_number }} 轮</span>
-              </div>
-              
-              <div class="detail-content">
-                <!-- AI 回复使用组件 -->
-                <template v-if="record.role === 'assistant'">
-                  <AIResponseDisplay
-                    :ai-response="getRecordAIResponse(record)"
-                    :student-response="getRecordStudentResponse(record)"
-                  />
-                </template>
-                <!-- 学生回复直接显示 -->
-                <template v-else-if="record.role === 'student'">
-                  <div class="student-message">
-                    {{ getStudentContent(record) }}
-                  </div>
-                </template>
-                <!-- 其他情况 -->
-                <template v-else>
-                  <div class="detail-error">
-                    <h4>未知角色:</h4>
-                    <pre>{{ formatPayload(record) }}</pre>
-                  </div>
-                </template>
-                
-                <div v-if="record.error" class="detail-error">
-                  <h4>错误信息:</h4>
-                  <pre class="error-text">{{ record.error }}</pre>
-                </div>
-              </div>
-            </div>
-          </template>
-          
-          <!-- 评价记录显示 -->
-          <template v-else-if="selectedType === 'evaluate'">
-            <div
-              v-for="(record, index) in selectedRecords"
-              :key="index"
-              :class="['record-detail', record.role]"
-            >
-              <div class="detail-header">
-                <span class="detail-role">
-                  {{ record.role === 'student' ? '👤 学生提交' : '🤖 AI评价' }}
-                </span>
-              </div>
-              
-              <div class="detail-content">
-                <div v-if="record.role === 'student'" class="detail-payload">
-                  <h4>提交代码:</h4>
-                  <pre>{{ formatPayload(record.request_payload) }}</pre>
-                </div>
-                
-                <div v-else-if="record.role === 'assistant'" class="detail-payload">
-                  <h4>评价结果:</h4>
-                  <pre>{{ formatPayload(record.response_payload) }}</pre>
-                </div>
-              </div>
-            </div>
-          </template>
-          
-          <!-- 推荐记录显示 -->
-          <template v-else-if="selectedType === 'recommend'">
-            <div class="record-detail recommend">
-              <div class="detail-header">
-                <span class="detail-role">📚 题目推荐</span>
-              </div>
-              <div class="detail-content" v-if="selectedRecords[0]">
-                <div class="detail-payload">
-                  <h4>响应内容:</h4>
-                  <pre>{{ formatPayload(selectedRecords[0].response_payload) }}</pre>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
+    <!-- 详情模态框 - 使用可复用组件 -->
+    <HistoryDetailModal
+      v-if="showModal"
+      :records="selectedRecords"
+      :initial-submission="initialSubmission"
+      :type="selectedType"
+      @close="closeModal"
+    />
   </div>
 </template>
 
@@ -194,7 +87,7 @@ import { aiAPI } from '../api'
 import DebugHistoryTab from '../components/HistoryTabs/DebugHistoryTab.vue'
 import EvaluateHistoryTab from '../components/HistoryTabs/EvaluateHistoryTab.vue'
 import RecommendHistoryTab from '../components/HistoryTabs/RecommendHistoryTab.vue'
-import AIResponseDisplay from '../components/AIResponseDisplay.vue'
+import HistoryDetailModal from '../components/HistoryTabs/HistoryDetailModal.vue'
 
 const authStore = useAuthStore()
 
@@ -282,65 +175,11 @@ const fetchRecords = async () => {
   }
 }
 
-// 查看评价详情
-const viewEvaluateDetails = (record) => {
-  // 对于评价记录，需要同时显示学生请求和AI回复
-  // 根据 conversation_id 查找同一会话的所有记录
-  const relatedRecords = records.value.filter(
-    r => r.conversation_id === record.conversation_id
-  )
-  selectedRecords.value = relatedRecords.sort((a, b) => {
-    // student 记录在前，assistant 记录在后
-    if (a.role === 'student' && b.role === 'assistant') return -1
-    if (a.role === 'assistant' && b.role === 'student') return 1
-    return 0
-  })
-  selectedType.value = 'evaluate'
-  showModal.value = true
-}
-
-// 查看推荐详情
-const viewRecommendDetails = (record) => {
-  selectedRecords.value = [record]
-  selectedType.value = 'recommend'
-  showModal.value = true
-}
-
-// 从记录中提取首次提交的题目描述和代码
-const extractInitialSubmission = (records) => {
-  // 找到 round_number 为 1 的学生记录
-  const firstRecord = records.find(r => r.round_number === 1 && r.role === 'student')
-  if (firstRecord && firstRecord.request_payload) {
-    try {
-      const req = typeof firstRecord.request_payload === 'string'
-        ? JSON.parse(firstRecord.request_payload)
-        : firstRecord.request_payload
-      return {
-        problem_description: req.problem_description || '',
-        code: req.code || ''
-      }
-    } catch {
-      return null
-    }
-  }
-  return null
-}
-
-// 查看详情
-const viewDetails = (group) => {
-  // 按轮次排序，每轮内学生在前，AI在后
-  selectedRecords.value = group.records.sort((a, b) => {
-    if (a.round_number !== b.round_number) {
-      return a.round_number - b.round_number
-    }
-    // 同一轮内：学生(role=student)在前，AI(role=assistant)在后
-    return a.role === 'student' ? -1 : 1
-  })
-  
-  // 提取首次提交的题目描述和代码
-  initialSubmission.value = extractInitialSubmission(group.records)
-  
-  selectedType.value = 'debug'
+// 统一处理查看详情事件
+const handleViewDetails = ({ records: recs, initialSubmission: initSub, type }) => {
+  selectedRecords.value = recs
+  initialSubmission.value = initSub
+  selectedType.value = type
   showModal.value = true
 }
 
@@ -348,6 +187,7 @@ const viewDetails = (group) => {
 const closeModal = () => {
   showModal.value = false
   selectedRecords.value = []
+  initialSubmission.value = null
 }
 
 // 格式化日期
