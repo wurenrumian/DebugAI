@@ -771,14 +771,16 @@
 
 ## 班级历史记录接口（仅班级管理员可访问）
 
-### 获取班级 Debug 历史
+### 获取班级 Debug 历史记录
 
 **GET** `/classes/:id/records/debug`
 
+获取指定班级的所有学生 debug 类型历史记录（按会话分组）。
+
 **查询参数**：
-- `student_id`（可选）：筛选特定学生
-- `start_date`（可选）：开始日期，格式 `2006-01-02`
-- `end_date`（可选）：结束日期，格式 `2006-01-02`
+- `student_ids`（可选）：学生 ID 列表，JSON 数组格式，需 URL 编码，如 `%5B%222024001%22%2C%222024002%22%5D`。不指定则查询全班。
+- `start_date`（可选）：开始日期，格式 `2006-01-02`，默认无限制
+- `end_date`（可选）：结束日期，格式 `2006-01-02`，默认无限制
 - `page`（可选）：页码，默认 1
 - `page_size`（可选）：每页数量，默认 20，最大 100
 
@@ -794,8 +796,6 @@
         "id": 1,
         "conversation_id": "conv_1234567890",
         "student_id": "2024001",
-        "student_name": "张三",
-        "task_type": "debug",
         "round_number": 1,
         "role": "student",
         "request_payload": "{...}",
@@ -805,34 +805,58 @@
     ]
   }
   ```
+- `400 Bad Request`：参数格式错误（如日期格式、student_ids JSON 格式）
+- `403 Forbidden`：无权限访问该班级数据
+- `404 Not Found`：班级不存在
+
+**说明**：
+- 仅返回 `round_number > 0` 且 `conversation_id` 以 `conv_` 或 `dbg_` 开头的记录
+- 按 `created_at` 降序排序
 
 ---
 
-### 获取班级 Evaluate 历史
+### 获取班级 Evaluate 历史记录
 
 **GET** `/classes/:id/records/evaluate`
 
-参数和响应格式同上，`task_type` 为 `"evaluate"`。
+获取指定班级的所有学生 evaluate 类型历史记录。
+
+**查询参数**：
+- `student_ids`（可选）：学生 ID 列表，JSON 数组格式
+- `start_date`（可选）：开始日期，格式 `2006-01-02`
+- `end_date`（可选）：结束日期，格式 `2006-01-02`
+- `page`（可选）：页码，默认 1
+- `page_size`（可选）：每页数量，默认 20，最大 100
+
+**响应**：同 debug 格式，`task_type` 为 `"evaluate"`，`round_number` 为 0
+
+**说明**：
+- 筛选条件：`conversation_id` 以 `eval_` 开头
 
 ---
 
-### 获取班级 Recommend 历史
+### 获取班级 Recommend 历史记录
 
 **GET** `/classes/:id/records/recommend`
 
-参数和响应格式同上，`task_type` 为 `"recommend"`。
+获取指定班级的所有学生 recommend 类型历史记录。
+
+**查询参数**：同 evaluate
+
+**响应**：同 evaluate 格式，`task_type` 为 `"recommend"`
+
+**说明**：
+- 筛选条件：`conversation_id` 以 `rec_` 开头
 
 ---
 
-### 导出班级历史记录
+### 导出班级 Debug 历史记录
 
-**GET** `/classes/:id/records/debug/export`  
-**GET** `/classes/:id/records/evaluate/export`  
-**GET** `/classes/:id/records/recommend/export`
+**GET** `/classes/:id/records/debug/export`
 
-导出班级历史记录为 JSON 文件。
+导出指定班级的 debug 历史记录为 JSON 文件。
 
-**查询参数**：同查询接口，`page_size` 默认 10000
+**查询参数**：同查询接口，`page_size` 固定为 10000（导出全部数据）
 
 **响应**：
 - `200 OK`：
@@ -842,14 +866,17 @@
     ```json
     {
       "total": 100,
-      "filters": { "class_id": 1, "student_id": "2024001", "start_date": "...", "end_date": "..." },
+      "filters": {
+        "class_id": 1,
+        "student_ids": ["2024001", "2024002"],
+        "start_date": "2024-01-01",
+        "end_date": "2024-01-31"
+      },
       "data": [
         {
           "id": 1,
           "conversation_id": "conv_1234567890",
           "student_id": "2024001",
-          "student_name": "张三",
-          "task_type": "debug",
           "round_number": 1,
           "role": "student",
           "request_payload": "{...}",
@@ -859,6 +886,39 @@
       ]
     }
     ```
+- 错误码同查询接口
+
+---
+
+### 导出班级 Evaluate 历史记录
+
+**GET** `/classes/:id/records/evaluate/export`
+
+导出指定班级的 evaluate 历史记录为 JSON 文件。
+
+**查询参数**：同查询接口
+
+**响应**：
+- `200 OK`：
+  - Header：`Content-Type: application/json`
+  - Header：`Content-Disposition: attachment; filename=evaluate_history.json`
+  - Body：同查询响应格式
+
+---
+
+### 导出班级 Recommend 历史记录
+
+**GET** `/classes/:id/records/recommend/export`
+
+导出指定班级的 recommend 历史记录为 JSON 文件。
+
+**查询参数**：同查询接口
+
+**响应**：
+- `200 OK`：
+  - Header：`Content-Type: application/json`
+  - Header：`Content-Disposition: attachment; filename=recommend_history.json`
+  - Body：同查询响应格式
 
 ---
 
@@ -866,18 +926,24 @@
 
 ### AIRecord（AI 交互记录）
 
-| 字段               | 类型      | 说明                                             |
-| ------------------ | --------- | ------------------------------------------------ |
-| `id`               | uint      | 自增主键                                         |
-| `conversation_id`  | string    | 对话 ID，用于关联多轮对话                        |
-| `student_id`       | string    | 学生 ID                                          |
-| `round_number`     | int       | 轮次（debug 为 1-4，evaluate/recommend 为 0）    |
-| `role`             | string    | 角色："student" \| "assistant" \| "system_error" |
-| `request_payload`  | string    | 请求 JSON 字符串                                 |
-| `response_payload` | string    | 响应 JSON 字符串                                 |
-| `error`            | string    | 错误信息（如有）                                 |
-| `task_type`        | string    | 任务类型："debug" \| "evaluate" \| "recommend"   |
-| `created_at`       | time.Time | 创建时间                                         |
+| 字段               | 类型        | 说明                                             |
+| ------------------ | ----------- | ------------------------------------------------ |
+| `id`               | uint        | 自增主键                                         |
+| `conversation_id`  | string      | 对话 ID，用于关联多轮对话                        |
+| `student_id`       | string      | 学生 ID                                          |
+| `round_number`     | int         | 轮次（debug 为 1-4，evaluate/recommend 为 0）    |
+| `role`             | string      | 角色："student" \| "assistant" \| "system_error" |
+| `request_payload`  | string      | 请求 JSON 字符串                                 |
+| `response_payload` | string      | 响应 JSON 字符串                                 |
+| `error`            | string      | 错误信息（如有）                                 |
+| `created_at`       | time.Time   | 创建时间                                         |
+| `updated_at`       | time.Time   | 更新时间                                         |
+| `deleted_at`       | \*time.Time | 删除时间（软删除）                               |
+
+**注意**：`task_type` 字段不存在于 AIRecord 表中，任务类型通过以下方式识别：
+- **Debug**：`round_number > 0` 且 `conversation_id` 以 `conv_` 或 `dbg_` 开头
+- **Evaluate**：`conversation_id` 以 `eval_` 开头
+- **Recommend**：`conversation_id` 以 `rec_` 开头
 
 ### Conversation（对话会话）
 

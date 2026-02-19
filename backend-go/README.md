@@ -6,14 +6,48 @@
 
 ## 核心架构
 
-- **异步 Worker Pool**：按任务类型分离的独立队列
-  - Evaluate：3 workers，队列 50
-  - Debug：5 workers，队列 100
-  - Recommend：2 workers，队列 30
-- **多层限流**：
-  - 用户级并发限制（Debug: 2, Evaluate/Recommend: 1）
-  - 时间窗口滑动限流（Debug: 10/分, Evaluate/Recommend: 5/分）
-- **超时熔断**：各任务类型独立超时配置
+### 异步 Worker Pool
+
+采用基于任务类型分离的独立队列架构，每个任务类型有专属的 worker pool：
+
+| 任务类型  | Worker 数量 | 队列大小 | 超时时间 |
+| --------- | ----------- | -------- | -------- |
+| Evaluate  | 3           | 50       | 30 秒    |
+| Debug     | 5           | 100      | 60 秒    |
+| Recommend | 2           | 30       | 20 秒    |
+
+Worker 从队列中获取任务，通过 HTTP 请求转发给 Python AI 服务，完成后释放用户任务槽位。
+
+### 多层限流机制
+
+#### 用户级并发限制
+
+防止单个用户占用过多资源：
+
+| 任务类型  | 最大并发数 | 超限返回                            |
+| --------- | ---------- | ----------------------------------- |
+| Debug     | 2          | HTTP 429 "User task limit exceeded" |
+| Evaluate  | 1          | HTTP 429 "User task limit exceeded" |
+| Recommend | 1          | HTTP 429 "User task limit exceeded" |
+
+#### 时间窗口限流
+
+滑动窗口算法，基于最近1分钟：
+
+| 任务类型  | 最大请求数/分钟 | 超限返回                                               |
+| --------- | --------------- | ------------------------------------------------------ |
+| Debug     | 10              | HTTP 429 "Rate limit exceeded, please try again later" |
+| Evaluate  | 5               | HTTP 429 "Rate limit exceeded, please try again later" |
+| Recommend | 5               | HTTP 429 "Rate limit exceeded, please try again later" |
+
+### 超时配置
+
+各任务类型独立超时：
+- Debug：60 秒
+- Evaluate：30 秒
+- Recommend：20 秒
+
+超时返回 HTTP 504 "AI response timeout"。
 
 ## 数据模型
 
@@ -34,6 +68,7 @@
 - `class_members(user_id, class_id)`：优化 GetMyClasses 查询
 - `class_members(class_id, member_role)`：优化权限查询
 - `user_weak_points(student_id, weak_point_id, record_date)`：优化薄弱点查询
+- `air_records(conversation_id, student_id, created_at)`：优化历史记录查询
 
 ## 权限体系
 
@@ -49,13 +84,24 @@
 
 ### 关键机制
 
-- **创建者保护**：`is_creator=true` 的成员不可被移除或降级
-- **角色分配限制**：
-  - 助教只能添加/移除学生
-  - 只有创建者或系统管理员可分配 teacher/ta 角色
-- **数据访问控制**：
-  - 班级管理员（teacher/ta）可访问本班级所有学生数据
-  - 学生仅可访问个人数据
+#### 创建者保护
+`is_creator=true` 的成员不可被移除或降级，即使角色被降级后仍保持创建者身份。
+
+#### 角色分配限制
+- **助教权限**：只能添加/移除学生，不能管理教师或助教
+- **创建者/管理员权限**：可分配 teacher/ta/student 任意角色
+
+#### 数据访问控制
+- **班级管理员**（teacher/ta）：可访问本班级所有学生的 AI 历史记录和薄弱点数据
+- **系统管理员**（admin）：可访问所有班级数据
+- **学生**：仅可访问个人数据
+
+#### 权限验证函数
+服务层提供以下权限验证函数：
+- `CanAccessClassData(userID, classID)`：检查用户是否有权限访问班级数据
+- `IsClassAdmin(userID, classID)`：检查用户是否为班级管理员（teacher/ta）
+- `IsClassCreator(userID, classID)`：检查用户是否为班级创建者
+- `GetUserRoleInClass(userID, classID)`：获取用户在班级中的角色
 
 ## API 接口
 
@@ -118,6 +164,11 @@
 - 存储完整的 `request_payload` 和 `response_payload`
 - 错误时记录 `error` 字段
 
+**识别规则**：
+- Debug 类型：`round_number > 0` 且 `conversation_id` 以 `conv_` 或 `dbg_` 开头
+- Evaluate 类型：`conversation_id` 以 `eval_` 开头
+- Recommend 类型：`conversation_id` 以 `rec_` 开头
+
 ### 薄弱点数据
 
 1. **种子数据**：`WeakPoint` 表预定义关键词字典
@@ -131,6 +182,15 @@
 - debug_v2 首次调用时自动创建
 - 第4轮完成后自动关闭，或通过 `/ai/debug/close` 手动关闭
 
+### 班级历史记录查询
+
+班级管理员可以查询本班级所有学生的历史记录，查询逻辑：
+1. 根据 `class_id` 获取班级所有学生 ID
+2. 根据 `student_ids` 参数筛选特定学生（可选）
+3. 按时间范围过滤
+4. 关联查询用户信息（`username`）
+5. 返回分页结果
+
 ## 目录结构
 
 ```
@@ -141,7 +201,7 @@ backend-go/
 │   ├── auth.go            # 注册/登录/登出
 │   ├── profile.go         # 用户资料
 │   ├── ai_proxy_controller.go  # debug_v2 代理
-│   ├── ai_controller.go   # evaluate/recommend 代理
+│   ├── ai_controller.go   # evaluate/recommend/薄弱点/历史记录代理
 │   ├── class.go           # 班级管理（创建、成员、详情）
 │   └── class_records.go   # 班级历史记录查询与导出
 ├── middleware/
@@ -157,8 +217,8 @@ backend-go/
 │   └── weak_point.go      # WeakPoint、UserWeakPoint 模型
 ├── service/
 │   ├── ai_proxy_service.go    # debug_v2 业务逻辑
-│   ├── ai_service.go          # evaluate/recommend/薄弱点业务
-│   ├── class_history_service.go  # 班级历史记录查询
+│   ├── ai_service.go          # evaluate/recommend/薄弱点/班级薄弱点业务
+│   ├── class_history_service.go  # 班级历史记录查询服务
 │   ├── dispatcher.go          # Worker Pool 调度器
 │   └── permission.go          # 权限验证函数
 ├── utils/
@@ -174,7 +234,7 @@ backend-go/
 
 - Go 1.21+
 - Python AI 服务运行在 `http://localhost:8000`，提供：
-  - `/debug_v2` - 多轮代码调试
+  - `/debug_v2` - 多轮代码调试（4轮对话）
   - `/evaluate` - 代码评价
   - `/recommend` - 题目推荐
 
@@ -239,14 +299,16 @@ go test ./...
 
 ## 生产环境建议
 
-- 使用 HTTPS
-- JWT 密钥通过环境变量配置
-- 替换 SQLite 为 PostgreSQL/MySQL
-- 添加结构化日志（如 zap）
-- 实现更细粒度的权限校验
-- 添加请求参数验证中间件
-- 配置监控和告警（Prometheus + Grafana）
-- 使用反向代理（Nginx）处理静态文件和负载均衡
+- **HTTPS**：所有通信使用 TLS 加密
+- **密钥管理**：JWT 密钥通过环境变量 `JWT_SECRET` 配置，使用强随机字符串
+- **数据库**：替换 SQLite 为 PostgreSQL 或 MySQL 以支持高并发
+- **日志**：添加结构化日志（如 zap、logrus），包含请求 ID、用户 ID 等上下文
+- **权限校验**：实现更细粒度的权限中间件，避免业务层重复检查
+- **参数验证**：添加请求参数验证中间件（如使用 validator）
+- **监控**：集成 Prometheus 指标，配置 Grafana 仪表板监控 QPS、延迟、错误率
+- **反向代理**：使用 Nginx 处理静态文件、负载均衡、限流
+- **优雅关闭**：实现优雅关闭机制，确保进行中的请求完成
+- **配置管理**：使用配置文件或环境变量管理所有配置项
 
 ## 故障排除
 
