@@ -28,6 +28,22 @@
               <span class="tab-icon">👥</span>
               成员管理
             </button>
+            <button
+              v-if="isClassAdmin"
+              :class="['tab-nav-btn', { active: activeTab === 'history' }]"
+              @click="activeTab = 'history'"
+            >
+              <span class="tab-icon">📊</span>
+              学生历史
+            </button>
+            <button
+              v-if="isClassAdmin"
+              :class="['tab-nav-btn', { active: activeTab === 'weakpoints' }]"
+              @click="activeTab = 'weakpoints'"
+            >
+              <span class="tab-icon">🎯</span>
+              班级薄弱点
+            </button>
           </div>
         </div>
       </aside>
@@ -36,6 +52,8 @@
         <div v-if="classStore.currentClass" class="card content-card">
           <ClassInfoTab v-show="activeTab === 'info'" />
           <ClassManageTab v-show="activeTab === 'manage'" />
+          <ClassHistoryQueryTab v-show="activeTab === 'history'" />
+          <ClassWeakPointsQueryTab v-show="activeTab === 'weakpoints'" />
         </div>
         <div v-else class="card empty-card">
           <div class="empty-content">
@@ -56,6 +74,8 @@ import { useAuthStore } from '../stores/auth'
 import ClassSelector from '../components/class/ClassSelector.vue'
 import ClassInfoTab from '../components/class/ClassInfoTab.vue'
 import ClassManageTab from '../components/class/ClassManageTab.vue'
+import ClassHistoryQueryTab from '../components/class/ClassHistoryQueryTab.vue'
+import ClassWeakPointsQueryTab from '../components/class/ClassWeakPointsQueryTab.vue'
 
 const classStore = useClassStore()
 const authStore = useAuthStore()

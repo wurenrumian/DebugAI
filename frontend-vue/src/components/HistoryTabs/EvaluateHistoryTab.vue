@@ -1,17 +1,17 @@
 <template>
   <div class="records-list">
     <div
-      v-for="record in records"
-      :key="record.ID"
+      v-for="group in groupedRecords"
+      :key="group.conversation_id"
       class="record-group card"
     >
       <div class="group-header">
         <div class="group-info">
-          <h3>评价: {{ record.conversation_id?.substring(0, 15) || 'N/A' }}...</h3>
-          <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
+          <h3>评价: {{ group.conversation_id?.substring(0, 15) || 'N/A' }}...</h3>
+          <span class="group-time">{{ formatDate(group.latest_time) }}</span>
         </div>
         <button
-          @click="viewDetails(record)"
+          @click="viewDetails(group)"
           class="btn btn-secondary btn-sm"
         >
           查看详情
@@ -23,12 +23,18 @@
           <span class="stat-icon">📝</span>
           学生提交代码评价
         </span>
+        <span class="stat" v-if="group.records.length > 1">
+          <span class="stat-icon">💬</span>
+          {{ group.records.length }} 条记录
+        </span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 const props = defineProps({
   records: {
     type: Array,
@@ -38,14 +44,38 @@ const props = defineProps({
 
 const emit = defineEmits(['view-details'])
 
-// 查看详情
-const viewDetails = (record) => {
-  // 根据 conversation_id 查找同一会话的所有记录
-  const relatedRecords = props.records.filter(
-    r => r.conversation_id === record.conversation_id
-  )
+// 按会话分组的记录（评价）
+const groupedRecords = computed(() => {
+  // 评价类型：按 conversation_id 分组
+  const groups = {}
   
-  const sortedRecords = relatedRecords.sort((a, b) => {
+  props.records.forEach(record => {
+    const convId = record.conversation_id || record.ConversationID
+    const createdAt = record.CreatedAt || record.created_at || record.CreatedAt
+    
+    // 跳过无效记录
+    if (!convId) return
+    
+    if (!groups[convId]) {
+      groups[convId] = {
+        conversation_id: convId,
+        records: [],
+        latest_time: new Date(createdAt).getTime()
+      }
+    }
+    groups[convId].records.push(record)
+    groups[convId].latest_time = Math.max(
+      groups[convId].latest_time,
+      new Date(createdAt).getTime()
+    )
+  })
+  
+  return Object.values(groups).sort((a, b) => b.latest_time - a.latest_time)
+})
+
+// 查看详情
+const viewDetails = (group) => {
+  const sortedRecords = group.records.sort((a, b) => {
     // student 记录在前，assistant 记录在后
     if (a.role === 'student' && b.role === 'assistant') return -1
     if (a.role === 'assistant' && b.role === 'student') return 1
@@ -53,7 +83,7 @@ const viewDetails = (record) => {
   })
   
   // 提取首次提交的题目描述和代码
-  const initialSubmission = extractInitialSubmission(relatedRecords)
+  const initialSubmission = extractInitialSubmission(group.records)
   
   emit('view-details', {
     records: sortedRecords,

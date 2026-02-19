@@ -1,13 +1,32 @@
 import { defineStore } from 'pinia'
 import { classAPI } from '../api'
 
+// 辅助函数：触发 JSON 文件下载
+function downloadJSON(data, filename) {
+	const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+	const url = URL.createObjectURL(blob)
+	const link = document.createElement('a')
+	link.href = url
+	link.download = filename
+	document.body.appendChild(link)
+	link.click()
+	document.body.removeChild(link)
+	URL.revokeObjectURL(url)
+}
+
 export const useClassStore = defineStore('class', {
 	state: () => ({
 		classes: [],
 		currentClass: null,
 		members: [],
 		loading: false,
-		error: null
+		error: null,
+		// 班级历史记录
+		classDebugRecords: { total: 0, data: [] },
+		classEvaluateRecords: { total: 0, data: [] },
+		classRecommendRecords: { total: 0, data: [] },
+		// 班级薄弱点
+		classWeakPoints: []
 	}),
 
 	getters: {
@@ -191,6 +210,111 @@ export const useClassStore = defineStore('class', {
 			this.members = []
 			this.loading = false
 			this.error = null
+			this.classDebugRecords = { total: 0, data: [] }
+			this.classEvaluateRecords = { total: 0, data: [] }
+			this.classRecommendRecords = { total: 0, data: [] }
+			this.classWeakPoints = []
+		},
+
+		// ===== 班级历史记录查询 =====
+		// 查询班级Debug历史记录
+		async fetchClassDebugRecords(classId, filters = {}) {
+			this.loading = true
+			this.error = null
+			try {
+				const response = await classAPI.getClassDebugRecords(classId, filters)
+				this.classDebugRecords = response.data || { total: 0, data: [] }
+				return { success: true, data: this.classDebugRecords }
+			} catch (error) {
+				this.error = error.error || '查询Debug历史失败'
+				return { success: false, error: this.error }
+			} finally {
+				this.loading = false
+			}
+		},
+
+		// 查询班级Evaluate历史记录
+		async fetchClassEvaluateRecords(classId, filters = {}) {
+			this.loading = true
+			this.error = null
+			try {
+				const response = await classAPI.getClassEvaluateRecords(classId, filters)
+				this.classEvaluateRecords = response.data || { total: 0, data: [] }
+				return { success: true, data: this.classEvaluateRecords }
+			} catch (error) {
+				this.error = error.error || '查询Evaluate历史失败'
+				return { success: false, error: this.error }
+			} finally {
+				this.loading = false
+			}
+		},
+
+		// 查询班级Recommend历史记录
+		async fetchClassRecommendRecords(classId, filters = {}) {
+			this.loading = true
+			this.error = null
+			try {
+				const response = await classAPI.getClassRecommendRecords(classId, filters)
+				this.classRecommendRecords = response.data || { total: 0, data: [] }
+				return { success: true, data: this.classRecommendRecords }
+			} catch (error) {
+				this.error = error.error || '查询Recommend历史失败'
+				return { success: false, error: this.error }
+			} finally {
+				this.loading = false
+			}
+		},
+
+		// 导出班级Debug历史记录
+		async exportClassDebugRecords(classId, filters = {}) {
+			try {
+				const response = await classAPI.exportClassDebugRecords(classId, filters)
+				downloadJSON(response, `debug_history_${classId}.json`)
+				return { success: true }
+			} catch (error) {
+				this.error = error.error || '导出Debug历史失败'
+				return { success: false, error: this.error }
+			}
+		},
+
+		// 导出班级Evaluate历史记录
+		async exportClassEvaluateRecords(classId, filters = {}) {
+			try {
+				const response = await classAPI.exportClassEvaluateRecords(classId, filters)
+				downloadJSON(response, `evaluate_history_${classId}.json`)
+				return { success: true }
+			} catch (error) {
+				this.error = error.error || '导出Evaluate历史失败'
+				return { success: false, error: this.error }
+			}
+		},
+
+		// 导出班级Recommend历史记录
+		async exportClassRecommendRecords(classId, filters = {}) {
+			try {
+				const response = await classAPI.exportClassRecommendRecords(classId, filters)
+				downloadJSON(response, `recommend_history_${classId}.json`)
+				return { success: true }
+			} catch (error) {
+				this.error = error.error || '导出Recommend历史失败'
+				return { success: false, error: this.error }
+			}
+		},
+
+		// 查询班级薄弱点
+		async fetchClassWeakPoints(classId, filters = {}) {
+			this.loading = true
+			this.error = null
+			try {
+				const response = await classAPI.getClassWeakPoints(classId, filters)
+				this.classWeakPoints = response.data || []
+				return { success: true, data: this.classWeakPoints }
+			} catch (error) {
+				this.error = error.error || '查询班级薄弱点失败'
+				return { success: false, error: this.error }
+			} finally {
+				this.loading = false
+			}
 		}
 	}
 })

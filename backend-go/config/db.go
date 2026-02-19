@@ -27,4 +27,13 @@ func InitDB() {
 		&models.Class{},
 		&models.ClassMember{},
 	)
+
+	// 创建索引优化查询性能
+	createIndexes(DB)
+}
+
+func createIndexes(db *gorm.DB) {
+	// 为 class_members 表创建复合索引，优化 GetMyClasses 和权限查询
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_class_members_user_class ON class_members(user_id, class_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_class_members_class_role ON class_members(class_id, member_role)")
 }

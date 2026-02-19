@@ -123,76 +123,6 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
 	}
 
-	// 5. Save to EvaluateRecord table
-	func() {
-		// Extract nested fields from response
-		getString := func(m map[string]interface{}, key string) string {
-			if v, ok := m[key]; ok {
-				return fmt.Sprintf("%v", v)
-			}
-			return ""
-		}
-		getGradeAndAnalysis := func(m map[string]interface{}) (grade, analysis string) {
-			if v, ok := m["grade"]; ok {
-				grade = fmt.Sprintf("%v", v)
-			}
-			if v, ok := m["analysis"]; ok {
-				analysis = fmt.Sprintf("%v", v)
-			}
-			return
-		}
-
-		// Get code and problem description from request
-		var reqData map[string]interface{}
-		json.Unmarshal(requestBody, &reqData)
-		code := ""
-		problemDesc := ""
-		if v, ok := reqData["code"]; ok {
-			code = fmt.Sprintf("%v", v)
-		}
-		if v, ok := reqData["problem_description"]; ok {
-			problemDesc = fmt.Sprintf("%v", v)
-		}
-
-		// Get nested objects
-		var fcGrade, fcAnalysis string
-		var lrGrade, lrAnalysis string
-		var aqGrade, aqAnalysis string
-		var snGrade, snAnalysis string
-
-		if fc, ok := result["functional_correctness"].(map[string]interface{}); ok {
-			fcGrade, fcAnalysis = getGradeAndAnalysis(fc)
-		}
-		if lr, ok := result["logical_rigor"].(map[string]interface{}); ok {
-			lrGrade, lrAnalysis = getGradeAndAnalysis(lr)
-		}
-		if aq, ok := result["algorithm_quality"].(map[string]interface{}); ok {
-			aqGrade, aqAnalysis = getGradeAndAnalysis(aq)
-		}
-		if sn, ok := result["structural_normativity"].(map[string]interface{}); ok {
-			snGrade, snAnalysis = getGradeAndAnalysis(sn)
-		}
-
-		evalRecord := models.EvaluateRecord{
-			StudentID:                studentID,
-			ConversationID:           conversationID,
-			Code:                     code,
-			ProblemDescription:       problemDesc,
-			OverallEvaluation:        getString(result, "overall_evaluation"),
-			ReadabilityScore:         snGrade,
-			ReadabilityAnalysis:      snAnalysis,
-			LogicalRigorScore:        lrGrade,
-			LogicalRigorAnalysis:     lrAnalysis,
-			AlgorithmQualityScore:    aqGrade,
-			AlgorithmQualityAnalysis: aqAnalysis,
-			EfficiencyScore:          fcGrade,
-			EfficiencyAnalysis:       fcAnalysis,
-		}
-		if err := s.DB.Create(&evalRecord).Error; err != nil {
-			fmt.Printf("Failed to save evaluate record: %v\n", err)
-		}
-	}()
-
 	return result, nil
 }
 
@@ -256,20 +186,6 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 	}
 	if err := s.DB.Create(&aiRecord).Error; err != nil {
 		fmt.Printf("Warning: failed to save AIRecord for recommend: %v\n", err)
-	}
-
-	// Also save to RecommendationRecord table (for backward compatibility)
-	recommendationsJSON, _ := json.Marshal(result["recommendations"])
-	weakPointsJSON, _ := json.Marshal(req.WeakPoints)
-	record := models.RecommendationRecord{
-		StudentID:           studentID,
-		ConversationID:      conversationID,
-		RequestedWeakPoints: string(weakPointsJSON),
-		Recommendations:     string(recommendationsJSON),
-		Analysis:            fmt.Sprintf("%v", result["analysis"]),
-	}
-	if err := s.DB.Create(&record).Error; err != nil {
-		fmt.Printf("Warning: failed to save recommendation record: %v\n", err)
 	}
 
 	return result, nil
