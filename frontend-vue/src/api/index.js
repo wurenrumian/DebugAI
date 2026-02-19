@@ -144,6 +144,35 @@ export const classAPI = {
 	// 移除成员
 	removeMembers(classId, studentIds) {
 		return api.post(`/api/v1/classes/${classId}/members/remove`, { student_ids: studentIds })
+	},
+	// ===== 班级历史记录查询 =====
+	// 获取班级Debug历史记录
+	getClassDebugRecords(classId, params) {
+		return api.get(`/api/v1/classes/${classId}/records/debug`, { params })
+	},
+	// 获取班级Evaluate历史记录
+	getClassEvaluateRecords(classId, params) {
+		return api.get(`/api/v1/classes/${classId}/records/evaluate`, { params })
+	},
+	// 获取班级Recommend历史记录
+	getClassRecommendRecords(classId, params) {
+		return api.get(`/api/v1/classes/${classId}/records/recommend`, { params })
+	},
+	// 导出班级Debug历史记录
+	exportClassDebugRecords(classId, params) {
+		return api.get(`/api/v1/classes/${classId}/records/debug/export`, { params })
+	},
+	// 导出班级Evaluate历史记录
+	exportClassEvaluateRecords(classId, params) {
+		return api.get(`/api/v1/classes/${classId}/records/evaluate/export`, { params })
+	},
+	// 导出班级Recommend历史记录
+	exportClassRecommendRecords(classId, params) {
+		return api.get(`/api/v1/classes/${classId}/records/recommend/export`, { params })
+	},
+	// 获取班级薄弱点
+	getClassWeakPoints(classId, params) {
+		return api.get(`/api/v1/ai/weak_points/class`, { params: { class_id: classId, ...params } })
 	}
 }
 

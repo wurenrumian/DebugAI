@@ -92,6 +92,14 @@ func main() {
 		api.GET("/classes/:id/members", controller.GetClassMembers)       // 获取班级成员
 		api.POST("/classes/:id/members/add", controller.AddMembers)       // 批量添加成员（仅teacher）
 		api.POST("/classes/:id/members/remove", controller.RemoveMembers) // 批量移除成员（仅teacher）
+
+		// 班级历史记录路由
+		api.GET("/classes/:id/records/debug", controller.GetClassDebugRecords)                   // 获取班级debug历史
+		api.GET("/classes/:id/records/evaluate", controller.GetClassEvaluateRecords)             // 获取班级evaluate历史
+		api.GET("/classes/:id/records/recommend", controller.GetClassRecommendRecords)           // 获取班级recommend历史
+		api.GET("/classes/:id/records/debug/export", controller.ExportClassDebugRecords)         // 导出班级debug历史
+		api.GET("/classes/:id/records/evaluate/export", controller.ExportClassEvaluateRecords)   // 导出班级evaluate历史
+		api.GET("/classes/:id/records/recommend/export", controller.ExportClassRecommendRecords) // 导出班级recommend历史
 	}
 
 	r.Run(":8080")

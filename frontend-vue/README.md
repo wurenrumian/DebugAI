@@ -223,15 +223,23 @@ const handleViewDetails = ({ records, initialSubmission: initSub, type }) => {
 - [`ClassSelector.vue`](src/components/class/ClassSelector.vue) - 班级选择器
 - [`ClassInfoTab.vue`](src/components/class/ClassInfoTab.vue) - 班级信息标签页
 - [`ClassManageTab.vue`](src/components/class/ClassManageTab.vue) - 成员管理标签页
+- [`ClassHistoryQueryTab.vue`](src/components/class/ClassHistoryQueryTab.vue) - 学生历史查询标签页
+- [`ClassWeakPointsQueryTab.vue`](src/components/class/ClassWeakPointsQueryTab.vue) - 班级薄弱点查询标签页
+
+**功能说明**：
+- **班级信息**：查看班级基本信息
+- **成员管理**：添加/移除班级成员（仅教师/助教可见）
+- **学生历史**：查看本班级所有学生的 Debug/Evaluate/Recommend 历史记录（仅教师/助教可见）
+- **班级薄弱点**：查看班级整体薄弱点统计（仅教师/助教可见）
 
 **权限说明**（后端控制，前端会根据权限显示/隐藏相应功能）：
-| 角色       | 班级选择 | 查看信息 | 成员管理   |
-| ---------- | -------- | -------- | ---------- |
-| 系统管理员 | ✅        | ✅        | ✅          |
-| 班级创建者 | ✅        | ✅        | ✅          |
-| 教师       | ✅        | ✅        | ✅          |
-| 助教       | ✅        | ✅        | ⚠️ 有限权限 |
-| 学生       | ✅        | ✅        | ❌          |
+| 角色       | 班级选择 | 查看信息 | 成员管理   | 学生历史 | 班级薄弱点 |
+| ---------- | -------- | -------- | ---------- | -------- | ---------- |
+| 系统管理员 | ✅        | ✅        | ✅          | ✅        | ✅          |
+| 班级创建者 | ✅        | ✅        | ✅          | ✅        | ✅          |
+| 教师       | ✅        | ✅        | ✅          | ✅        | ✅          |
+| 助教       | ✅        | ✅        | ⚠️ 有限权限 | ✅        | ✅          |
+| 学生       | ✅        | ✅        | ❌          | ❌        | ❌          |
 
 **助教权限限制**：
 - 添加成员：只能添加学生，不能添加教师或助教
@@ -246,6 +254,13 @@ const handleViewDetails = ({ records, initialSubmission: initSub, type }) => {
 - `GET /api/v1/classes/:id/members` - 获取班级成员
 - `POST /api/v1/classes/:id/members/add` - 添加成员
 - `POST /api/v1/classes/:id/members/remove` - 移除成员
+- `GET /api/v1/classes/:id/records/debug` - 获取班级Debug历史
+- `GET /api/v1/classes/:id/records/evaluate` - 获取班级Evaluate历史
+- `GET /api/v1/classes/:id/records/recommend` - 获取班级Recommend历史
+- `GET /api/v1/classes/:id/records/debug/export` - 导出班级Debug历史
+- `GET /api/v1/classes/:id/records/evaluate/export` - 导出班级Evaluate历史
+- `GET /api/v1/classes/:id/records/recommend/export` - 导出班级Recommend历史
+- `GET /api/v1/ai/weak_points/class` - 获取班级薄弱点
 
 ## 路由权限
 
