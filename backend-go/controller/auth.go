@@ -30,8 +30,8 @@ func Register(c *gin.Context) {
 		// 找到记录，学号已被占用
 		c.JSON(http.StatusConflict, gin.H{"error": "学号不可用"})
 		return
-	} else if err != nil && err != gorm.ErrRecordNotFound {
-		// 数据库查询错误
+	} else if err != gorm.ErrRecordNotFound {
+		// 数据库查询错误（非记录不存在的情况）
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
 		return
 	}
