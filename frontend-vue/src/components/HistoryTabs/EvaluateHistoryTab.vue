@@ -11,7 +11,7 @@
           <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
         </div>
         <button
-          @click="$emit('view-details', record)"
+          @click="viewDetails(record)"
           class="btn btn-secondary btn-sm"
         >
           查看详情
@@ -29,14 +29,64 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   records: {
     type: Array,
     default: () => []
   }
 })
 
-defineEmits(['view-details'])
+const emit = defineEmits(['view-details'])
+
+// 查看详情
+const viewDetails = (record) => {
+  // 根据 conversation_id 查找同一会话的所有记录
+  const relatedRecords = props.records.filter(
+    r => r.conversation_id === record.conversation_id
+  )
+  
+  const sortedRecords = relatedRecords.sort((a, b) => {
+    // student 记录在前，assistant 记录在后
+    if (a.role === 'student' && b.role === 'assistant') return -1
+    if (a.role === 'assistant' && b.role === 'student') return 1
+    return 0
+  })
+  
+  // 提取首次提交的题目描述和代码
+  const initialSubmission = extractInitialSubmission(relatedRecords)
+  
+  emit('view-details', {
+    records: sortedRecords,
+    initialSubmission,
+    type: 'evaluate'
+  })
+}
+
+// 从记录中提取首次提交的题目描述和代码
+const extractInitialSubmission = (records) => {
+  // 优先找 round_number 为 1 的学生记录（debug类型）
+  let firstRecord = records.find(r => r.round_number === 1 && r.role === 'student')
+  
+  // 如果没找到，尝试找第一个学生记录（evaluate类型）
+  if (!firstRecord) {
+    firstRecord = records.find(r => r.role === 'student')
+  }
+  
+  if (firstRecord && firstRecord.request_payload) {
+    try {
+      const req = typeof firstRecord.request_payload === 'string'
+        ? JSON.parse(firstRecord.request_payload)
+        : firstRecord.request_payload
+      return {
+        problem_description: req.problem_description || '',
+        code: req.code || ''
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
 
 // 格式化日期
 const formatDate = (timestamp) => {
@@ -60,64 +110,5 @@ const formatDate = (timestamp) => {
 </script>
 
 <style scoped>
-.records-list {
-  max-width: 1000px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.record-group {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.record-group:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-.group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.group-info h3 {
-  font-size: 16px;
-  color: #303133;
-  margin-bottom: 5px;
-}
-
-.group-time {
-  font-size: 12px;
-  color: #909399;
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.group-stats {
-  display: flex;
-  gap: 20px;
-}
-
-.stat {
-  font-size: 13px;
-  color: #606266;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.stat-icon {
-  font-size: 14px;
-}
+/* 公共样式已在 common.css 中定义 */
 </style>

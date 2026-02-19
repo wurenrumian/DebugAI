@@ -11,7 +11,7 @@
           <span class="group-time">{{ formatDate(record.CreatedAt) }}</span>
         </div>
         <button
-          @click="$emit('view-details', record)"
+          @click="viewDetails(record)"
           class="btn btn-secondary btn-sm"
         >
           查看详情
@@ -29,14 +29,23 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   records: {
     type: Array,
     default: () => []
   }
 })
 
-defineEmits(['view-details'])
+const emit = defineEmits(['view-details'])
+
+// 查看详情
+const viewDetails = (record) => {
+  emit('view-details', {
+    records: [record],
+    initialSubmission: null,
+    type: 'recommend'
+  })
+}
 
 // 格式化日期
 const formatDate = (timestamp) => {
@@ -60,64 +69,5 @@ const formatDate = (timestamp) => {
 </script>
 
 <style scoped>
-.records-list {
-  max-width: 1000px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.record-group {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.record-group:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-.group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.group-info h3 {
-  font-size: 16px;
-  color: #303133;
-  margin-bottom: 5px;
-}
-
-.group-time {
-  font-size: 12px;
-  color: #909399;
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.group-stats {
-  display: flex;
-  gap: 20px;
-}
-
-.stat {
-  font-size: 13px;
-  color: #606266;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.stat-icon {
-  font-size: 14px;
-}
+/* 公共样式已在 common.css 中定义 */
 </style>
