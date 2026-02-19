@@ -131,8 +131,9 @@
 **请求体**：
 ```json
 {
-  "student_id": "2024001",
-  "task_type": "debug"  // "debug" | "evaluate" | "recommend"
+  "problem_description": "实现两个数的加法",
+  "code": "def add(a, b):\n    return a + b",
+  "test_points": []
 }
 ```
 
@@ -140,15 +141,21 @@
 - `200 OK`：
   ```json
   {
-    "conversation_id": "conv_1234567890",
-    "current_round": 1,
-    "round_info": {
-      "round_number": 1,
-      "round_title": "理解学生思路",
-      "round_description": "AI 将分析你的代码，理解你的解题思路",
-      "can_proceed": true,
-      "next_round_hint": "确认 AI 对你思路的理解是否正确",
-      "is_completed": false
+    "message": "Conversation started",
+    "data": {
+      "conversation_id": "conv_1234567890",
+      "current_round": 1,
+      "round_info": {
+        "round_number": 1,
+        "round_title": "理解学生思路",
+        "round_description": "AI 将分析你的代码，理解你的解题思路",
+        "can_proceed": true,
+        "next_round_hint": "确认 AI 对你思路的理解是否正确",
+        "is_completed": false
+      },
+      "problem_description": "实现两个数的加法",
+      "code": "def add(a, b):\n    return a + b",
+      "test_points": []
     }
   }
   ```
@@ -197,7 +204,14 @@
       "role": "assistant",
       "content": "AI 回复的 JSON 字符串"
     },
-    "round_info": { /* 同 /ai/start 返回格式 */ }
+    "round_info": {
+      "round_number": 1,
+      "round_title": "理解学生思路",
+      "round_description": "AI 将分析你的代码，理解你的解题思路",
+      "can_proceed": true,
+      "next_round_hint": "确认 AI 对你思路的理解是否正确",
+      "is_completed": false
+    }
   }
   ```
 - `400 Bad Request`：对话已关闭
@@ -267,14 +281,12 @@
 **请求体**：
 ```json
 {
-  "student_id": "2024001",
   "conversation_id": "eval_1234567890",
   "code": "def add(a, b):\n    return a + b",
   "problem_description": "实现两个数的加法",
   "test_points": [
-    { "input": "1,2", "status": "passed" }
-  ],
-  "task_type": "evaluate"
+    { "input": "1,2", "output": "3", "status": "passed" }
+  ]
 }
 ```
 
@@ -316,7 +328,6 @@
 **请求体**：
 ```json
 {
-  "student_id": "2024001",
   "weak_points": {
     "循环": 3,
     "数组": 2,
@@ -347,24 +358,22 @@
 
 ---
 
-### 获取 AI 历史记录
+### 获取 AI 历史记录（所有类型）
 
 **GET** `/ai/records`
 
 获取当前用户的所有 AI 交互记录（debug/evaluate/recommend）。
 
-**查询参数**：无
-
 **响应**：
 - `200 OK`：
   ```json
   {
-    "records": [
+    "message": "AI records fetched successfully",
+    "data": [
       {
         "id": 1,
         "conversation_id": "conv_1234567890",
         "student_id": "2024001",
-        "task_type": "debug",
         "round_number": 1,
         "role": "student",
         "request_payload": "{...}",
@@ -377,15 +386,69 @@
 
 ---
 
-### 按类型获取历史记录
+### 获取 Debug 历史记录
 
-**GET** `/ai/records/debug`  
-**GET** `/ai/records/evaluate`  
+**GET** `/ai/records/debug`
+
+获取当前用户的 debug 类型历史记录（`round_number > 0`）。
+
+**响应**：
+- `200 OK`：
+  ```json
+  {
+    "message": "Debug records fetched successfully",
+    "data": [
+      {
+        "id": 1,
+        "conversation_id": "conv_1234567890",
+        "student_id": "2024001",
+        "round_number": 1,
+        "role": "student",
+        "request_payload": "{...}",
+        "response_payload": "{...}",
+        "created_at": "2024-01-01T10:00:00Z"
+      }
+    ]
+  }
+  ```
+
+---
+
+### 获取 Evaluate 历史记录
+
+**GET** `/ai/records/evaluate`
+
+获取当前用户的 evaluate 类型历史记录（`task_type = "evaluate"`）。
+
+**响应**：
+- `200 OK`：
+  ```json
+  {
+    "message": "Evaluate records fetched successfully",
+    "data": [
+      {
+        "id": 2,
+        "conversation_id": "eval_1234567890",
+        "student_id": "2024001",
+        "round_number": 0,
+        "role": "student",
+        "request_payload": "{...}",
+        "response_payload": "{...}",
+        "created_at": "2024-01-01T11:00:00Z"
+      }
+    ]
+  }
+  ```
+
+---
+
+### 获取 Recommend 历史记录
+
 **GET** `/ai/records/recommend`
 
-获取指定类型的历史记录。
+获取当前用户的 recommend 类型历史记录（`task_type = "recommend"`）。
 
-**响应**：同 `/ai/records`
+**响应**：同 evaluate 格式
 
 ---
 
@@ -396,15 +459,14 @@
 获取指定对话的当前轮次信息。
 
 **查询参数**：
-- `conversation_id`（必填）：对话 ID
+- `round`（必填）：轮次数字
+- `response`（可选）：学生回复内容
 
 **响应**：
 - `200 OK`：
   ```json
   {
-    "conversation_id": "conv_1234567890",
-    "current_round": 2,
-    "round_info": {
+    "data": {
       "round_number": 2,
       "round_title": "指出问题点",
       "round_description": "AI 将结合你的确认，指出代码中的问题点和薄弱点",
@@ -414,6 +476,7 @@
     }
   }
   ```
+- `400 Bad Request`：轮次参数缺失或无效
 
 ---
 
@@ -452,8 +515,8 @@
 获取用户排名前 N 的薄弱点（用于推荐功能）。
 
 **查询参数**：
-- `start_date`（可选）：同 `/ai/weak_points`
-- `end_date`（可选）：同 `/ai/weak_points`
+- `start_date`（可选）：开始日期
+- `end_date`（可选）：结束日期
 
 **响应**：
 - `200 OK`：
@@ -477,9 +540,9 @@
 
 **查询参数**：
 - `class_id`（必填）：班级 ID
-- `start_date`（可选）：开始日期
-- `end_date`（可选）：结束日期
-- `student_ids`（可选）：学生 ID 列表，JSON 数组格式，如 `["2024001","2024002"]`
+- `start_date`（可选）：开始日期，格式 `2006-01-02`，默认当天
+- `end_date`（可选）：结束日期，格式 `2006-01-02`，默认当天
+- `student_ids`（可选）：学生 ID 列表，JSON 数组格式，需进行 URL 编码，如 `%5B%222024001%22%2C%222024002%22%5D`
 
 **响应**：
 - `200 OK`：
@@ -499,6 +562,8 @@
   }
   ```
 - `403 Forbidden`：无权限
+- `404 Not Found`：班级不存在
+- `400 Bad Request`：参数错误或学生不属于该班级
 
 ---
 
@@ -638,7 +703,7 @@
 ```json
 {
   "student_ids": ["2024001", "2024002"],
-  "member_role": "student"  // "teacher" | "ta" | "student"
+  "member_role": "student"
 }
 ```
 
@@ -747,7 +812,7 @@
 
 **GET** `/classes/:id/records/evaluate`
 
-参数和响应格式同上。
+参数和响应格式同上，`task_type` 为 `"evaluate"`。
 
 ---
 
@@ -755,7 +820,7 @@
 
 **GET** `/classes/:id/records/recommend`
 
-参数和响应格式同上。
+参数和响应格式同上，`task_type` 为 `"recommend"`。
 
 ---
 
@@ -777,53 +842,63 @@
     ```json
     {
       "total": 100,
-      "filters": { /* 使用的筛选条件 */ },
-      "data": [ /* 同查询接口 data 字段 */ ]
+      "filters": { "class_id": 1, "student_id": "2024001", "start_date": "...", "end_date": "..." },
+      "data": [
+        {
+          "id": 1,
+          "conversation_id": "conv_1234567890",
+          "student_id": "2024001",
+          "student_name": "张三",
+          "task_type": "debug",
+          "round_number": 1,
+          "role": "student",
+          "request_payload": "{...}",
+          "response_payload": "{...}",
+          "created_at": "2024-01-01T10:00:00Z"
+        }
+      ]
     }
     ```
 
 ---
 
-## 错误码汇总
+## 数据模型字段说明
 
-| HTTP 状态码 | 错误消息                                                                                                     | 说明               |
-| ----------- | ------------------------------------------------------------------------------------------------------------ | ------------------ |
-| 400         | 参数不完整/无效参数                                                                                          | 请求体缺失必填字段 |
-| 401         | 未登录/无效的Token/Token格式错误                                                                             | 认证失败           |
-| 403         | 只有管理员可以创建班级/只有班级管理员可以添加成员/无权访问其他学生的数据                                     | 权限不足           |
-| 404         | 班级不存在                                                                                                   | 资源不存在         |
-| 409         | 学号已存在/已经是班级成员                                                                                    | 资源冲突           |
-| 429         | Server busy, please try again later / User task limit exceeded / Rate limit exceeded, please try again later | 限流               |
-| 502         | AI service communication error                                                                               | AI 服务不可达      |
-| 504         | AI response timeout                                                                                          | 超时               |
-| 500         | 内部服务器错误                                                                                               | 未知错误           |
+### AIRecord（AI 交互记录）
 
----
+| 字段               | 类型      | 说明                                             |
+| ------------------ | --------- | ------------------------------------------------ |
+| `id`               | uint      | 自增主键                                         |
+| `conversation_id`  | string    | 对话 ID，用于关联多轮对话                        |
+| `student_id`       | string    | 学生 ID                                          |
+| `round_number`     | int       | 轮次（debug 为 1-4，evaluate/recommend 为 0）    |
+| `role`             | string    | 角色："student" \| "assistant" \| "system_error" |
+| `request_payload`  | string    | 请求 JSON 字符串                                 |
+| `response_payload` | string    | 响应 JSON 字符串                                 |
+| `error`            | string    | 错误信息（如有）                                 |
+| `task_type`        | string    | 任务类型："debug" \| "evaluate" \| "recommend"   |
+| `created_at`       | time.Time | 创建时间                                         |
 
-## 数据模型关键字段
+### Conversation（对话会话）
 
-### AIRecord
-- `id`: 自增主键
-- `conversation_id`: 对话 ID，用于关联多轮对话
-- `student_id`: 学生 ID
-- `round_number`: 轮次（debug 为 1-4，evaluate/recommend 为 0）
-- `role`: "student" | "assistant" | "system_error"
-- `request_payload`: 请求 JSON 字符串
-- `response_payload`: 响应 JSON 字符串
-- `error`: 错误信息（如有）
+| 字段              | 类型        | 说明                                           |
+| ----------------- | ----------- | ---------------------------------------------- |
+| `conversation_id` | string      | 唯一对话标识                                   |
+| `student_id`      | string      | 学生 ID                                        |
+| `task_type`       | string      | 任务类型："debug" \| "evaluate" \| "recommend" |
+| `is_closed`       | bool        | 对话是否已关闭                                 |
+| `closed_at`       | \*time.Time | 关闭时间                                       |
 
-### Conversation
-- `conversation_id`: 唯一对话标识
-- `student_id`: 学生 ID
-- `task_type`: "debug" | "evaluate" | "recommend"
-- `is_closed`: 对话是否已关闭
-- `closed_at`: 关闭时间
+### UserWeakPoint（用户薄弱点）
 
-### UserWeakPoint
-- `student_id`: 学生 ID
-- `weak_point_id`: 薄弱点 ID（关联 `weak_points` 表）
-- `count`: 该薄弱点出现次数
-- `record_date`: 记录日期（按天聚合）
+| 字段            | 类型      | 说明                               |
+| --------------- | --------- | ---------------------------------- |
+| `id`            | uint      | 自增主键                           |
+| `student_id`    | string    | 学生 ID                            |
+| `weak_point_id` | uint      | 薄弱点 ID（关联 `weak_points` 表） |
+| `count`         | int       | 该薄弱点出现次数                   |
+| `record_date`   | time.Time | 记录日期（按天聚合）               |
+| `description`   | string    | 薄弱点描述（冗余字段，便于查询）   |
 
 ---
 
@@ -846,3 +921,19 @@
 - **Recommend**：每用户最多 5 次请求/分钟
 
 超限返回 `429`，错误消息：`"Rate limit exceeded, please try again later"`
+
+---
+
+## 错误码汇总
+
+| HTTP 状态码 | 错误消息                                                                                                     | 说明               |
+| ----------- | ------------------------------------------------------------------------------------------------------------ | ------------------ |
+| 400         | 参数不完整/无效参数                                                                                          | 请求体缺失必填字段 |
+| 401         | 未登录/无效的Token/Token格式错误                                                                             | 认证失败           |
+| 403         | 只有管理员可以创建班级/只有班级管理员可以添加成员/无权访问班级薄弱点数据                                     | 权限不足           |
+| 404         | 班级不存在                                                                                                   | 资源不存在         |
+| 409         | 学号已存在/已经是班级成员                                                                                    | 资源冲突           |
+| 429         | Server busy, please try again later / User task limit exceeded / Rate limit exceeded, please try again later | 限流               |
+| 502         | AI service communication error                                                                               | AI 服务不可达      |
+| 504         | AI response timeout                                                                                          | 超时               |
+| 500         | 内部服务器错误                                                                                               | 未知错误           |

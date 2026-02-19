@@ -15,7 +15,7 @@
         <div class="filter-item">
           <label>时间范围：</label>
           <input type="date" v-model="startDate" class="date-input" />
-          <span>至</span>
+          <span class="date-separator">至</span>
           <input type="date" v-model="endDate" class="date-input" />
         </div>
       </div>
@@ -48,10 +48,10 @@
             <span class="stat-icon">🎯</span>
             {{ totalWeakPoints }} 个薄弱点
           </span>
-        </div>
         
         <!-- 薄弱点展示 -->
-        <WeakPointDisplay 
+        </div>
+        <WeakPointDisplay
           :weak-points="transformedWeakPoints"
           :show-description="true"
         />
@@ -67,10 +67,19 @@ import WeakPointDisplay from '../WeakPointDisplay.vue'
 
 const classStore = useClassStore()
 
+// 获取今天的日期字符串
+function getTodayString() {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 // 筛选条件
 const selectedStudents = ref([])
-const startDate = ref('')
-const endDate = ref('')
+const startDate = ref(getTodayString())
+const endDate = ref(getTodayString())
 
 // 从班级成员中筛选学生
 const students = computed(() => {
@@ -92,7 +101,8 @@ const totalWeakPoints = computed(() => {
 function getQueryParams() {
   const params = {}
   if (selectedStudents.value.length > 0) {
-    params.student_ids = selectedStudents.value.join(',')
+    // 发送 JSON 数组格式，符合后端期望
+    params.student_ids = JSON.stringify(selectedStudents.value)
   }
   if (startDate.value) {
     params.start_date = startDate.value
@@ -174,10 +184,11 @@ onMounted(() => {
 }
 
 .filter-section {
-  background: #f5f5f5;
+  background: white;
   padding: 16px;
   border-radius: 8px;
   margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .filter-row {
@@ -194,27 +205,47 @@ onMounted(() => {
 }
 
 .filter-item label {
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
+  color: #303133;
+  font-size: 14px;
 }
 
 .multi-select {
   min-width: 200px;
   height: 100px;
   padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  transition: border-color 0.3s;
+}
+
+.multi-select:focus {
+  border-color: #409eff;
 }
 
 .date-input {
-  padding: 4px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+}
+
+.date-input:focus {
+  border-color: #409eff;
+}
+
+.date-separator {
+  color: #909399;
+  font-size: 14px;
 }
 
 .hint {
   font-size: 12px;
-  color: #666;
+  color: #909399;
 }
 
 .filter-actions {
@@ -223,11 +254,13 @@ onMounted(() => {
 }
 
 .btn {
-  padding: 8px 16px;
+  padding: 8px 20px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s;
 }
 
 .btn:disabled {
@@ -236,26 +269,30 @@ onMounted(() => {
 }
 
 .btn-primary {
-  background: #007bff;
+  background: #409eff;
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #0056b3;
+  background: #66b1ff;
 }
 
 .btn-secondary {
-  background: #6c757d;
-  color: white;
+  background: #f5f7fa;
+  color: #606266;
+  border: 1px solid #dcdfe6;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #545b62;
+  background: #ecf5ff;
+  border-color: #409eff;
+  color: #409eff;
 }
 
 .result-section {
   background: white;
   border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   padding: 16px;
   min-height: 300px;
 }
@@ -264,8 +301,8 @@ onMounted(() => {
   display: flex;
   gap: 24px;
   padding: 12px 16px;
-  background: #f8f9fa;
-  border-radius: 4px;
+  background: #f5f7fa;
+  border-radius: 6px;
   margin-bottom: 16px;
 }
 
@@ -284,7 +321,7 @@ onMounted(() => {
 .loading, .empty-state {
   text-align: center;
   padding: 40px;
-  color: #666;
+  color: #909399;
 }
 
 .weak-points-result {

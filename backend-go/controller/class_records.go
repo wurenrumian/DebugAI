@@ -3,6 +3,7 @@ package controller
 import (
 	"backend-go/models"
 	"backend-go/service"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -37,11 +38,16 @@ func GetClassDebugRecords(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	studentID := c.Query("student_id")
-	var studentIDPtr *string
-	if studentID != "" {
-		studentIDPtr = &studentID
+	// 解析查询参数 - 支持多个 student_ids (JSON数组格式)
+	var studentIDs []string
+
+	// 优先使用 student_ids (JSON数组格式)
+	studentIDsStr := c.Query("student_ids")
+	if studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 student_ids 格式"})
+			return
+		}
 	}
 
 	startDateStr := c.DefaultQuery("start_date", "")
@@ -74,7 +80,16 @@ func GetClassDebugRecords(c *gin.Context) {
 	}
 
 	// 调用服务层
-	result, err := service.GetClassDebugRecords(uint(classID), studentIDPtr, startDate, endDate, page, pageSize)
+	var result *service.ClassRecordResponse
+
+	// 根据是否有 studentIDs 调用不同的服务方法
+	if len(studentIDs) > 0 {
+		result, err = service.GetClassDebugRecords(uint(classID), studentIDs, startDate, endDate, page, pageSize)
+	} else {
+		// 传 nil 表示查询全班
+		result, err = service.GetClassDebugRecords(uint(classID), nil, startDate, endDate, page, pageSize)
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
 		return
@@ -110,11 +125,14 @@ func GetClassEvaluateRecords(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	studentID := c.Query("student_id")
-	var studentIDPtr *string
-	if studentID != "" {
-		studentIDPtr = &studentID
+	// 解析查询参数 - 支持多个 student_ids (JSON数组格式)
+	var studentIDs []string
+	studentIDsStr := c.Query("student_ids")
+	if studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 student_ids 格式"})
+			return
+		}
 	}
 
 	startDateStr := c.DefaultQuery("start_date", "")
@@ -147,7 +165,12 @@ func GetClassEvaluateRecords(c *gin.Context) {
 	}
 
 	// 调用服务层
-	result, err := service.GetClassEvaluateRecords(uint(classID), studentIDPtr, startDate, endDate, page, pageSize)
+	var result *service.ClassRecordResponse
+	if len(studentIDs) > 0 {
+		result, err = service.GetClassEvaluateRecords(uint(classID), studentIDs, startDate, endDate, page, pageSize)
+	} else {
+		result, err = service.GetClassEvaluateRecords(uint(classID), nil, startDate, endDate, page, pageSize)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
 		return
@@ -183,11 +206,14 @@ func GetClassRecommendRecords(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	studentID := c.Query("student_id")
-	var studentIDPtr *string
-	if studentID != "" {
-		studentIDPtr = &studentID
+	// 解析查询参数 - 支持多个 student_ids (JSON数组格式)
+	var studentIDs []string
+	studentIDsStr := c.Query("student_ids")
+	if studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 student_ids 格式"})
+			return
+		}
 	}
 
 	startDateStr := c.DefaultQuery("start_date", "")
@@ -220,7 +246,12 @@ func GetClassRecommendRecords(c *gin.Context) {
 	}
 
 	// 调用服务层
-	result, err := service.GetClassRecommendRecords(uint(classID), studentIDPtr, startDate, endDate, page, pageSize)
+	var result *service.ClassRecordResponse
+	if len(studentIDs) > 0 {
+		result, err = service.GetClassRecommendRecords(uint(classID), studentIDs, startDate, endDate, page, pageSize)
+	} else {
+		result, err = service.GetClassRecommendRecords(uint(classID), nil, startDate, endDate, page, pageSize)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
 		return
@@ -256,11 +287,14 @@ func ExportClassDebugRecords(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	studentID := c.Query("student_id")
-	var studentIDPtr *string
-	if studentID != "" {
-		studentIDPtr = &studentID
+	// 解析查询参数 - 支持多个 student_ids (JSON数组格式)
+	var studentIDs []string
+	studentIDsStr := c.Query("student_ids")
+	if studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 student_ids 格式"})
+			return
+		}
 	}
 
 	startDateStr := c.DefaultQuery("start_date", "")
@@ -287,7 +321,12 @@ func ExportClassDebugRecords(c *gin.Context) {
 	}
 
 	// 调用服务层
-	result, err := service.GetClassDebugRecords(uint(classID), studentIDPtr, startDate, endDate, page, pageSize)
+	var result *service.ClassRecordResponse
+	if len(studentIDs) > 0 {
+		result, err = service.GetClassDebugRecords(uint(classID), studentIDs, startDate, endDate, page, pageSize)
+	} else {
+		result, err = service.GetClassDebugRecords(uint(classID), nil, startDate, endDate, page, pageSize)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出失败"})
 		return
@@ -300,7 +339,7 @@ func ExportClassDebugRecords(c *gin.Context) {
 	// 返回 JSON 格式的导出数据
 	exportData := map[string]interface{}{
 		"total":   result.Total,
-		"filters": map[string]interface{}{"class_id": classID, "student_id": studentID, "start_date": startDateStr, "end_date": endDateStr},
+		"filters": map[string]interface{}{"class_id": classID, "student_ids": studentIDs, "start_date": startDateStr, "end_date": endDateStr},
 		"data":    result.Data,
 	}
 
@@ -334,11 +373,14 @@ func ExportClassEvaluateRecords(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	studentID := c.Query("student_id")
-	var studentIDPtr *string
-	if studentID != "" {
-		studentIDPtr = &studentID
+	// 解析查询参数 - 支持多个 student_ids (JSON数组格式)
+	var studentIDs []string
+	studentIDsStr := c.Query("student_ids")
+	if studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 student_ids 格式"})
+			return
+		}
 	}
 
 	startDateStr := c.DefaultQuery("start_date", "")
@@ -365,7 +407,12 @@ func ExportClassEvaluateRecords(c *gin.Context) {
 	}
 
 	// 调用服务层
-	result, err := service.GetClassEvaluateRecords(uint(classID), studentIDPtr, startDate, endDate, page, pageSize)
+	var result *service.ClassRecordResponse
+	if len(studentIDs) > 0 {
+		result, err = service.GetClassEvaluateRecords(uint(classID), studentIDs, startDate, endDate, page, pageSize)
+	} else {
+		result, err = service.GetClassEvaluateRecords(uint(classID), nil, startDate, endDate, page, pageSize)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出失败"})
 		return
@@ -378,7 +425,7 @@ func ExportClassEvaluateRecords(c *gin.Context) {
 	// 返回 JSON 格式的导出数据
 	exportData := map[string]interface{}{
 		"total":   result.Total,
-		"filters": map[string]interface{}{"class_id": classID, "student_id": studentID, "start_date": startDateStr, "end_date": endDateStr},
+		"filters": map[string]interface{}{"class_id": classID, "student_ids": studentIDs, "start_date": startDateStr, "end_date": endDateStr},
 		"data":    result.Data,
 	}
 
@@ -412,11 +459,14 @@ func ExportClassRecommendRecords(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	studentID := c.Query("student_id")
-	var studentIDPtr *string
-	if studentID != "" {
-		studentIDPtr = &studentID
+	// 解析查询参数 - 支持多个 student_ids (JSON数组格式)
+	var studentIDs []string
+	studentIDsStr := c.Query("student_ids")
+	if studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 student_ids 格式"})
+			return
+		}
 	}
 
 	startDateStr := c.DefaultQuery("start_date", "")
@@ -443,7 +493,12 @@ func ExportClassRecommendRecords(c *gin.Context) {
 	}
 
 	// 调用服务层
-	result, err := service.GetClassRecommendRecords(uint(classID), studentIDPtr, startDate, endDate, page, pageSize)
+	var result *service.ClassRecordResponse
+	if len(studentIDs) > 0 {
+		result, err = service.GetClassRecommendRecords(uint(classID), studentIDs, startDate, endDate, page, pageSize)
+	} else {
+		result, err = service.GetClassRecommendRecords(uint(classID), nil, startDate, endDate, page, pageSize)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出失败"})
 		return
@@ -456,7 +511,7 @@ func ExportClassRecommendRecords(c *gin.Context) {
 	// 返回 JSON 格式的导出数据
 	exportData := map[string]interface{}{
 		"total":   result.Total,
-		"filters": map[string]interface{}{"class_id": classID, "student_id": studentID, "start_date": startDateStr, "end_date": endDateStr},
+		"filters": map[string]interface{}{"class_id": classID, "student_ids": studentIDs, "start_date": startDateStr, "end_date": endDateStr},
 		"data":    result.Data,
 	}
 
