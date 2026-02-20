@@ -53,22 +53,132 @@ Worker 从队列中获取任务，通过 HTTP 请求转发给 Python AI 服务�
 
 ### 主要表结构
 
-| 表名               | 用途           | 说明                                    |
-| ------------------ | -------------- | --------------------------------------- |
-| `users`            | 用户信息       | 学号、用户名、密码哈希、用户类型        |
-| `air_records`      | AI 交互记录    | 存储每次 AI 调用的请求/响应，按轮次记录 |
-| `conversations`    | 对话会话状态   | 跟踪 debug 对话的关闭状态               |
-| `weak_points`      | 薄弱点字典     | 预定义的关键词及其分类描述              |
-| `user_weak_points` | 用户薄弱点统计 | 按天聚合，记录每个薄弱点的出现次数      |
-| `classes`          | 班级信息       | 班级名称、创建者                        |
-| `class_members`    | 班级成员       | 用户-班级关联，包含角色和创建者标记     |
+| 表名               | 用途           | 说明                                    | 主键/索引                                                               |
+| ------------------ | -------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| `users`            | 用户信息       | 学号、用户名、密码哈希、用户类型        | `id` (PK), `student_id` (unique)                                        |
+| `air_records`      | AI 交互记录    | 存储每次 AI 调用的请求/响应，按轮次记录 | `id` (PK), `(conversation_id, student_id, created_at)`                  |
+| `conversations`    | 对话会话状态   | 跟踪 debug 对话的关闭状态               | `id` (PK), `conversation_id` (unique)                                   |
+| `weak_points`      | 薄弱点字典     | 预定义的关键词及其分类描述              | `id` (PK), `keyword` (unique)                                           |
+| `user_weak_points` | 用户薄弱点统计 | 按天聚合，记录每个薄弱点的出现次数      | `id` (PK), `(student_id, weak_point_id, record_date)` (composite index) |
+| `classes`          | 班级信息       | 班级名称、创建者                        | `id` (PK)                                                               |
+| `class_members`    | 班级成员       | 用户-班级关联，包含角色和创建者标记     | `id` (PK), `(user_id, class_id)`, `(class_id, member_role)`             |
 
-### 复合索引
+### 表结构详情
 
-- `class_members(user_id, class_id)`：优化 GetMyClasses 查询
-- `class_members(class_id, member_role)`：优化权限查询
-- `user_weak_points(student_id, weak_point_id, record_date)`：优化薄弱点查询
-- `air_records(conversation_id, student_id, created_at)`：优化历史记录查询
+#### users（用户表）
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    student_id VARCHAR(255) UNIQUE NOT NULL,
+    user_type VARCHAR(50) DEFAULT 'user',
+    username VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+```
+
+#### air_records（AI交互记录表）
+```sql
+CREATE TABLE air_records (
+    id SERIAL PRIMARY KEY,
+    conversation_id VARCHAR(255) NOT NULL,
+    student_id VARCHAR(255) NOT NULL,
+    round_number INTEGER,
+    role VARCHAR(50),
+    request_payload TEXT,
+    response_payload TEXT,
+    error TEXT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+-- 索引：idx_air_records_conv_student_created (conversation_id, student_id, created_at)
+```
+
+#### conversations（对话会话表）
+```sql
+CREATE TABLE conversations (
+    id SERIAL PRIMARY KEY,
+    conversation_id VARCHAR(255) UNIQUE NOT NULL,
+    student_id VARCHAR(255) NOT NULL,
+    task_type VARCHAR(50) DEFAULT 'debug',
+    is_closed BOOLEAN DEFAULT FALSE,
+    closed_at TIMESTAMP,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+```
+
+#### weak_points（薄弱点字典表）
+```sql
+CREATE TABLE weak_points (
+    id SERIAL PRIMARY KEY,
+    keyword VARCHAR(100) UNIQUE NOT NULL,
+    description VARCHAR(500),
+    category VARCHAR(50),
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+```
+
+#### user_weak_points（用户薄弱点关联表）
+```sql
+CREATE TABLE user_weak_points (
+    id SERIAL PRIMARY KEY,
+    student_id VARCHAR(255) NOT NULL,
+    weak_point_id INTEGER NOT NULL,
+    count INTEGER DEFAULT 1,
+    record_date TIMESTAMP NOT NULL,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+-- 复合索引：idx_user_weak_points_student_weakpoint_date (student_id, weak_point_id, record_date)
+```
+
+#### classes（班级表）
+```sql
+CREATE TABLE classes (
+    id SERIAL PRIMARY KEY,
+    class_name VARCHAR(255) NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+```
+
+#### class_members（班级成员表）
+```sql
+CREATE TABLE class_members (
+    id SERIAL PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    member_role VARCHAR(20) DEFAULT 'student',
+    is_creator BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+-- 复合索引：
+-- idx_class_members_user_class (user_id, class_id)
+-- idx_class_members_class_role (class_id, member_role)
+-- 外键约束：
+-- FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+-- FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+```
+
+### 复合索引说明
+
+- **idx_class_members_user_class** (`user_id`, `class_id`)：优化用户查询自己所属班级的权限验证
+- **idx_class_members_class_role** (`class_id`, `member_role`)：优化按班级和角色筛选成员的查询（如获取班级所有教师）
+- **idx_user_weak_points_student_weakpoint_date** (`student_id`, `weak_point_id`, `record_date`)：支持按学生、薄弱点和日期范围的高效查询
+- **idx_air_records_conv_student_created** (`conversation_id`, `student_id`, `created_at`)：优化按对话、学生和时间范围的历史记录查询
 
 ## 权限体系
 

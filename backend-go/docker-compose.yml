@@ -1,0 +1,50 @@
+version: '3.8'
+
+# ============================================================
+# 本地开发测试使用方法:
+# 1. **仅启动** PostgreSQL: docker-compose up postgres
+# 2. 启动后端(需先设置环境变量):
+#    $env:DB_HOST="localhost"; $env:DB_USER="postgres"; $env:DB_PASSWORD="password"; $env:DB_NAME="debugai"; $env:DB_PORT="5432"
+#    go run main.go
+# 3. 完整启动(容器化部署时，本地测试不需要)(后端+数据库): docker-compose up --build
+# ============================================================
+
+services:
+  # PostgreSQL 数据库服务
+  postgres:
+    image: postgres:16-alpine
+    container_name: debugai-postgres
+    environment:
+      POSTGRES_USER: postgres      # 用户名
+      POSTGRES_PASSWORD: password   # 密码
+      POSTGRES_DB: debugai          # 数据库名
+    ports:
+      - "5432:5432"                 # 映射端口到主机
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # 持久化数据
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端服务 (仅在需要容器化部署时使用)
+  backend:
+    build: .                        # 使用当前目录的 Dockerfile
+    container_name: debugai-backend
+    environment:
+      DB_HOST: postgres             # Docker 网络中指向 postgres 容器
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_NAME: debugai
+      DB_PORT: 5432
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy  # 等待数据库就绪后再启动
+    restart: unless-stopped
+
+volumes:
+  postgres_data:                    # 命名卷，存储数据库文件

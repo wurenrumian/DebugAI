@@ -8,9 +8,13 @@ import (
 	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// 加载 .env 文件中的环境变量
+	godotenv.Load()
+
 	config.InitDB()
 
 	// Initialize Python AI service URL

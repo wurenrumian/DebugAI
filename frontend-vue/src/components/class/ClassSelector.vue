@@ -66,7 +66,10 @@ const loading = ref(false)
 
 const classes = computed(() => classStore.classes)
 const currentClassId = computed(() => classStore.currentClass?.id)
-const isAdmin = computed(() => authStore.getUser?.user_type === 'admin')
+const isAdmin = computed(() => {
+  const user = authStore.user
+  return user && user.user_type === 'admin'
+})
 
 onMounted(async () => {
   await classStore.fetchMyClasses()
