@@ -202,15 +202,17 @@ Worker 从队列中获取任务，通过 HTTP 请求转发给 Python AI 服务�
 
 ## 数据库表结构
 
-- `users`：用户信息
-- `conversations`：对话会话（含关闭状态）
-- `ai_records`：AI 交互详细记录
-- `weak_points`：薄弱点定义
-- `user_weak_points`：用户薄弱点统计（按天记录）
-- `classes`：班级表
-- `class_members`：班级成员（含 `is_creator` 标识）
+详见 [`backend-go/README.md`](backend-go/README.md) 的"数据模型"章节，包含：
 
-详见 [`backend-go/README.md`](backend-go/README.md)。
+- **users**（用户表）：学号、用户名、密码哈希、用户类型
+- **air_records**（AI交互记录表）：存储每次AI调用的完整请求/响应，按轮次记录
+- **conversations**（对话会话表）：跟踪debug对话的关闭状态
+- **weak_points**（薄弱点字典表）：预定义关键词及其分类描述
+- **user_weak_points**（用户薄弱点关联表）：按天聚合，记录每个薄弱点的出现次数
+- **classes**（班级表）：班级名称、创建者
+- **class_members**（班级成员表）：用户-班级关联，包含角色和创建者标记
+
+所有表均包含 GORM 自动管理的 `created_at`、`updated_at`、`deleted_at` 字段，支持软删除。
 
 ## 技术栈版本
 

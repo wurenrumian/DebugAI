@@ -8,6 +8,12 @@
     <div class="content-wrapper">
       <aside class="sidebar">
         <div class="sidebar-section selector-section">
+          <!-- 管理员创建班级按钮 -->
+          <div v-if="isSystemAdmin" class="admin-create-section">
+            <button class="create-btn" @click="showCreateDialog = true">
+              + 创建班级
+            </button>
+          </div>
           <ClassSelector @class-selected="onClassSelected" />
         </div>
         
@@ -65,6 +71,29 @@
       </main>
     </div>
   </div>
+
+  <!-- 创建班级对话框 -->
+  <div v-if="showCreateDialog" class="dialog-overlay" @click.self="showCreateDialog = false">
+    <div class="dialog">
+      <h3>创建班级</h3>
+      <input
+        v-model="newClassName"
+        type="text"
+        placeholder="请输入班级名称"
+        @keyup.enter="createClass"
+      />
+      <div class="dialog-actions">
+        <button class="cancel-btn" @click="showCreateDialog = false">取消</button>
+        <button
+          class="confirm-btn"
+          @click="createClass"
+          :disabled="!newClassName.trim() || loading"
+        >
+          {{ loading ? '创建中...' : '创建' }}
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -81,10 +110,19 @@ const classStore = useClassStore()
 const authStore = useAuthStore()
 
 const activeTab = ref('info')
+const showCreateDialog = ref(false)
+const newClassName = ref('')
+const loading = ref(false)
+
+// 检查是否是系统管理员
+const isSystemAdmin = computed(() => {
+  const user = authStore.user
+  return user && user.user_type === 'admin'
+})
 
 // 检查当前用户是否是班级管理员
 const isClassAdmin = computed(() => {
-  const user = authStore.getUser
+  const user = authStore.user
   // 系统管理员可以管理任何班级
   if (user?.user_type === 'admin') return true
   
@@ -106,6 +144,26 @@ onMounted(() => {
     classStore.fetchMembers(classStore.currentClass.id)
   }
 })
+
+// 创建班级
+const createClass = async () => {
+  if (!newClassName.value.trim() || loading.value) return
+  
+  loading.value = true
+  const result = await classStore.createClass({ name: newClassName.value.trim() })
+  loading.value = false
+  
+  if (result.success) {
+    showCreateDialog.value = false
+    newClassName.value = ''
+    // 获取新班级的成员
+    if (classStore.currentClass) {
+      await classStore.fetchMembers(classStore.currentClass.id)
+    }
+  } else {
+    alert(result.error || '创建班级失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -247,6 +305,99 @@ onMounted(() => {
   margin-top: 8px;
   font-size: 14px !important;
   color: #c0c4cc !important;
+}
+.admin-create-section {
+  margin-bottom: 12px;
+}
+
+.create-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background-color: #409eff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.create-btn:hover {
+  background-color: #66b1ff;
+}
+
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90%;
+}
+
+.dialog h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+}
+
+.dialog input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cancel-btn, .confirm-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.cancel-btn {
+  background-color: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  color: #606266;
+}
+
+.cancel-btn:hover {
+  background-color: #f0f2f5;
+}
+
+.confirm-btn {
+  background-color: #409eff;
+  border: none;
+  color: white;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  background-color: #66b1ff;
+}
+
+.confirm-btn:disabled {
+  background-color: #a0cfff;
+  cursor: not-allowed;
 }
 </style>
 
