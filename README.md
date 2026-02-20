@@ -169,36 +169,6 @@ Worker 从队列中获取任务，通过 HTTP 请求转发给 Python AI 服务�
 - `GET /api/v1/classes/:id/records/recommend/export` - 导出班级 Recommend 历史（JSON）
 - `GET /api/v1/ai/weak_points/class` - 获取班级薄弱点统计（支持学生、时间筛选）
 
-完整接口文档见 [`backend-go/README.md`](backend-go/README.md) 和 [`ai-python/README.md`](ai-python/README.md)。
-
-### 认证与用户
-
-- `POST /auth/register` - 注册
-- `POST /auth/login` - 登录
-- `GET /api/v1/profile` - 获取用户信息（需认证）
-
-### AI 服务（需认证）
-
-- `POST /api/v1/ai/debug_v2` - 多轮调试
-- `POST /api/v1/ai/debug/close` - 关闭对话
-- `POST /api/v1/ai/evaluate` - 代码评价
-- `POST /api/v1/ai/recommend` - 题目推荐
-- `GET /api/v1/ai/weak_points` - 获取薄弱点（支持日期筛选）
-- `GET /api/v1/ai/weak_points/top` - 获取Top N薄弱点
-- `GET /api/v1/ai/records/*` - 历史记录（调试/评价/推荐）
-
-### 班级管理（需认证）
-
-- `GET /api/v1/classes` - 班级列表
-- `GET /api/v1/classes/my` - 我的班级
-- `POST /api/v1/classes` - 创建班级（仅admin）
-- `POST /api/v1/classes/:id/join` - 加入班级
-- `GET /api/v1/classes/:id/members` - 成员列表
-- `POST /api/v1/classes/:id/members/add` - 添加成员
-- `POST /api/v1/classes/:id/members/remove` - 移除成员
-- `GET /api/v1/ai/weak_points/class` - 班级薄弱点（教师/助教）
-
-完整接口文档见 [`backend-go/README.md`](backend-go/README.md) 和 [`ai-python/README.md`](ai-python/README.md)。
 
 ## 数据库表结构
 
@@ -217,7 +187,7 @@ Worker 从队列中获取任务，通过 HTTP 请求转发给 Python AI 服务�
 ## 技术栈版本
 
 - **前端**：Vue 3.5+ | Vite 5.4+ | Vue Router 4.6+ | Pinia 2.3+ | Axios 1.13+
-- **后端**：Go 1.21+ | Gin | SQLite | JWT
+- **后端**：Go 1.21+ | Gin | PostgreSQL | JWT
 - **AI**：Python 3.9+ | Flask
 
 ## 目录结构
@@ -254,10 +224,9 @@ DebugAI/
 │   │   ├── ai_record.go       # AIRecord 模型
 │   │   ├── conversation.go    # Conversation 模型
 │   │   ├── class.go           # Class、ClassMember 模型
-│   │   ├── ai.go              # Evaluate/Recommend 请求响应模型
+│   │   ├── ai.go              # Evaluate/Recommend/WeakPoint 请求响应模型（含 WeakPoint、UserWeakPoint）
 │   │   ├── debug.go           # DebugV2 请求响应模型、RoundInfo
-│   │   ├── job.go             # Worker Pool 任务模型
-│   │   └── weak_point.go      # WeakPoint、UserWeakPoint 模型
+│   │   └── job.go             # Worker Pool 任务模型
 │   ├── service/
 │   │   ├── ai_proxy_service.go    # debug_v2 业务逻辑
 │   │   ├── ai_service.go          # evaluate/recommend/薄弱点/班级薄弱点业务
