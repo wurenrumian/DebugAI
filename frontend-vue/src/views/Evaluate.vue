@@ -163,8 +163,8 @@ const hasResult = computed(() => {
   return result.value !== null
 })
 
-// 解析测试点(临时停用)
-/*const parseTestPoints = () => {
+// 解析测试点
+const parseTestPoints = () => {
   if (!testPointsText.value.trim()) {
     return []
   }
@@ -192,28 +192,6 @@ const hasResult = computed(() => {
       currentStatus = ''
     }
   }
-  
-  return testPoints
-}*/
-//测试用解析测试点
-const parseTestPoints = () => {
-  if (!testPointsText.value.trim()) {
-    return []
-  }
-  
-  const jsonData = JSON.parse(testPointsText.value)
-
-  const testPoints = jsonData.map((item, index) => {
-    // 检查必要字段
-    if (!item.hasOwnProperty('input') || !item.hasOwnProperty('status')) {
-      throw new Error(`第${index + 1}个测试点缺少必要字段（需要包含input、status）`)
-    }
-
-    return {
-      input: String(item.input),  // 确保转换为字符串
-      status: String(item.status)
-    }
-  })
   
   return testPoints
 }
