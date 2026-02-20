@@ -1,6 +1,0 @@
-[
-    {"input": "1 -2 -1 2", "status": "Accepted"},
-    {"input": "1 -4.65 2.25 1.4", "status": "Wrong Answer"},
-    {"input": "1 10 -1 -10", "status": "Wrong Answer"},
-    {"input": "1 -1.8 -8.59 -0.84", "status": "Accepted"}
-]
