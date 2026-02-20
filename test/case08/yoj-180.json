@@ -1,0 +1,12 @@
+[
+    {"input": "56 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "84.8 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "51 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "15 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "23.9 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "67.6 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "34.2 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "5.5 0.0001", "status": "Accepted"},
+    {"input": "84.8 0.0001", "status": "Time Limit Exceeded"},
+    {"input": "0.5 0.0001", "status": "Accepted"}
+]

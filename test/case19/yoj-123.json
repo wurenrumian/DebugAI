@@ -1,0 +1,12 @@
+[
+    {"input": "1", "status": "Memory Limit Exceeded"},
+    {"input": "2", "status": "Memory Limit Exceeded"},
+    {"input": "3", "status": "Memory Limit Exceeded"},
+    {"input": "4", "status": "Memory Limit Exceeded"},
+    {"input": "5", "status": "Memory Limit Exceeded"},
+    {"input": "6", "status": "Memory Limit Exceeded"},
+    {"input": "7", "status": "Memory Limit Exceeded"},
+    {"input": "8", "status": "Memory Limit Exceeded"},
+    {"input": "9", "status": "Memory Limit Exceeded"},
+    {"input": "10", "status": "Memory Limit Exceeded"}
+]
