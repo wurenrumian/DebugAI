@@ -1,0 +1,12 @@
+[
+    {"input": "1000000000 1000000000 +", "status": "Accepted"},
+    {"input": "1000000000 1000000000 *", "status": "Accepted"},
+    {"input": "0 0 /", "status": "Accepted"},
+    {"input": "0 0 %", "status": "Accepted"},
+    {"input": "1000000000 0 /", "status": "Accepted"},
+    {"input": "0 1000000000 -", "status": "Accepted"},
+    {"input": "1000000000 -1000000000 -", "status": "Wrong Answer"},
+    {"input": "-1000000000 -1000000000 /", "status": "Wrong Answer"},
+    {"input": "9 3 +", "status": "Accepted"},
+    {"input": "100 3 /", "status": "Accepted"}
+]

@@ -1,0 +1,12 @@
+[
+    {"input": "53", "status": "Wrong Answer"},
+    {"input": "59", "status": "Wrong Answer"},
+    {"input": "53", "status": "Wrong Answer"},
+    {"input": "28", "status": "Wrong Answer"},
+    {"input": "48", "status": "Wrong Answer"},
+    {"input": "2", "status": "Wrong Answer"},
+    {"input": "96", "status": "Accepted"},
+    {"input": "55", "status": "Wrong Answer"},
+    {"input": "53", "status": "Wrong Answer"},
+    {"input": "66", "status": "Wrong Answer"}
+]
