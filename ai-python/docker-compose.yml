@@ -1,0 +1,42 @@
+version: '3.8'
+
+# ============================================================
+# AI 服务容器化部署配置
+#
+# 本地开发测试使用方法:
+# 1. 设置环境变量（Windows PowerShell）:
+#    $env:OPENAI_API_KEY="your-api-key"
+#    $env:OPENAI_BASE_URL="https://api.openai.com/v1"  # 可选
+#    $env:LLM_MODEL="gpt-4"  # 或 "gpt-3.5-turbo"
+# 2. 启动服务: docker-compose up ai-service
+# 3. 访问健康检查: http://localhost:8000/health
+#
+# 完整集成部署（与 Go 后端一起）:
+#   在根目录执行: docker-compose up --build
+# ============================================================
+
+services:
+  # AI 服务容器
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: debugai-ai-service
+    environment:
+      # DeepSeek API 配置（必需）
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\"" ]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - debugai-network
+
+networks:
+  debugai-network:
+    driver: bridge

@@ -1,0 +1,60 @@
+# 版本控制
+.git
+.gitignore
+
+# Python 虚拟环境
+venv
+env
+.venv
+.env
+
+# IDE 配置
+.vscode
+.idea
+*.swp
+*.swo
+
+# 测试和缓存
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache
+.coverage
+htmlcov
+
+# 数据文件
+data/
+*.db
+*.sqlite
+
+# 日志文件
+*.log
+logs/
+
+# 文档构建
+docs/
+site/
+
+# 临时文件
+tmp
+temp
+*.tmp
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 开发工具
+.mypy_cache
+.ruff_cache
+
+# 本地配置文件（敏感信息）
+.local.env
+.env.local
+.env.*.local
+
+# 测试数据
+tests/fixtures/
+tests/__pycache__/

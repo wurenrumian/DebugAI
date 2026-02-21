@@ -166,13 +166,13 @@ pip install -r requirements.txt
 
 ### 配置环境变量
 
-创建 `.env` 文件：
+创建 `.env` 文件或直接设置环境变量：
 
 ```bash
-OPENAI_API_KEY="sk-your-api-key"
-OPENAI_BASE_URL="https://api.openai.com/v1"  # 可选
-LLM_MODEL="gpt-4"  # 或 "gpt-3.5-turbo"
+DEEPSEEK_API_KEY="sk-your-api-key"
 ```
+
+**注意**：当前代码使用 DeepSeek API（`https://api.deepseek.com`），模型固定为 `deepseek-chat`。如需支持其他 LLM 服务，需修改 [`llm_client.py`](llm_client.py) 中的配置。
 
 ### 运行服务
 
@@ -189,23 +189,85 @@ python main.py
 
 ### Docker 部署
 
-**Dockerfile**：
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-USER appuser
-EXPOSE 8000
-CMD ["python", "main.py"]
+项目已提供完整的 Docker 配置文件：
+
+**文件结构**：
+- [`Dockerfile`](Dockerfile) - 多阶段构建，安全优化
+- [`docker-compose.yml`](docker-compose.yml) - 服务编排
+- [`.dockerignore`](.dockerignore) - 构建优化
+
+**构建镜像**：
+```bash
+cd ai-python
+docker build -t debugai-ai-service:latest .
 ```
 
 **运行容器**：
 ```bash
-docker build -t ai-python:latest .
-docker run -d -p 8000:8000 -e OPENAI_API_KEY="your-key" ai-python:latest
+docker run -d \
+  -p 8000:8000 \
+  -e DEEPSEEK_API_KEY="your-api-key" \
+  debugai-ai-service:latest
 ```
+
+**使用 Docker Compose（推荐）**：
+
+如果已有 `.env` 文件（位于 `ai-python/.env`），Docker Compose 会自动读取：
+
+```bash
+# 直接启动（使用 .env 文件中的配置）
+docker-compose up ai-service
+```
+
+或者手动设置环境变量：
+
+```bash
+# Windows PowerShell
+$env:DEEPSEEK_API_KEY="your-api-key"
+docker-compose up ai-service
+```
+
+# 启动服务
+docker-compose up ai-service
+
+# 后台运行
+docker-compose up -d ai-service
+
+# 查看日志
+docker-compose logs -f ai-service
+
+# 停止服务
+docker-compose down
+```
+
+**健康检查**：
+```bash
+curl http://localhost:8000/health
+# 预期响应: {"status": "ok", "message": "AI service is running"}
+```
+
+**Docker 网络**：
+- 容器连接到 `debugai-network` 网络
+- 其他服务可通过 `ai-service` 主机名访问此服务
+- 端口映射：`8000:8000`
+
+**环境变量说明**：
+
+| 变量名             | 必需 | 默认值 | 说明              |
+| ------------------ | ---- | ------ | ----------------- |
+| `DEEPSEEK_API_KEY` | 是   | -      | DeepSeek API 密钥 |
+
+**当前配置**：
+- API Base URL: `https://api.deepseek.com`（硬编码在 [`llm_client.py`](llm_client.py:17)）
+- 模型: `deepseek-chat`（硬编码在 [`llm_client.py`](llm_client.py:29)）
+- Temperature: `0.3`
+- Max Tokens: `8192`
+
+**镜像层优化**：
+- 多阶段构建减少最终镜像大小
+- 利用 Docker 缓存加速构建（`requirements.txt` 独立层）
+- 非 root 用户运行增强安全性
+- 仅安装运行时必要系统包
 
 ### 性能优化建议
 
