@@ -52,14 +52,20 @@ func GetClassDebugRecords(c *gin.Context) {
 
 	startDateStr := c.DefaultQuery("start_date", "")
 	endDateStr := c.DefaultQuery("end_date", "")
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	if page < 1 {
-		page = 1
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "20")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 page 参数"})
+		return
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 page_size 参数"})
+		return
 	}
 
 	// 解析时间
@@ -137,14 +143,20 @@ func GetClassEvaluateRecords(c *gin.Context) {
 
 	startDateStr := c.DefaultQuery("start_date", "")
 	endDateStr := c.DefaultQuery("end_date", "")
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	if page < 1 {
-		page = 1
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "20")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 page 参数"})
+		return
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 page_size 参数"})
+		return
 	}
 
 	// 解析时间
@@ -218,14 +230,20 @@ func GetClassRecommendRecords(c *gin.Context) {
 
 	startDateStr := c.DefaultQuery("start_date", "")
 	endDateStr := c.DefaultQuery("end_date", "")
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	if page < 1 {
-		page = 1
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "20")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 page 参数"})
+		return
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 page_size 参数"})
+		return
 	}
 
 	// 解析时间

@@ -277,19 +277,39 @@ func (ctrl *AIController) GetUserWeakPoints(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Parse optional date range parameters
-	var startDate, endDate *time.Time
+	var startDate, endDate time.Time
+	var hasStartDate, hasEndDate bool
+
 	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
-			startDate = &t
+		t, err := time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始日期格式，请使用 YYYY-MM-DD 格式"})
+			return
 		}
-	}
-	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
-			endDate = &t
-		}
+		startDate = t
+		hasStartDate = true
 	}
 
-	weakPoints, err := ctrl.AIService.GetUserWeakPoints(studentID, startDate, endDate)
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		t, err := time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束日期格式，请使用 YYYY-MM-DD 格式"})
+			return
+		}
+		endDate = t
+		hasEndDate = true
+	}
+
+	// Convert to pointers for service layer
+	var startDatePtr, endDatePtr *time.Time
+	if hasStartDate {
+		startDatePtr = &startDate
+	}
+	if hasEndDate {
+		endDatePtr = &endDate
+	}
+
+	weakPoints, err := ctrl.AIService.GetUserWeakPoints(studentID, startDatePtr, endDatePtr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch weak points"})
 		return
@@ -303,19 +323,38 @@ func (ctrl *AIController) GetTopWeakPoints(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Parse optional date range parameters
-	var startDate, endDate *time.Time
+	var startDate, endDate time.Time
+	var hasStartDate, hasEndDate bool
+
 	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
-			startDate = &t
+		t, err := time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始日期格式，请使用 YYYY-MM-DD 格式"})
+			return
 		}
+		startDate = t
+		hasStartDate = true
 	}
 	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
-			endDate = &t
+		t, err := time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束日期格式，请使用 YYYY-MM-DD 格式"})
+			return
 		}
+		endDate = t
+		hasEndDate = true
 	}
 
-	weakPoints, err := ctrl.AIService.GetTopWeakPoints(studentID, 5, startDate, endDate)
+	// Convert to pointers for service layer
+	var startDatePtr, endDatePtr *time.Time
+	if hasStartDate {
+		startDatePtr = &startDate
+	}
+	if hasEndDate {
+		endDatePtr = &endDate
+	}
+
+	weakPoints, err := ctrl.AIService.GetTopWeakPoints(studentID, 5, startDatePtr, endDatePtr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top weak points"})
 		return
@@ -361,16 +400,35 @@ func (ctrl *AIController) GetClassWeakPoints(c *gin.Context) {
 	}
 
 	// Parse optional date range parameters
-	var startDate, endDate *time.Time
+	var startDate, endDate time.Time
+	var hasStartDate, hasEndDate bool
+
 	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
-			startDate = &t
+		t, err := time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始日期格式，请使用 YYYY-MM-DD 格式"})
+			return
 		}
+		startDate = t
+		hasStartDate = true
 	}
 	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
-			endDate = &t
+		t, err := time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束日期格式，请使用 YYYY-MM-DD 格式"})
+			return
 		}
+		endDate = t
+		hasEndDate = true
+	}
+
+	// Convert to pointers for service layer
+	var startDatePtr, endDatePtr *time.Time
+	if hasStartDate {
+		startDatePtr = &startDate
+	}
+	if hasEndDate {
+		endDatePtr = &endDate
 	}
 
 	// Parse optional student_ids (JSON array)
@@ -416,7 +474,7 @@ func (ctrl *AIController) GetClassWeakPoints(c *gin.Context) {
 	}
 
 	// Call service to get class weak points
-	result, err := ctrl.AIService.GetClassWeakPoints(classID, studentIDs, startDate, endDate)
+	result, err := ctrl.AIService.GetClassWeakPoints(classID, studentIDs, startDatePtr, endDatePtr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch class weak points"})
 		return
