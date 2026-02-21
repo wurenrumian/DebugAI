@@ -14,9 +14,9 @@ import (
 // Register 用户注册
 func Register(c *gin.Context) {
 	var input struct {
-		StudentID string `json:"student_id" binding:"required"`
-		Username  string `json:"username" binding:"required"`
-		Password  string `json:"password" binding:"required"`
+		StudentID string `json:"student_id" binding:"required,max=50"`
+		Username  string `json:"username" binding:"required,min=2,max=100"`
+		Password  string `json:"password" binding:"required,min=8,max=128"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -79,7 +79,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	token, err := utils.GenerateToken(user.ID, user.StudentID, user.UserType)
+	token, err := utils.GenerateToken(user.ID, user.StudentID, user.UserType, user.TokenVersion)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成Token失败"})
 		return

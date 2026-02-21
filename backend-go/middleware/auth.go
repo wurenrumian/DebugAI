@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"backend-go/config"
+	"backend-go/models"
 	"backend-go/utils"
 	"net/http"
 
@@ -42,10 +44,25 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 将解析出来的用户信息存入上下文
-		c.Set("student_id", claims.StudentID)
-		c.Set("user_type", claims.UserType)
-		c.Set("user_id", claims.ID)
+		// 查询数据库获取最新用户信息（包括 token_version）
+		var user models.User
+		if err := config.DB.Where("id = ?", claims.ID).First(&user).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
+			c.Abort()
+			return
+		}
+
+		// 验证 token 版本号，确保权限变更后旧 token 失效
+		if claims.TokenVersion != user.TokenVersion {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token已失效，请重新登录"})
+			c.Abort()
+			return
+		}
+
+		// 使用数据库中的最新用户信息存入上下文
+		c.Set("student_id", user.StudentID)
+		c.Set("user_type", user.UserType)
+		c.Set("user_id", user.ID)
 
 		c.Next()
 	}

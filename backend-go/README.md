@@ -76,6 +76,24 @@ class_members: class_id, user_id, member_role('student'|'ta'|'teacher'), is_crea
 - 创建者保护：`is_creator=true` 不可被移除或降级
 - 助教限制：仅可管理学生
 
+### Token Version 安全机制
+
+为防止管理员权限变更后旧 token 仍然有效的问题，引入 Token Version 机制：
+
+```
+用户修改权限 → token_version + 1 → 旧 token 验证失败
+```
+
+**实现方式**：
+- User 模型添加 `token_version` 字段（默认 0）
+- JWT Token 包含当前版本号
+- 每次请求时中间件比对 token 版本与数据库版本
+- 修改 user_type 时需同时执行 `token_version = token_version + 1`
+
+**安全效果**：
+- 管理员权限撤销后，旧 token 自动失效
+- 权限提升后需重新登录生效
+
 ## API 接口规范
 
 ### 认证
