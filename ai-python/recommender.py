@@ -19,7 +19,7 @@ class ProblemRecommender:
         
         formatted = "\n学生薄弱点统计："
         for weak_point, count in sorted_weak_points[:10]:  # 显示前10个
-            formatted += f"\n- {weak_point}: {count}次"
+            formatted += f"\n{weak_point}: {count}次"
         
         return formatted
     
@@ -35,12 +35,14 @@ class ProblemRecommender:
     
     def create_recommendation_prompt(self, request: RecommendRequest) -> str:
         weak_points_info = self._format_weak_points(request.weak_points)
+        prompt = weak_points_info
+        return prompt
+    
+    async def recommend(self, request: RecommendRequest) -> RecommendResult:
         tags_reference = self._get_tags_reference()
-        
-        prompt = f"""
-请你作为编程教学助手，根据学生的薄弱点数据，推荐适合的题目类型。
-
-{weak_points_info}
+        prompt = self.create_recommendation_prompt(request)
+        sysprompt = f"""
+你是专业的编程教学助手，请你根据学生的薄弱点数据推荐适合的题目类型。请严格按照JSON格式返回结果。
 
 任务要求：
 1. 分析学生的薄弱点，找出最需要加强的知识领域
@@ -50,12 +52,12 @@ class ProblemRecommender:
 {tags_reference}
 
 推荐原则：
-1. **针对性**：针对薄弱点选择相关标签
-2. **渐进性**：从基础到进阶，难度适中
-3. **多样性**：覆盖不同知识点，避免单一
-4. **实用性**：选择常见的编程考点
+1. 针对性：针对薄弱点选择相关标签
+2. 渐进性：从基础到进阶，难度适中
+3. 多样性：覆盖不同知识点，避免单一
+4. 实用性：选择常见的编程考点
 
-### 返回JSON格式：
+返回JSON格式要求：
 {{
     "analysis": "<推荐分析总结，50-100字>",
     "recommendations": [
@@ -73,11 +75,7 @@ class ProblemRecommender:
 3. 推荐理由要具体，说明为什么这个标签适合该学生
 4. 确保推荐多样性，不要过于集中
 """
-        return prompt
-    
-    async def recommend(self, request: RecommendRequest) -> RecommendResult:
-        prompt = self.create_recommendation_prompt(request)
-        response = await self.llm_client.call_llm(prompt)
+        response = await self.llm_client.call_llm(sysprompt, prompt)
         
         if "error" in response:
             return RecommendResult(
