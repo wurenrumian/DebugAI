@@ -17,9 +17,10 @@ class DeepSeekClient:
             base_url="https://api.deepseek.com"
         )
     
-    async def call_llm(self, prompt: str, json_mode: bool = True) -> Dict[str, Any]:
+    async def call_llm(self, sysprompt: str, prompt: str, json_mode: bool = True) -> Dict[str, Any]:
         try:
             messages = [
+                {"role": "system", "content": sysprompt},
                 {"role": "user", "content": prompt}
             ]
             
@@ -48,7 +49,7 @@ class DeepSeekClient:
     
     def sanitize_input(self, text: str) -> str:
         # 移除潜在的prompt注入
-        dangerous = ["system:", "user:", "assistant:", "```", "忽略之前", "覆盖指令", "admin:"]
+        dangerous = ["system:", "user:", "assistant:", "admin:", "```", "忽略之前", "覆盖指令", "优秀", "合格", "待改进", "代码", "答案"]
         sanitized = text
         for i in dangerous:
             sanitized = sanitized.replace(i, "")
