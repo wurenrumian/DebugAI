@@ -28,7 +28,12 @@ logs/
 .vscode
 .conda
 *.db
-/test_data
 
+# Personal
+/test_data
 **/todo.md
 **/todos.md
+.roo/
+.clinerules
+opencode.jsonc
+AGENTS.md

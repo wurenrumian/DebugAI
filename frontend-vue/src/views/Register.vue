@@ -39,13 +39,14 @@
         
         <div class="form-group">
           <label for="password">密码</label>
-          <input 
+          <input
             id="password"
-            v-model="formData.password" 
-            type="password" 
+            v-model="formData.password"
+            type="password"
             placeholder="请输入密码"
             required
           />
+          <div class="hint">密码长度不少于8位</div>
         </div>
         
         <div class="form-group">
@@ -167,6 +168,12 @@ const handleRegister = async () => {
 
 .register-form {
   margin-bottom: 20px;
+}
+
+.hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 
 .register-btn {

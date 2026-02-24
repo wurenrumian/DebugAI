@@ -7,6 +7,8 @@ import (
 	"backend-go/models"
 	"backend-go/service"
 
+	"os"
+
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -17,8 +19,10 @@ func main() {
 
 	config.InitDB()
 
-	// Initialize Python AI service URL
-	pythonBaseURL := "http://localhost:8000"
+	pythonBaseURL := os.Getenv("AI_SERVICE_URL")
+	if pythonBaseURL == "" {
+		pythonBaseURL = "http://localhost:8000" // 默认值
+	}
 
 	// Initialize Dispatcher with worker pools
 	dispatcher := service.NewDispatcher(pythonBaseURL, config.DB, models.PoolConfigs())
