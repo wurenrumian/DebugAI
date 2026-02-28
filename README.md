@@ -11,18 +11,27 @@
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-- **前端**：Vue 3 + Vite + Pinia，提供用户界面
-- **后端**：Go + Gin，负责认证、限流、权限、任务调度
-- **AI 服务**：Python + FastAPI，实现代码评价、题目推荐、多轮调试
-- **数据库**：SQLite（开发）/ PostgreSQL（生产）
+### 技术栈与版本
+
+| 组件    | 技术                        | 版本               | 说明                 |
+| ------- | --------------------------- | ------------------ | -------------------- |
+| 前端    | Vue 3 + Vite + Pinia        | 3.4+ / 5.2+ / 2.1+ | 现代化 SPA 框架      |
+| 后端    | Go + Gin + GORM             | 1.25+              | 高性能并发处理       |
+| AI 服务 | Python + FastAPI + DeepSeek | 3.9+               | 基于大模型的智能分析 |
+| 数据库  | SQLite / PostgreSQL         | -                  | 开发/生产环境        |
+
+**核心依赖版本**：
+- Go: 1.25.5（见 [`backend-go/go.mod`](backend-go/go.mod:3)）
+- Vue: 3.4.21（见 [`frontend-vue/package.json`](frontend-vue/package.json:14)）
+- FastAPI: 0.104.1（见 [`ai-python/requirements.txt`](ai-python/requirements.txt:1)）
 
 ## 快速启动
 
 ### 前置条件
 
-- Go 1.21+
+- Go 1.25+
 - Python 3.9+
-- Node.js 18.0+
+- Node.js 18.0+（推荐 20.x LTS）
 
 ### 启动顺序
 
@@ -34,6 +43,8 @@
    python main.py
    ```
 
+   验证：访问 `http://localhost:8000/health`
+
 2. **启动 Go 后端**（端口 8080）
 
    ```bash
@@ -42,15 +53,17 @@
    go run main.go
    ```
 
+   服务监听 `http://localhost:8080`
+
 3. **启动 Vue 前端**（端口 5173）
 
    ```bash
    cd frontend-vue
-   npm install
+   npm ci  # 或 npm install
    npm run dev
    ```
 
-访问 `http://localhost:5173` 查看应用。
+   访问 `http://localhost:5173` 查看应用。
 
 ## 核心功能
 
@@ -61,17 +74,78 @@
 | AI 题目推荐 | 基于薄弱点智能推荐                   | `POST /api/v1/ai/recommend`  |
 | 多轮调试    | 4 轮对话指导（理解→问题→指导→修改）  | `POST /api/v1/ai/debug_v2`   |
 | 历史记录    | 查看所有 AI 交互历史                 | `GET /api/v1/ai/records`     |
-| 薄弱点分析  | 自动统计用户薄弱知识点               | `GET /api/v1/ai/weak_points` |
+| 薄弱点分析  | 自动统计用户薄弱知识点，智能分类     | `GET /api/v1/ai/weak_points` |
 | 班级管理    | 创建/加入班级、成员管理、数据查询    | `/api/v1/classes/*`          |
 
-## 技术栈
+### 薄弱点分类系统
 
-| 组件    | 技术                      | 版本               |
-| ------- | ------------------------- | ------------------ |
-| 前端    | Vue 3 + Vite + Pinia      | 3.5+ / 5.4+ / 2.3+ |
-| 后端    | Go + Gin + GORM           | 1.21+              |
-| AI 服务 | Python + FastAPI + OpenAI | 3.9+               |
-| 数据库  | SQLite / PostgreSQL       | -                  |
+系统自动从 AI 调试对话中提取薄弱点关键词，并根据数据库预置的关键词分类体系进行智能归类：
+
+- **数据结构**：数组、字符串、链表、栈、队列、树、图、哈希表、堆、并查集
+- **算法**：排序、查找、递归、分治、动态规划、贪心算法、回溯算法、二分查找、双指针、滑动窗口
+- **编程基础**：基本语法、函数使用、指针操作、内存管理、文件操作、输入输出、异常处理
+- **问题类型**：数学问题、模拟题、字符串处理、数组操作、搜索算法等
+- **自动分类**：未知关键词的默认分类
+
+系统支持基于数据库已有关键词的模糊匹配，能够识别 AI 返回的关键词变体并自动映射到正确的分类。
+
+### 多轮调试流程（4轮对话）
+
+| 轮次 | 名称     | AI 输出                                            | 用户操作              |
+| ---- | -------- | -------------------------------------------------- | --------------------- |
+| 1    | 理解思路 | `student_thought`, `suggested_correction`          | 阅读，点击"继续"      |
+| 2    | 指出问题 | `problem_summary`, `key_issues[]`, `weak_points[]` | 选择/输入，点击"继续" |
+| 3    | 调试指导 | `debug_guidance`, `ask_for_detail`                 | 选择/输入，点击"继续" |
+| 4    | 修改建议 | `suggestions[]`                                    | 阅读建议，自动关闭    |
+
+**规则**：
+- `current_round` 必须从 1 到 4 顺序递增
+- 第4轮完成后自动关闭对话
+- 可通过 `POST /api/v1/ai/debug/close` 手动关闭
+
+## 后端架构亮点
+
+### 异步 Worker Pool
+
+按任务类型分离的独立队列架构，实现资源隔离：
+
+```
+HTTP API → Dispatcher → [Debug Queue] [Eval Queue] [Rec Queue]
+                                     ↓           ↓           ↓
+                                 [Worker Pool] [Worker Pool] [Worker Pool]
+```
+
+**配置参数**：
+
+| 任务类型  | Worker 数 | 队列容量 | 超时时间 | 用户并发限制 | 1分钟限流 |
+| --------- | --------- | -------- | -------- | ------------ | --------- |
+| Debug     | 5         | 100      | 60s      | 2            | 10        |
+| Evaluate  | 3         | 50       | 30s      | 1            | 5         |
+| Recommend | 2         | 30       | 20s      | 1            | 5         |
+
+### 多层限流机制
+
+1. **用户级并发**：每个用户同时运行任务数限制
+2. **时间窗口**：滑动窗口算法，1 分钟内最大请求数
+3. **超时控制**：各任务类型独立超时
+
+### Token Version 安全机制
+
+为防止管理员权限变更后旧 token 仍然有效的问题，引入 Token Version 机制：
+
+```
+用户修改权限 → token_version + 1 → 旧 token 验证失败
+```
+
+**实现方式**：
+- User 模型添加 `token_version` 字段（默认 0）
+- JWT Token 包含当前版本号
+- 每次请求时中间件比对 token 版本与数据库版本
+- 修改 `user_type` 时需同时执行 `token_version = token_version + 1`
+
+**安全效果**：
+- 管理员权限撤销后，旧 token 自动失效
+- 权限提升后需重新登录生效
 
 ## 详细文档
 

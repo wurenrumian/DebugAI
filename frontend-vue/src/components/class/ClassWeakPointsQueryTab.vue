@@ -23,8 +23,8 @@
         <button class="btn btn-primary" @click="handleQuery" :disabled="classStore.loading">
           {{ classStore.loading ? '查询中...' : '查询' }}
         </button>
-        <button class="btn btn-secondary" @click="handleExport" :disabled="classStore.loading || !classStore.classWeakPoints.length">
-          导出
+        <button class="btn btn-secondary" @click="handleExport" :disabled="classStore.loading || !classStore.currentClass">
+          导出CSV
         </button>
       </div>
     </div>
@@ -54,6 +54,9 @@
         <WeakPointDisplay
           :weak-points="transformedWeakPoints"
           :show-description="true"
+          :show-charts="true"
+          chart-position="top"
+          :top-n="15"
         />
       </div>
     </div>
@@ -63,6 +66,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useClassStore } from '../../stores/class'
+import { classAPI } from '../../api'
 import WeakPointDisplay from '../WeakPointDisplay.vue'
 
 const classStore = useClassStore()
@@ -147,29 +151,30 @@ async function handleQuery() {
   await classStore.fetchClassWeakPoints(classId, params)
 }
 
-// 处理导出
-function handleExport() {
-  if (!classStore.classWeakPoints.length) return
+// 处理导出 - 调用后端API导出CSV
+async function handleExport() {
+  if (!classStore.currentClass) return
   
-  // 导出转换后的数据
-  const exportData = {
-    export_time: new Date().toISOString(),
-    class_id: classStore.currentClass?.id,
-    class_name: classStore.currentClass?.class_name,
-    student_count: studentCount.value,
-    total_weak_points: totalWeakPoints.value,
-    weak_points: transformedWeakPoints.value
+  try {
+    const classId = classStore.currentClass.id
+    const params = getQueryParams()
+    
+    // 注意：响应拦截器返回 response.data，所以这里直接用 response
+    const blob = await classAPI.exportClassWeakPointsCSV(classId, params)
+    
+    // 创建下载链接
+    const url = window.URL.createObjectURL(new Blob([blob]))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `weak_points_class_${classId}_${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('导出失败:', error)
+    alert('导出失败，请重试')
   }
-  
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `weak_points_${classStore.currentClass?.id}.json`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
 }
 
 // 页面加载时自动查询

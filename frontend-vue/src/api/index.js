@@ -173,6 +173,13 @@ export const classAPI = {
 	// 获取班级薄弱点
 	getClassWeakPoints(classId, params) {
 		return api.get(`/api/v1/ai/weak_points/class`, { params: { class_id: classId, ...params } })
+	},
+	// 导出班级薄弱点CSV
+	exportClassWeakPointsCSV(classId, params) {
+		return api.get(`/api/v1/ai/weak_points/class/export`, {
+			params: { class_id: classId, ...params },
+			responseType: 'blob'
+		})
 	}
 }
 

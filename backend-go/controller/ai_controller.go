@@ -483,6 +483,100 @@ func (ctrl *AIController) GetClassWeakPoints(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "班级薄弱点查询成功", "data": result})
 }
 
+// ExportClassWeakPointsCSV handles the /api/v1/ai/weak_points/class/export endpoint
+// Exports class weak points as CSV file
+func (ctrl *AIController) ExportClassWeakPointsCSV(c *gin.Context) {
+	// Get current user info from token
+	currentUserID := c.MustGet("user_id").(uint)
+	userType := c.MustGet("user_type").(string)
+
+	// Parse class_id (required)
+	classIDStr := c.Query("class_id")
+	if classIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "class_id is required"})
+		return
+	}
+
+	var classID uint
+	if _, err := fmt.Sscanf(classIDStr, "%d", &classID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class_id format"})
+		return
+	}
+
+	// Check permission: only class admin (teacher/TA) or system admin can access
+	isAdmin := userType == "admin"
+	isClassAdmin := service.IsClassAdmin(currentUserID, classID)
+
+	if !isAdmin && !isClassAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权导出班级薄弱点数据"})
+		return
+	}
+
+	// Verify class exists
+	var class models.Class
+	if err := ctrl.AIService.(*service.AIService).GetDB().First(&class, classID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "班级不存在"})
+		return
+	}
+
+	// Parse optional date range parameters
+	var startDate, endDate time.Time
+	var hasStartDate, hasEndDate bool
+
+	if startDateStr := c.Query("start_date"); startDateStr != "" {
+		t, err := time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始日期格式，请使用 YYYY-MM-DD 格式"})
+			return
+		}
+		startDate = t
+		hasStartDate = true
+	}
+	if endDateStr := c.Query("end_date"); endDateStr != "" {
+		t, err := time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束日期格式，请使用 YYYY-MM-DD 格式"})
+			return
+		}
+		endDate = t
+		hasEndDate = true
+	}
+
+	// Convert to pointers for service layer
+	var startDatePtr, endDatePtr *time.Time
+	if hasStartDate {
+		startDatePtr = &startDate
+	}
+	if hasEndDate {
+		endDatePtr = &endDate
+	}
+
+	// Parse optional student_ids (JSON array)
+	var studentIDs []string
+	if studentIDsStr := c.Query("student_ids"); studentIDsStr != "" {
+		if err := json.Unmarshal([]byte(studentIDsStr), &studentIDs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student_ids format"})
+			return
+		}
+	}
+
+	// Call service to export CSV
+	csvContent, err := ctrl.AIService.ExportClassWeakPointsCSV(classID, studentIDs, startDatePtr, endDatePtr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export CSV: " + err.Error()})
+		return
+	}
+
+	// Set headers for file download
+	filename := fmt.Sprintf("weak_points_class_%d_%s.csv", classID, time.Now().Format("20060102"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Transfer-Encoding", "binary")
+
+	c.String(http.StatusOK, csvContent)
+}
+
 // GetDebugRecords handles the /api/v1/ai/records/debug endpoint
 func (ctrl *AIController) GetDebugRecords(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)

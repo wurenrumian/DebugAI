@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"backend-go/models"
@@ -22,6 +23,7 @@ type AIServiceIface interface {
 	UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error
 	GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	GetClassWeakPoints(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error)
+	ExportClassWeakPointsCSV(classID uint, studentIDs []string, startDate, endDate *time.Time) (string, error)
 	SeedWeakPointKeywords() error
 	GetDebugRecords(studentID string) ([]models.AIRecord, error)
 	GetEvaluateRecords(studentID string) ([]models.AIRecord, error)
@@ -30,16 +32,83 @@ type AIServiceIface interface {
 
 // AIService handles communication with the AI Python backend
 type AIService struct {
-	DB               *gorm.DB
-	PythonServiceURL string
+	DB                 *gorm.DB
+	PythonServiceURL   string
+	keywordCategoryMap map[string]string // keyword -> category mapping cache
 }
 
 // NewAIService creates a new AIService
 func NewAIService(db *gorm.DB, pythonServiceURL string) *AIService {
-	return &AIService{
-		DB:               db,
-		PythonServiceURL: pythonServiceURL,
+	service := &AIService{
+		DB:                 db,
+		PythonServiceURL:   pythonServiceURL,
+		keywordCategoryMap: make(map[string]string),
 	}
+	service.loadKeywordCategoryMap()
+	return service
+}
+
+// loadKeywordCategoryMap loads all keyword-category mappings from database
+func (s *AIService) loadKeywordCategoryMap() {
+	var weakPoints []models.WeakPoint
+	if err := s.DB.Find(&weakPoints).Error; err != nil {
+		fmt.Printf("Warning: failed to load weak points for category mapping: %v\n", err)
+		return
+	}
+
+	for _, wp := range weakPoints {
+		s.keywordCategoryMap[wp.Keyword] = wp.Category
+	}
+}
+
+// categoryRule 分类规则
+type categoryRule struct {
+	category string
+	keywords []string
+}
+
+// getCategoryByKeyword returns category for given keyword using fuzzy matching
+func (s *AIService) getCategoryByKeyword(keyword string) string {
+	// 1. 精确匹配缓存
+	if category, exists := s.keywordCategoryMap[keyword]; exists {
+		return category
+	}
+
+	// 2. 使用数据库已有关键词进行模糊匹配
+	// 遍历所有已有关键词，找到最匹配的分类
+	keywordLower := strings.ToLower(keyword)
+	bestMatch := ""
+	bestMatchLen := 0
+
+	for wpKeyword, category := range s.keywordCategoryMap {
+		wpLower := strings.ToLower(wpKeyword)
+
+		// 检查是否完全包含
+		if strings.Contains(keywordLower, wpLower) || strings.Contains(wpLower, keywordLower) {
+			// 选择更长的匹配（更具体的关键词优先）
+			if len(wpKeyword) > bestMatchLen {
+				bestMatch = category
+				bestMatchLen = len(wpKeyword)
+			}
+		}
+	}
+
+	if bestMatch != "" {
+		return bestMatch
+	}
+
+	// 3. 默认分类
+	return "自动分类"
+}
+
+// containsSubstring checks if str contains substr
+func containsSubstring(str, substr string) bool {
+	for i := 0; i <= len(str)-len(substr); i++ {
+		if str[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // GetDB returns the database connection
@@ -253,6 +322,47 @@ func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time
 	return result, nil
 }
 
+// getCategoryByKeyword 根据关键词返回对应的分类
+func getCategoryByKeyword(keyword string) string {
+	categoryMap := map[string]string{
+		// 语法类
+		"语法错误":  "语法类",
+		"类型不匹配": "语法类",
+		"头文件缺失": "语法类",
+		"未声明变量": "语法类",
+
+		// 逻辑类
+		"边界条件错误": "逻辑类",
+		"条件判断错误": "逻辑类",
+		"循环条件错误": "逻辑类",
+		"逻辑顺序错误": "逻辑类",
+		"状态处理错误": "逻辑类",
+
+		// 算法类
+		"算法选择不当": "算法类",
+		"时间复杂度高": "算法类",
+		"空间复杂度高": "算法类",
+		"递归深度过大": "算法类",
+		"未优化算法":  "算法类",
+
+		// 内存类
+		"数组越界":  "内存类",
+		"空指针访问": "内存类",
+		"内存泄漏":  "内存类",
+		"栈溢出":   "内存类",
+
+		// 其他类
+		"输入处理错误": "其他类",
+		"输出格式错误": "其他类",
+		"文件操作错误": "其他类",
+	}
+
+	if category, exists := categoryMap[keyword]; exists {
+		return category
+	}
+	return "其他类"
+}
+
 // UpdateUserWeakPoints updates the user's weak points count with date isolation
 func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error {
 	for keyword, count := range weakPoints {
@@ -261,15 +371,18 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 		result := s.DB.Where("keyword = ?", keyword).First(&wp)
 
 		if result.Error == gorm.ErrRecordNotFound {
-			// Create new weak point
+			// Create new weak point with auto-detected category
+			category := s.getCategoryByKeyword(keyword)
 			wp = models.WeakPoint{
 				Keyword:     keyword,
 				Description: "Auto-generated from AI analysis",
-				Category:    "自动分类",
+				Category:    category,
 			}
 			if err := s.DB.Create(&wp).Error; err != nil {
 				continue
 			}
+			// Update cache with new keyword-category pair
+			s.keywordCategoryMap[keyword] = category
 		} else if result.Error != nil {
 			continue
 		}
@@ -567,4 +680,122 @@ func (s *AIService) GetRecommendRecords(studentID string) ([]models.AIRecord, er
 		return nil, fmt.Errorf("failed to get recommend records: %w", err)
 	}
 	return records, nil
+}
+
+// ExportClassWeakPointsCSV exports class weak points as CSV content
+// Returns CSV string that can be downloaded by the client
+func (s *AIService) ExportClassWeakPointsCSV(classID uint, studentIDs []string, startDate, endDate *time.Time) (string, error) {
+	// Default to last 30 days if no date range provided
+	if startDate == nil && endDate == nil {
+		end := time.Now()
+		start := end.AddDate(0, 0, -30)
+		startDate = &start
+		endDate = &end
+	}
+
+	// Get class members (students only)
+	var classMembers []models.ClassMember
+	memberQuery := s.DB.Where("class_id = ? AND member_role = ?", classID, models.MemberRoleStudent)
+	if len(studentIDs) > 0 {
+		var users []models.User
+		if err := s.DB.Where("student_id IN ?", studentIDs).Find(&users).Error; err != nil {
+			return "", fmt.Errorf("failed to get users: %w", err)
+		}
+		userIDs := make([]uint, len(users))
+		for i, u := range users {
+			userIDs[i] = u.ID
+		}
+		memberQuery = memberQuery.Where("user_id IN ?", userIDs)
+	}
+
+	if err := memberQuery.Find(&classMembers).Error; err != nil {
+		return "", fmt.Errorf("failed to get class members: %w", err)
+	}
+
+	// Collect all user IDs
+	userIDs := make([]uint, 0, len(classMembers))
+	for _, cm := range classMembers {
+		userIDs = append(userIDs, cm.UserID)
+	}
+
+	// Batch fetch all users
+	var users []models.User
+	if err := s.DB.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return "", fmt.Errorf("failed to get users: %w", err)
+	}
+
+	// Build studentID -> username map
+	studentIDMap := make(map[string]string)
+	studentIDsList := make([]string, 0, len(users))
+	for _, u := range users {
+		studentIDMap[u.StudentID] = u.Username
+		studentIDsList = append(studentIDsList, u.StudentID)
+	}
+
+	// Batch fetch all weak points for these students
+	var allUserWeakPoints []models.UserWeakPoint
+	wpQuery := s.DB.Where("student_id IN ?", studentIDsList)
+	if startDate != nil {
+		wpQuery = wpQuery.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
+	}
+	if endDate != nil {
+		wpQuery = wpQuery.Where("DATE(record_date) <= ?", endDate.Format("2006-01-02"))
+	}
+	if err := wpQuery.Find(&allUserWeakPoints).Error; err != nil {
+		return "", fmt.Errorf("failed to get user weak points: %w", err)
+	}
+
+	// Collect all weak point IDs
+	weakPointIDs := make([]uint, 0, len(allUserWeakPoints))
+	for _, uwp := range allUserWeakPoints {
+		weakPointIDs = append(weakPointIDs, uwp.WeakPointID)
+	}
+
+	// Batch fetch all WeakPoint details
+	var weakPoints []models.WeakPoint
+	if err := s.DB.Where("id IN ?", weakPointIDs).Find(&weakPoints).Error; err != nil {
+		return "", fmt.Errorf("failed to get weak points: %w", err)
+	}
+
+	// Build weak point ID -> details map
+	weakPointMap := make(map[uint]models.WeakPoint)
+	for _, wp := range weakPoints {
+		weakPointMap[wp.ID] = wp
+	}
+
+	// Build CSV content
+	var buf bytes.Buffer
+	// Write BOM for Excel UTF-8 support
+	buf.WriteString("\xEF\xBB\xBF")
+	// Header
+	buf.WriteString("学生学号,学生姓名,薄弱点关键词,分类,出现次数,记录日期\n")
+
+	// Write data rows
+	for _, uwp := range allUserWeakPoints {
+		wp, exists := weakPointMap[uwp.WeakPointID]
+		if !exists {
+			continue
+		}
+		username := studentIDMap[uwp.StudentID]
+		// Format: student_id, username, keyword, category, count, date
+		buf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%d,%s\n",
+			uwp.StudentID,
+			escapeCSV(username),
+			escapeCSV(wp.Keyword),
+			escapeCSV(wp.Category),
+			uwp.Count,
+			uwp.RecordDate.Format("2006-01-02"),
+		))
+	}
+
+	return buf.String(), nil
+}
+
+// escapeCSV escapes special characters in CSV values
+func escapeCSV(s string) string {
+	s = strings.ReplaceAll(s, "\"", "\"\"")
+	if strings.Contains(s, ",") || strings.Contains(s, "\n") || strings.Contains(s, "\"") {
+		return "\"" + s + "\""
+	}
+	return s
 }

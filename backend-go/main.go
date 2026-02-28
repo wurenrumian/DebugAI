@@ -86,6 +86,8 @@ func main() {
 		api.GET("/ai/weak_points/top", aiController.GetTopWeakPoints)
 		// 获取班级薄弱点（仅班级管理员可访问）
 		api.GET("/ai/weak_points/class", aiController.GetClassWeakPoints)
+		// 导出班级薄弱点CSV（仅班级管理员可访问）
+		api.GET("/ai/weak_points/class/export", aiController.ExportClassWeakPointsCSV)
 		// 分类型获取历史记录
 		api.GET("/ai/records/debug", aiController.GetDebugRecords)
 		api.GET("/ai/records/evaluate", aiController.GetEvaluateRecords)

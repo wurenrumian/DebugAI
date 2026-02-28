@@ -49,6 +49,9 @@
               v-model:selected="selectedWeakPoints"
               :showDescription="true"
               :maxDisplay="5"
+              :showCharts="true"
+              chartPosition="top"
+              :topN="10"
             />
           </div>
         </div>

@@ -1,13 +1,23 @@
 <template>
   <div class="weak-point-display">
+    <!-- 图表区域 -->
+    <div v-if="showCharts && chartPosition === 'top'" class="charts-section">
+      <div class="chart-item">
+        <v-chart class="chart" :option="pieOption" autoresize />
+      </div>
+      <div class="chart-item">
+        <v-chart class="chart" :option="barOption" autoresize />
+      </div>
+    </div>
+
     <!-- 按 category 分组展示 -->
     <div v-for="(points, category) in groupedWeakPoints" :key="category" class="category-group">
       <h4 class="category-title">{{ category }}</h4>
       <div class="weak-points-container">
-        <div 
-          v-for="(wp, index) in getDisplayPoints(points)" 
+        <div
+          v-for="(wp, index) in getDisplayPoints(points)"
           :key="index"
-          :class="['weak-point-item', { 
+          :class="['weak-point-item', {
             selected: isSelected(wp.keyword),
             selectable: selectable
           }]"
@@ -17,22 +27,37 @@
           <span class="count">({{ wp.count }}次)</span>
           
           <!-- 描述 tooltip -->
-          <span 
-            v-if="showDescription && wp.description" 
+          <span
+            v-if="showDescription && wp.description"
             class="description-tooltip"
             :title="wp.description"
           >?</span>
         </div>
         
         <!-- 查看更多 -->
-        <span 
-          v-if="maxDisplay > 0 && points.length > maxDisplay" 
+        <span
+          v-if="maxDisplay > 0 && points.length > maxDisplay"
           class="view-more"
           @click="showAll[category] = !showAll[category]"
         >
           {{ showAll[category] ? '收起' : `查看更多 (${points.length - maxDisplay})` }}
         </span>
       </div>
+    </div>
+    
+    <!-- 图表区域（底部） -->
+    <div v-if="showCharts && chartPosition === 'bottom'" class="charts-section">
+      <div class="chart-item">
+        <v-chart class="chart" :option="pieOption" autoresize />
+      </div>
+      <div class="chart-item">
+        <v-chart class="chart" :option="barOption" autoresize />
+      </div>
+    </div>
+
+    <!-- 导出按钮 -->
+    <div v-if="showCharts" class="export-section">
+      <button class="export-btn" @click="exportToCSV">导出 CSV</button>
     </div>
     
     <!-- 空状态 -->
@@ -46,6 +71,27 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { PieChart, BarChart } from 'echarts/charts'
+import {
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent
+} from 'echarts/components'
+
+// 注册 ECharts 组件
+use([
+  CanvasRenderer,
+  PieChart,
+  BarChart,
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent
+])
 
 const props = defineProps({
   // 薄弱点数据: [{keyword, category, count, description?}]
@@ -72,6 +118,21 @@ const props = defineProps({
   maxDisplay: {
     type: Number,
     default: 0
+  },
+  // 新增：是否显示图表
+  showCharts: {
+    type: Boolean,
+    default: false
+  },
+  // 新增：图表位置
+  chartPosition: {
+    type: String,
+    default: 'top'
+  },
+  // 新增：柱状图显示前 N 个
+  topN: {
+    type: Number,
+    default: 15
   }
 })
 
@@ -126,11 +187,199 @@ const toggleSelect = (keyword) => {
 watch(() => props.maxDisplay, () => {
   showAll.value = {}
 })
+
+// ========== 图表相关逻辑 ==========
+
+// 饼图数据
+const pieChartData = computed(() => {
+  const groups = groupedWeakPoints.value
+  const categories = Object.keys(groups)
+  return {
+    categories,
+    values: categories.map(cat => groups[cat].length)
+  }
+})
+
+// 柱状图数据
+const barChartData = computed(() => {
+  const sorted = [...props.weakPoints].sort((a, b) => b.count - a.count)
+  const topN = sorted.slice(0, props.topN)
+  return {
+    keywords: topN.map(wp => wp.keyword),
+    counts: topN.map(wp => wp.count),
+    categories: topN.map(wp => wp.category)
+  }
+})
+
+// 饼图配置
+const pieOption = computed(() => {
+  const data = pieChartData.value
+  if (data.categories.length === 0) {
+    return {
+      title: { text: '薄弱点分类分布', left: 'center', textStyle: { fontSize: 14, color: '#333' } },
+      series: [{ type: 'pie', data: [] }]
+    }
+  }
+  return {
+    title: {
+      text: '薄弱点分类分布',
+      left: 'center',
+      textStyle: { fontSize: 14, color: '#333' }
+    },
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} 个关键词 ({d}%)'
+    },
+    legend: {
+      orient: 'vertical',
+      left: 'left',
+      top: 'middle'
+    },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      data: data.categories.map((cat, idx) => ({
+        value: data.values[idx],
+        name: cat
+      })),
+      emphasis: {
+        itemStyle: {
+          shadowBlur: 10,
+          shadowOffsetX: 0,
+          shadowColor: 'rgba(0, 0, 0, 0.5)'
+        }
+      }
+    }]
+  }
+})
+
+// 柱状图配置
+const barOption = computed(() => {
+  const data = barChartData.value
+  if (data.keywords.length === 0) {
+    return {
+      title: { text: `Top ${props.topN} 薄弱点关键词`, left: 'center', textStyle: { fontSize: 14, color: '#333' } },
+      series: [{ type: 'bar', data: [] }]
+    }
+  }
+  return {
+    title: {
+      text: `Top ${props.topN} 薄弱点关键词`,
+      left: 'center',
+      textStyle: { fontSize: 14, color: '#333' }
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        const item = params[0]
+        return `${item.name}<br/>分类：${data.categories[item.dataIndex]}<br/>出现次数：${item.value}`
+      }
+    },
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      top: 60,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'value',
+      name: '出现次数'
+    },
+    yAxis: {
+      type: 'category',
+      data: data.keywords.slice().reverse(),
+      name: '关键词'
+    },
+    series: [{
+      type: 'bar',
+      data: data.counts.slice().reverse(),
+      itemStyle: {
+        color: '#409eff'
+      },
+      label: {
+        show: true,
+        position: 'right'
+      }
+    }]
+  }
+})
+
+// CSV 导出功能
+const exportToCSV = () => {
+  const headers = ['keyword', 'category', 'count', 'description']
+  const rows = props.weakPoints.map(wp => [
+    wp.keyword,
+    wp.category,
+    wp.count,
+    wp.description || ''
+  ])
+
+  // 添加 BOM 以支持 Excel 中文
+  const BOM = '\uFEFF'
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\n')
+
+  const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `weak_points_${new Date().toISOString().split('T')[0]}.csv`
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
 </script>
 
 <style scoped>
 .weak-point-display {
   width: 100%;
+}
+
+/* 图表区域样式 */
+.charts-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin: 16px 0;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+
+.chart-item {
+  height: 320px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  padding: 12px;
+}
+
+.chart {
+  height: 100%;
+  width: 100%;
+}
+
+.export-section {
+  margin-top: 16px;
+  text-align: right;
+}
+
+.export-btn {
+  padding: 8px 16px;
+  background-color: #409eff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.export-btn:hover {
+  background-color: #66b1ff;
 }
 
 .category-group {
