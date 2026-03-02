@@ -8,7 +8,7 @@
 # ============================================================
 # golang:1.21-alpine提示有高危漏洞，本地测试可用，部署时建议更新镜像
 # -------------------- 第一阶段: 构建 --------------------
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /app
 
 # 安装 git（go mod download 需要）
