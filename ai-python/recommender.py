@@ -1,6 +1,9 @@
 from typing import Dict
+from logger_config import get_logger
 from data import RecommendRequest, RecommendResult, ProblemTag
 from llm_client import DeepSeekClient
+
+logger = get_logger(__name__)
 
 class ProblemRecommender:
     def __init__(self):
@@ -39,6 +42,12 @@ class ProblemRecommender:
         return prompt
     
     async def recommend(self, request: RecommendRequest) -> RecommendResult:
+        logger.info("starting_recommendation",
+            student_id=request.student_id,
+            weak_points_count=len(request.weak_points),
+            max_recommendations=request.max_recommendations,
+        )
+        
         tags_reference = self._get_tags_reference()
         prompt = self.create_recommendation_prompt(request)
         sysprompt = f"""
@@ -75,59 +84,80 @@ class ProblemRecommender:
 3. 推荐理由要具体，说明为什么这个标签适合该学生
 4. 确保推荐多样性，不要过于集中
 """
-        response = await self.llm_client.call_llm(sysprompt, prompt)
-        
-        if "error" in response:
-            return RecommendResult(
-                student_id=request.student_id,
-                recommendations=[
-                    ProblemTag(
-                        tag="基本语法",
-                        relevance=0.0,
-                        reason="AI推荐服务暂时不可用"
-                    )
-                ],
-                analysis="推荐服务暂时不可用，已返回基础推荐"
-            )
-        
-        # 验证和转换响应
         try:
-            if "recommendations" not in response:
-                response["recommendations"] = []
+            response = await self.llm_client.call_llm(sysprompt, prompt)
             
-            validated_recommendations = []
-            for rec in response["recommendations"]:
-                try:
-                    validated_recommendations.append(ProblemTag(**rec))
-                except Exception:
-                    # 跳过无效的推荐项
-                    continue
-            
-            if not validated_recommendations:
-                validated_recommendations.append(
-                    ProblemTag(
-                        tag="基本语法",
-                        relevance=0.0,
-                        reason="没有有效的推荐"
-                    )
+            if "error" in response:
+                logger.error("recommendation_failed_llm_error",
+                    student_id=request.student_id,
+                    error=response['error'],
+                )
+                return RecommendResult(
+                    student_id=request.student_id,
+                    recommendations=[
+                        ProblemTag(
+                            tag="基本语法",
+                            relevance=0.0,
+                            reason="AI推荐服务暂时不可用"
+                        )
+                    ],
+                    analysis="推荐服务暂时不可用，已返回基础推荐"
                 )
             
-            result = RecommendResult(
-                student_id=request.student_id,
-                recommendations=validated_recommendations,
-                analysis=response.get("analysis", "已根据薄弱点生成推荐")
-            )
-            return result
-            
-        except Exception as e:
-            return RecommendResult(
-                student_id=request.student_id,
-                recommendations=[
-                    ProblemTag(
-                        tag="基本语法",
-                        relevance=0.0,
-                        reason="解析响应失败，返回基础推荐"
+            # 验证和转换响应
+            try:
+                if "recommendations" not in response:
+                    response["recommendations"] = []
+                
+                validated_recommendations = []
+                for rec in response["recommendations"]:
+                    try:
+                        validated_recommendations.append(ProblemTag(**rec))
+                    except Exception:
+                        # 跳过无效的推荐项
+                        continue
+                
+                if not validated_recommendations:
+                    validated_recommendations.append(
+                        ProblemTag(
+                            tag="基本语法",
+                            relevance=0.0,
+                            reason="没有有效的推荐"
+                        )
                     )
-                ],
-                analysis=f"推荐解析失败: {str(e)}"
+                
+                result = RecommendResult(
+                    student_id=request.student_id,
+                    recommendations=validated_recommendations,
+                    analysis=response.get("analysis", "已根据薄弱点生成推荐")
+                )
+                logger.info("recommendation_success",
+                    student_id=request.student_id,
+                    recommendations_count=len(validated_recommendations),
+                )
+                return result
+                
+            except Exception as e:
+                logger.error("recommendation_failed_parse_error",
+                    student_id=request.student_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return RecommendResult(
+                    student_id=request.student_id,
+                    recommendations=[
+                        ProblemTag(
+                            tag="基本语法",
+                            relevance=0.0,
+                            reason="解析响应失败，返回基础推荐"
+                        )
+                    ],
+                    analysis=f"推荐解析失败: {str(e)}"
+                )
+        except Exception as e:
+            logger.error("recommendation_unexpected_error",
+                student_id=request.student_id,
+                error=str(e),
+                exc_info=True,
             )
+            raise

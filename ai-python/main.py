@@ -1,14 +1,16 @@
+import os
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Dict
-import logging
+from logger_config import configure_logging, get_logger
 from data import CodeSubmission, TaskType, EvaluateResult, TestPoint, RecommendRequest, RecommendResult, CodeSubmissionV2, DebugV2Response
 from evaluator import CodeEvaluator
 from recommender import ProblemRecommender
 from fastapi.middleware.cors import CORSMiddleware
 from debugger_v2 import CodeDebuggerV2
 
-logging.basicConfig(level=logging.INFO)
+configure_logging(env=os.getenv("ENV", "development"))
+logger = get_logger(__name__)
 
 app = FastAPI(title="AI教学辅助平台")
 
@@ -48,7 +50,12 @@ async def health_check():
 
 @app.post("/evaluate", response_model=EvaluateResult)
 async def evaluate_code(request: AnalyzeRequest):
-    logging.info(f"Received /evaluate request from student: {request.student_id}")
+    logger.info("received_evaluate_request",
+        student_id=request.student_id,
+        conversation_id=request.conversation_id,
+        code_length=len(request.code),
+        problem_description_length=len(request.problem_description),
+    )
     try:
         submission = CodeSubmission(
             student_id=request.student_id,
@@ -59,10 +66,22 @@ async def evaluate_code(request: AnalyzeRequest):
             task_type=TaskType.EVALUATE
         )
         result = await evaluator.evaluate(submission)
-        logging.info(f"Returning /evaluate response for student: {request.student_id}")
+        logger.info("evaluate_success",
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
+            functional_correctness=result.functional_correctness.get("grade", ""),
+            logical_rigor=result.logical_rigor.get("grade", ""),
+            algorithm_quality=result.algorithm_quality.get("grade", ""),
+            structural_normativity=result.structural_normativity.get("grade", ""),
+        )
         return result
     except Exception as e:
-        logging.error(f"Error in /evaluate: {e}")
+        logger.error("evaluate_failed",
+            student_id=request.student_id,
+            conversation_id=request.conversation_id,
+            error=str(e),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=500,
             detail={
@@ -75,7 +94,11 @@ async def evaluate_code(request: AnalyzeRequest):
 
 @app.post("/recommend", response_model=RecommendResult)
 async def recommend_problems(request: RecommendRequestModel):
-    logging.info(f"Received /recommend request from student: {request.student_id}")
+    logger.info("received_recommend_request",
+        student_id=request.student_id,
+        weak_points_count=len(request.weak_points),
+        max_recommendations=request.max_recommendations,
+    )
     try:
         recommend_request = RecommendRequest(
             student_id=request.student_id,
@@ -83,10 +106,17 @@ async def recommend_problems(request: RecommendRequestModel):
             max_recommendations=request.max_recommendations
         )
         result = await recommender.recommend(recommend_request)
-        logging.info(f"Returning /recommend response for student: {request.student_id}")
+        logger.info("recommend_success",
+            student_id=request.student_id,
+            recommendations_count=len(result.recommendations),
+        )
         return result
     except Exception as e:
-        logging.error(f"Error in /recommend: {e}")
+        logger.error("recommend_failed",
+            student_id=request.student_id,
+            error=str(e),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=500,
             detail={
@@ -112,11 +142,30 @@ async def debug_code_v2(request: Request):
             student_response=data.get("student_response")
         )
         
+        logger.info("received_debug_v2_request",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            current_round=submission.current_round,
+            code_length=len(submission.code),
+        )
+        
         result = await debugger_v2.debug(submission)
+        
+        logger.info("debug_v2_success",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            current_round=submission.current_round,
+        )
+        
         return result
         
     except Exception as e:
-        logging.error(f"Error in /debug_v2: {e}")
+        logger.error("debug_v2_failed",
+            student_id=data.get("student_id", "") if isinstance(data, dict) else "",
+            conversation_id=data.get("conversation_id", "") if isinstance(data, dict) else "",
+            error=str(e),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=500,
             detail={

@@ -1,6 +1,9 @@
 from typing import List
+from logger_config import get_logger
 from data import CodeSubmission, EvaluateResult, TestPoint
 from llm_client import DeepSeekClient
+
+logger = get_logger(__name__)
 
 class CodeEvaluator:
     def __init__(self):
@@ -61,12 +64,19 @@ class CodeEvaluator:
         return prompt
     
     async def evaluate(self, submission: CodeSubmission) -> EvaluateResult:
+        logger.info("starting_evaluation",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            code_length=len(submission.code),
+            test_points_count=len(submission.test_points),
+        )
+        
         prompt = self.create_evaluation_prompt(submission)
         sysprompt = f"""
 你是专业的编程教学助手，请你对编程初学者的代码进行评价。请严格按照JSON格式返回结果。
 
 请按照以下标准，从4个维度进行评价，请重点关注学生思路和代码的基本功能实现，对代码规范和效率不要过于严格：
-1.功能正确（该维度重点分析学生思路与题目要求功能的照应，学生代码实现过程中的错误不影响本项评价，即本维度只评价“做了没”，不评价“做对没”。）
+1.功能正确（该维度重点分析学生思路与题目要求功能的照应，学生代码实现过程中的错误不影响本项评价，即本维度只评价"做了没"，不评价"做对没"。）
 优秀：无语法错误，**学生思路**照应了题目要求的所有基本功能，满足题目对特定函数的使用要求（如有）。
 合格：语法错误不超过3种(注意是3种不是3处)，**学生思路**实现了主要功能但存在**核心功能**偏差或遗漏。
 待改进：存在>3种语法错误，或严重偏离题意，未能实现题目规定的主要功能。
@@ -111,34 +121,59 @@ class CodeEvaluator:
     }},
 }}
 """
-        response = await self.llm_client.call_llm(sysprompt,prompt)
-        
-        if "error" in response:
-            return EvaluateResult(
-                student_id=submission.student_id,
-                conversation_id=submission.conversation_id,
-                overall_evaluation=f"分析失败，请联系老师或管理员: {response['error']}",
-                functional_correctness={"grade": "待改进", "analysis": "分析失败"},
-                logical_rigor={"grade": "待改进", "analysis": "分析失败"},
-                algorithm_quality={"grade": "待改进", "analysis": "分析失败"},
-                structural_normativity={"grade": "待改进", "analysis": "分析失败"}
-            )
-        
-        # 验证和转换响应
         try:
-            result = {
-                "student_id": submission.student_id,
-                "conversation_id": submission.conversation_id,
-                **response
-            }
-            return EvaluateResult(**result)
+            response = await self.llm_client.call_llm(sysprompt, prompt)
+            
+            if "error" in response:
+                logger.error("evaluation_failed_llm_error",
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    error=response['error'],
+                )
+                return EvaluateResult(
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    overall_evaluation=f"分析失败，请联系老师或管理员: {response['error']}",
+                    functional_correctness={"grade": "待改进", "analysis": "分析失败"},
+                    logical_rigor={"grade": "待改进", "analysis": "分析失败"},
+                    algorithm_quality={"grade": "待改进", "analysis": "分析失败"},
+                    structural_normativity={"grade": "待改进", "analysis": "分析失败"}
+                )
+            
+            # 验证和转换响应
+            try:
+                result = {
+                    "student_id": submission.student_id,
+                    "conversation_id": submission.conversation_id,
+                    **response
+                }
+                logger.info("evaluation_success",
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    dimensions=result.get("dimensions", {}),
+                )
+                return EvaluateResult(**result)
+            except Exception as e:
+                logger.error("evaluation_failed_parse_error",
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return EvaluateResult(
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    overall_evaluation="解析响应失败，请联系老师或管理员",
+                    functional_correctness={"grade": "待改进", "analysis": "解析失败"},
+                    logical_rigor={"grade": "待改进", "analysis": "解析失败"},
+                    algorithm_quality={"grade": "待改进", "analysis": "解析失败"},
+                    structural_normativity={"grade": "待改进", "analysis": "解析失败"}
+                )
         except Exception as e:
-            return EvaluateResult(
+            logger.error("evaluation_unexpected_error",
                 student_id=submission.student_id,
                 conversation_id=submission.conversation_id,
-                overall_evaluation="解析响应失败，请联系老师或管理员",
-                functional_correctness={"grade": "待改进", "analysis": "解析失败"},
-                logical_rigor={"grade": "待改进", "analysis": "解析失败"},
-                algorithm_quality={"grade": "待改进", "analysis": "解析失败"},
-                structural_normativity={"grade": "待改进", "analysis": "解析失败"}
+                error=str(e),
+                exc_info=True,
             )
+            raise

@@ -1,6 +1,9 @@
 from typing import List, Dict, Optional
+from logger_config import get_logger
 from data import CodeSubmissionV2, DebugV2Response, DialogueTurn
 from llm_client import DeepSeekClient
+
+logger = get_logger(__name__)
 
 class CodeDebuggerV2:
     def __init__(self):
@@ -74,7 +77,7 @@ class CodeDebuggerV2:
 {history_text}
 
 学生确认思路理解：
-{self.llm_client.sanitize_input(submission.student_response) or "学生确认了思路"}
+{self.llm_client.sanitize_input(submission.student_response or "")}
 """
         return prompt
     
@@ -95,7 +98,7 @@ class CodeDebuggerV2:
 {history_text}
 
 学生请求：
-{self.llm_client.sanitize_input(submission.student_response)}
+{self.llm_client.sanitize_input(submission.student_response or "")}
 """
         return prompt
     
@@ -116,7 +119,7 @@ class CodeDebuggerV2:
 {history_text}
 
 学生请求：
-{self.llm_client.sanitize_input(submission.student_response)}
+{self.llm_client.sanitize_input(submission.student_response or "")}
 """
         return prompt
     
@@ -139,6 +142,13 @@ class CodeDebuggerV2:
         参数submission: 包含对话历史的提交数据
         返回DebugV2Response: 包含当前轮次的AI回复
         """
+        logger.info("starting_debug",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            current_round=submission.current_round,
+            code_length=len(submission.code),
+        )
+        
         try:
             # 根据当前轮次选择不同的提示词
             if submission.current_round == 1:
