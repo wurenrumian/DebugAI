@@ -3,6 +3,7 @@ package main
 import (
 	"backend-go/config"
 	"backend-go/controller"
+	"backend-go/logger"
 	"backend-go/middleware"
 	"backend-go/models"
 	"backend-go/service"
@@ -11,11 +12,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
 	// 加载 .env 文件中的环境变量
 	godotenv.Load()
+
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "development"
+	}
+
+	logger.InitLogger(env)
+	defer logger.Logger.Sync()
+
+	logger.Info("Starting DebugAI backend",
+		zap.String("env", env),
+		zap.Int("port", 8080),
+	)
 
 	config.InitDB()
 

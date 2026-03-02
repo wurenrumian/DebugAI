@@ -24,6 +24,7 @@
 - Go: 1.25.5（见 [`backend-go/go.mod`](backend-go/go.mod:3)）
 - Vue: 3.4.21（见 [`frontend-vue/package.json`](frontend-vue/package.json:14)）
 - FastAPI: 0.104.1（见 [`ai-python/requirements.txt`](ai-python/requirements.txt:1)）
+- 结构化日志：`go.uber.org/zap` (Go) / `structlog` (Python)
 
 ## 快速启动
 
@@ -33,7 +34,16 @@
 - Python 3.9+
 - Node.js 18.0+（推荐 20.x LTS）
 
+### 部署准备
+
+请先阅读 [`deploy.md`](deploy.md) 完成所有必需配置项，包括：
+- 创建 `.env` 文件并填写配置
+- 申请 DeepSeek API Key
+- 生成 JWT_SECRET
+
 ### 启动顺序
+
+#### 开发环境
 
 1. **启动 Python AI 服务**（端口 8000）
 
@@ -64,6 +74,20 @@
    ```
 
    访问 `http://localhost:5173` 查看应用。
+   
+   #### 生产环境（Docker）
+   
+   ```bash
+   # 1. 确保 .env 文件已配置
+   # 2. 一键启动所有服务
+   docker-compose up -d --build
+   
+   # 3. 验证服务
+   docker-compose ps
+   curl http://localhost:8000/health
+   ```
+   
+   详细部署说明见 [`deploy.md`](deploy.md)。
 
 ## 核心功能
 

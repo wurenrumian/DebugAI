@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	"backend-go/logger"
 	"backend-go/models"
 	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -313,20 +315,28 @@ func (ctrl *AIProxyController) HandleCloseConversation(c *gin.Context) {
 func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
 	var response map[string]interface{}
 	if err := json.Unmarshal(responseData, &response); err != nil {
-		fmt.Printf("Error: failed to unmarshal weak points response for student %s: %v\n", studentID, err)
+		logger.Error("Failed to unmarshal weak points response",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.String("response_preview", string(responseData)[:min(500, len(string(responseData)))]),
+		)
 		return
 	}
 
 	// Extract weak_points
 	aiResponse, ok := response["ai_response"].(map[string]interface{})
 	if !ok {
-		fmt.Printf("Warning: no ai_response in weak points data for student %s\n", studentID)
+		logger.Warn("No ai_response in weak points data",
+			zap.String("student_id", studentID),
+		)
 		return
 	}
 
 	weakPointsRaw, ok := aiResponse["weak_points"]
 	if !ok {
-		fmt.Printf("Warning: no weak_points in ai_response for student %s\n", studentID)
+		logger.Warn("No weak_points in ai_response",
+			zap.String("student_id", studentID),
+		)
 		return
 	}
 
@@ -340,12 +350,17 @@ func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
 			weakPoints = append(weakPoints, wp)
 		}
 	default:
-		fmt.Printf("Warning: unexpected weak_points type for student %s\n", studentID)
+		logger.Warn("Unexpected weak_points type",
+			zap.String("student_id", studentID),
+			zap.Any("weak_points_type", fmt.Sprintf("%T", weakPointsRaw)),
+		)
 		return
 	}
 
 	if len(weakPoints) == 0 {
-		fmt.Printf("Info: empty weak_points for student %s\n", studentID)
+		logger.Info("Empty weak_points",
+			zap.String("student_id", studentID),
+		)
 		return
 	}
 
@@ -363,6 +378,10 @@ func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
 	// Use AIService to save
 	aiService := service.NewAIService(db, "")
 	if err := aiService.UpdateUserWeakPoints(studentID, weakPointsMap, time.Now()); err != nil {
-		fmt.Printf("Error: failed to update weak points for student %s: %v\n", studentID, err)
+		logger.Error("Failed to update weak points",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.Int("weak_points_count", len(weakPointsMap)),
+		)
 	}
 }

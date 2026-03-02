@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"backend-go/logger"
 	"backend-go/models"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -52,7 +54,9 @@ func NewAIService(db *gorm.DB, pythonServiceURL string) *AIService {
 func (s *AIService) loadKeywordCategoryMap() {
 	var weakPoints []models.WeakPoint
 	if err := s.DB.Find(&weakPoints).Error; err != nil {
-		fmt.Printf("Warning: failed to load weak points for category mapping: %v\n", err)
+		logger.Error("Failed to load weak points for category mapping",
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -183,7 +187,11 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 		ResponsePayload: string(responseBody),
 	}
 	if err := s.DB.Create(&responseRecord).Error; err != nil {
-		fmt.Printf("Failed to save evaluate response record: %v\n", err)
+		logger.Error("Failed to save evaluate response record",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.String("conversation_id", conversationID),
+		)
 	}
 
 	// 4. Parse and return response
@@ -205,7 +213,10 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 
 	// 2. Update user's weak points
 	if err := s.UpdateUserWeakPoints(studentID, req.WeakPoints, time.Now()); err != nil {
-		fmt.Printf("Warning: failed to update user weak points: %v\n", err)
+		logger.Error("Failed to update user weak points",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+		)
 	}
 
 	// 3. Forward request to Python AI service
@@ -254,7 +265,10 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 		ResponsePayload: string(responseBody),
 	}
 	if err := s.DB.Create(&aiRecord).Error; err != nil {
-		fmt.Printf("Warning: failed to save AIRecord for recommend: %v\n", err)
+		logger.Error("Failed to save AIRecord for recommend",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+		)
 	}
 
 	return result, nil
@@ -646,7 +660,11 @@ func (s *AIService) SeedWeakPointKeywords() error {
 				Description: kw.Description,
 			}
 			if err := s.DB.Create(&wp).Error; err != nil {
-				fmt.Printf("Failed to seed keyword %s: %v\n", kw.Keyword, err)
+				logger.Error("Failed to seed keyword",
+					zap.Error(err),
+					zap.String("keyword", kw.Keyword),
+					zap.String("category", kw.Category),
+				)
 			}
 		}
 	}

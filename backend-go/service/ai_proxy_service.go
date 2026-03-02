@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"backend-go/logger"
 	"backend-go/models"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -151,7 +153,11 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 	}
 	if err := s.DB.Create(&aiRecord).Error; err != nil {
 		// 如果保存AI响应失败，记录错误但仍尝试返回AI的响应给前端
-		fmt.Printf("Failed to save AI response record: %v\n", err)
+		logger.Error("Failed to save AI response record",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.Int("round_number", roundNumber),
+		)
 	}
 
 	// 4. 如果是第2轮，提取并保存 weak_points
@@ -179,20 +185,28 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBody []byte) {
 	var response map[string]interface{}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
-		fmt.Printf("Error: failed to unmarshal weak points response for student %s: %v\n", studentID, err)
+		logger.Error("Failed to unmarshal weak points response",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.String("response_preview", string(responseBody)[:min(500, len(string(responseBody)))]),
+		)
 		return
 	}
 
 	// 提取 weak_points
 	aiResponse, ok := response["ai_response"].(map[string]interface{})
 	if !ok {
-		fmt.Printf("Warning: no ai_response in weak points data for student %s\n", studentID)
+		logger.Warn("No ai_response in weak points data",
+			zap.String("student_id", studentID),
+		)
 		return
 	}
 
 	weakPointsRaw, ok := aiResponse["weak_points"]
 	if !ok {
-		fmt.Printf("Warning: no weak_points in ai_response for student %s\n", studentID)
+		logger.Warn("No weak_points in ai_response",
+			zap.String("student_id", studentID),
+		)
 		return
 	}
 
@@ -206,12 +220,17 @@ func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBo
 			weakPoints = append(weakPoints, wp)
 		}
 	default:
-		fmt.Printf("Warning: unexpected weak_points type for student %s\n", studentID)
+		logger.Warn("Unexpected weak_points type",
+			zap.String("student_id", studentID),
+			zap.Any("weak_points_type", fmt.Sprintf("%T", weakPointsRaw)),
+		)
 		return
 	}
 
 	if len(weakPoints) == 0 {
-		fmt.Printf("Info: empty weak_points for student %s\n", studentID)
+		logger.Info("Empty weak_points",
+			zap.String("student_id", studentID),
+		)
 		return
 	}
 
@@ -229,7 +248,11 @@ func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBo
 	// 使用 AIService 的方法来保存
 	aiService := NewAIService(s.DB, "")
 	if err := aiService.UpdateUserWeakPoints(studentID, weakPointsMap, time.Now()); err != nil {
-		fmt.Printf("Error: failed to update weak points for student %s: %v\n", studentID, err)
+		logger.Error("Failed to update weak points",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.Int("weak_points_count", len(weakPointsMap)),
+		)
 	}
 }
 
