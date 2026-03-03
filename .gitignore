@@ -37,3 +37,4 @@ logs/
 .clinerules
 opencode.jsonc
 AGENTS.md
+**/.vscode/
