@@ -13,7 +13,7 @@ services:
   # PostgreSQL 数据库服务
   postgres:
     image: postgres:16-alpine
-    container_name: debugai-postgres
+    container_name: debugai-dev-postgres
     environment:
       POSTGRES_USER: postgres      # 用户名
       POSTGRES_PASSWORD: password   # 密码
