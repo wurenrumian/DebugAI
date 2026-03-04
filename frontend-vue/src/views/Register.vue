@@ -15,6 +15,15 @@
           {{ successMessage }}
         </div>
         
+        <div v-if="emailSent" class="message message-info">
+          验证邮件已发送到：{{ formData.email }}
+          <br>请查收邮件并点击验证链接完成注册
+          <br>
+          <button type="button" @click="resendVerification" :disabled="resendLoading" class="btn-link">
+            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
+          </button>
+        </div>
+        
         <div class="form-group">
           <label for="studentId">学号</label>
           <input 
@@ -23,6 +32,7 @@
             type="text" 
             placeholder="请输入学号"
             required
+            :disabled="emailSent"
           />
         </div>
         
@@ -34,6 +44,7 @@
             type="text" 
             placeholder="请输入用户名"
             required
+            :disabled="emailSent"
           />
         </div>
         
@@ -45,23 +56,38 @@
             type="password"
             placeholder="请输入密码"
             required
+            :disabled="emailSent"
           />
           <div class="hint">密码长度不少于6位，支持数字和字母组合</div>
         </div>
         
         <div class="form-group">
           <label for="confirmPassword">确认密码</label>
-          <input 
+          <input
             id="confirmPassword"
-            v-model="formData.confirmPassword" 
-            type="password" 
+            v-model="formData.confirmPassword"
+            type="password"
             placeholder="请再次输入密码"
             required
+            :disabled="emailSent"
           />
         </div>
         
-        <button type="submit" class="btn btn-primary register-btn" :disabled="loading">
-          {{ loading ? '注册中...' : '注册' }}
+        <div class="form-group">
+          <label for="email">邮箱</label>
+          <input
+            id="email"
+            v-model="formData.email"
+            type="email"
+            placeholder="请输入邮箱地址"
+            required
+            :disabled="emailSent"
+          />
+          <div class="hint">验证邮件将发送到此邮箱，请确保邮箱有效</div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary register-btn" :disabled="loading || emailSent">
+          {{ loading ? '发送中...' : (emailSent ? '验证邮件已发送' : '发送验证邮件') }}
         </button>
       </form>
       
@@ -85,12 +111,15 @@ const formData = ref({
   student_id: '',
   username: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  email: ''
 })
 
 const loading = ref(false)
+const resendLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const emailSent = ref(false)
 
 const handleRegister = async () => {
   errorMessage.value = ''
@@ -108,27 +137,51 @@ const handleRegister = async () => {
     return
   }
   
+  // 验证邮箱格式
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(formData.value.email)) {
+    errorMessage.value = '请输入有效的邮箱地址'
+    return
+  }
+  
   loading.value = true
   
   try {
     const result = await authStore.register({
       student_id: formData.value.student_id,
       username: formData.value.username,
-      password: formData.value.password
+      password: formData.value.password,
+      email: formData.value.email
     })
     
     if (result.success) {
-      successMessage.value = '注册成功！正在跳转到登录页面...'
-      setTimeout(() => {
-        router.push('/login')
-      }, 1500)
+      emailSent.value = true
+      successMessage.value = '验证邮件已发送，请查收邮件完成注册'
     } else {
-      errorMessage.value = result.error || '注册失败，请稍后重试'
+      errorMessage.value = result.error || '发送失败，请稍后重试'
     }
   } catch (error) {
-    errorMessage.value = '注册失败，请检查网络连接'
+    errorMessage.value = '发送失败，请检查网络连接'
   } finally {
     loading.value = false
+  }
+}
+
+const resendVerification = async () => {
+  resendLoading.value = true
+  try {
+    const result = await authStore.resendVerificationEmail({
+      email: formData.value.email
+    })
+    if (result.success) {
+      alert('验证邮件已重新发送，请查收')
+    } else {
+      alert('发送失败：' + (result.error || '请稍后重试'))
+    }
+  } catch (error) {
+    alert('发送失败，请检查网络连接')
+  } finally {
+    resendLoading.value = false
   }
 }
 </script>
@@ -170,27 +223,124 @@ const handleRegister = async () => {
   margin-bottom: 20px;
 }
 
+.message {
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.message-error {
+  background-color: #fef0f0;
+  color: #f56c6c;
+  border: 1px solid #fde2e2;
+}
+
+.message-success {
+  background-color: #f0f9eb;
+  color: #67c23a;
+  border: 1px solid #e1f3d8;
+}
+
+.message-info {
+  background-color: #ecf5ff;
+  color: #409eff;
+  border: 1px solid #d9ecff;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #606266;
+  font-weight: 500;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+  box-sizing: border-box;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #409eff;
+}
+
+.form-group input:disabled {
+  background-color: #f5f7fa;
+  cursor: not-allowed;
+}
+
 .hint {
   font-size: 12px;
   color: #909399;
   margin-top: 4px;
 }
 
-.register-btn {
+.btn {
   width: 100%;
   padding: 12px;
-  font-size: 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-primary {
+  background-color: #409eff;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #66b1ff;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #409eff;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font-size: 14px;
+  margin-left: 10px;
+}
+
+.btn-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.register-btn {
   margin-top: 10px;
 }
 
 .register-footer {
   text-align: center;
+  margin-top: 20px;
   font-size: 14px;
-  color: #606266;
+  color: #909399;
 }
 
 .link {
   color: #409eff;
+  text-decoration: none;
   margin-left: 5px;
 }
 

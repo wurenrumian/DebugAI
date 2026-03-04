@@ -5,13 +5,17 @@ export const useAuthStore = defineStore('auth', {
 	state: () => ({
 		token: localStorage.getItem('token') || '',
 		user: JSON.parse(localStorage.getItem('user') || '{}'),
-		isAuthenticated: !!localStorage.getItem('token')
+		isAuthenticated: !!localStorage.getItem('token'),
+		emailVerified: localStorage.getItem('email_verified') === 'true',
+		email: localStorage.getItem('email') || ''
 	}),
 
 	getters: {
 		getToken: (state) => state.token,
 		getUser: (state) => state.user,
-		isLoggedIn: (state) => state.isAuthenticated
+		isLoggedIn: (state) => state.isAuthenticated,
+		isEmailVerified: (state) => state.emailVerified,
+		getEmail: (state) => state.email
 	},
 
 	actions: {
@@ -31,6 +35,16 @@ export const useAuthStore = defineStore('auth', {
 					localStorage.setItem('token', this.token)
 					localStorage.setItem('user', JSON.stringify(this.user))
 
+					// 检查是否有邮箱验证状态
+					if (response.data.email_verified !== undefined) {
+						this.emailVerified = response.data.email_verified
+						localStorage.setItem('email_verified', this.emailVerified)
+					}
+					if (response.data.email) {
+						this.email = response.data.email
+						localStorage.setItem('email', this.email)
+					}
+
 					return { success: true, data: response.data }
 				}
 				return { success: false, error: '登录失败' }
@@ -41,10 +55,19 @@ export const useAuthStore = defineStore('auth', {
 
 		async register(userData) {
 			try {
-				await authAPI.register(userData)
-				return { success: true }
+				const response = await authAPI.register(userData)
+				// 注册第一步：发送验证邮件成功
+				if (response.data) {
+					// 保存邮箱到本地，用于后续重发验证邮件
+					if (userData.email) {
+						this.email = userData.email
+						localStorage.setItem('email', this.email)
+					}
+					return { success: true, data: response.data }
+				}
+				return { success: false, error: '发送失败' }
 			} catch (error) {
-				return { success: false, error: error.error || '注册失败' }
+				return { success: false, error: error.error || '发送失败' }
 			}
 		},
 
@@ -67,6 +90,15 @@ export const useAuthStore = defineStore('auth', {
 						user_type: response.data.user_type,
 						student_id: response.data.student_id
 					}
+					// 更新邮箱验证状态
+					if (response.data.email_verified !== undefined) {
+						this.emailVerified = response.data.email_verified
+						localStorage.setItem('email_verified', this.emailVerified)
+					}
+					if (response.data.email) {
+						this.email = response.data.email
+						localStorage.setItem('email', this.email)
+					}
 					localStorage.setItem('user', JSON.stringify(this.user))
 					return { success: true, data: response.data }
 				}
@@ -76,12 +108,39 @@ export const useAuthStore = defineStore('auth', {
 			}
 		},
 
+		async verifyEmail(token) {
+			try {
+				const response = await authAPI.verifyEmail(token)
+				if (response.data) {
+					this.emailVerified = true
+					localStorage.setItem('email_verified', 'true')
+					return { success: true, data: response.data }
+				}
+				return { success: false, error: '验证失败' }
+			} catch (error) {
+				return { success: false, error: error.error || '验证失败' }
+			}
+		},
+
+		async resendVerificationEmail() {
+			try {
+				await authAPI.resendVerificationEmail()
+				return { success: true }
+			} catch (error) {
+				return { success: false, error: error.error || '发送失败' }
+			}
+		},
+
 		clearAuth() {
 			this.token = ''
 			this.user = {}
 			this.isAuthenticated = false
+			this.emailVerified = false
+			this.email = ''
 			localStorage.removeItem('token')
 			localStorage.removeItem('user')
+			localStorage.removeItem('email_verified')
+			localStorage.removeItem('email')
 		}
 	}
 })

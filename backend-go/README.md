@@ -46,6 +46,20 @@ HTTP → Dispatcher → [Debug(5W/100Q)] [Eval(3W/50Q)] [Rec(2W/30Q)]
 
 **验证流程**：认证中间件 → 查询班级成员 → 资源隔离
 
+### 邮箱验证
+
+为提升账户安全性，系统采用**注册前邮箱验证**机制：
+
+- **注册必填邮箱**：注册时必须提供有效邮箱地址
+- **验证邮件发送**：提交注册信息后，系统发送验证邮件（24小时内有效）
+- **注册完成**：用户点击邮件中的验证链接后，账号才正式创建
+- **重新发送**：用户可以重新发送验证邮件（每小时最多5次）
+- **测试模式**：通过 `SKIP_EMAIL_VERIFICATION=true` 可跳过验证（仅开发测试环境）
+
+**配置要求**：
+- `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`
+- 详细配置见 [`.env.example`](.env.example:1)
+
 ---
 
 ## 快速开始
@@ -75,15 +89,22 @@ go build -o ai-backend && ./ai-backend
 
 通过环境变量配置（[`config/config.go`](config/config.go:10)）：
 
-| 变量                 | 默认                    | 说明                 |
-| -------------------- | ----------------------- | -------------------- |
-| `ENV`                | `development`           | 运行环境             |
-| `JWT_SECRET`         | 空                      | JWT 密钥（≥32字符）  |
-| `AI_SERVICE_URL`     | `http://localhost:8000` | Python 服务地址      |
-| `DATABASE_URL`       | `data.db`               | SQLite 或 PostgreSQL |
-| `REDIS_ADDR`         | `localhost:6379`        | Redis 地址           |
-| `PORT`               | `8080`                  | 服务端口             |
-| `CORS_ALLOW_ORIGINS` | `http://localhost:5173` | 允许的 CORS 源       |
+| 变量                      | 默认                    | 说明                           |
+| ------------------------- | ----------------------- | ------------------------------ |
+| `ENV`                     | `development`           | 运行环境                       |
+| `JWT_SECRET`              | 空                      | JWT 密钥（≥32字符）            |
+| `AI_SERVICE_URL`          | `http://localhost:8000` | Python 服务地址                |
+| `DATABASE_URL`            | `data.db`               | SQLite 或 PostgreSQL           |
+| `REDIS_ADDR`              | `localhost:6379`        | Redis 地址                     |
+| `PORT`                    | `8080`                  | 服务端口                       |
+| `CORS_ALLOW_ORIGINS`      | `http://localhost:5173` | 允许的 CORS 源                 |
+| `SKIP_EMAIL_VERIFICATION` | `false`                 | 是否跳过邮箱验证（仅开发测试） |
+| `SMTP_HOST`               | 空                      | SMTP 服务器地址                |
+| `SMTP_PORT`               | `587`                   | SMTP 服务器端口                |
+| `SMTP_USERNAME`           | 空                      | SMTP 用户名（通常是邮箱地址）  |
+| `SMTP_PASSWORD`           | 空                      | SMTP 密码/应用专用密码         |
+| `SMTP_FROM`               | 空                      | 发件人邮箱地址                 |
+| `FRONTEND_URL`            | 空                      | 前端URL（用于生成验证链接）    |
 
 **生产环境示例**：
 ```bash
@@ -93,6 +114,15 @@ export AI_SERVICE_URL="http://ai-service:8000"
 export DATABASE_URL="postgresql://user:pass@postgres:5432/debugai"
 export REDIS_ADDR="redis:6379"
 export REDIS_PASSWORD="your-password"
+
+# 邮箱验证配置（必填）
+export SKIP_EMAIL_VERIFICATION=false
+export SMTP_HOST="smtp.gmail.com"
+export SMTP_PORT=587
+export SMTP_USERNAME="your-email@gmail.com"
+export SMTP_PASSWORD="your-app-password"
+export SMTP_FROM="noreply@yourdomain.com"
+export FRONTEND_URL="https://your-frontend-domain.com"
 ```
 
 ---
@@ -105,9 +135,19 @@ export REDIS_PASSWORD="your-password"
 **认证方式**：`Authorization: Bearer <jwt_token>`
 
 **公开接口**：
-- `POST /auth/register` - 注册
+- `POST /auth/register` - 注册（发送验证邮件）
 - `POST /auth/login` - 登录
 - `POST /auth/logout` - 登出
+- `GET /auth/verify-email?token=<token>` - 邮箱验证并完成注册
+- `POST /auth/resend-verification` - 重新发送验证邮件
+
+**注册流程**：
+1. 用户提交注册信息（学号、用户名、密码、邮箱）
+2. 系统发送验证邮件（含验证链接，24小时内有效）
+3. 用户点击邮件链接完成验证，账号正式创建
+4. 验证成功后可直接登录
+
+**注意**：注册时必须提供邮箱，未验证无法完成注册。
 
 ### AI 服务
 
