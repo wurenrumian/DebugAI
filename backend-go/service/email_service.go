@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net/smtp"
 	"time"
 
 	"backend-go/config"
@@ -12,6 +11,7 @@ import (
 	"backend-go/models"
 
 	"go.uber.org/zap"
+	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
 )
 
@@ -81,35 +81,8 @@ func (s *EmailService) SendVerificationEmailWithLink(user *models.User, verifica
 		return fmt.Errorf("SMTP is not configured")
 	}
 
-	// Email content
-	subject := "邮箱验证"
-	body := fmt.Sprintf(`
-尊敬的 %s，
-
-请点击以下链接完成邮箱验证：
-
-%s
-
-该链接将在24小时后失效。
-
-如果这不是您本人的操作，请忽略此邮件。
-
-此致，
-DebugAI 团队
-`, user.Username, verificationLink)
-
-	// Send email via SMTP
-	addr := fmt.Sprintf("%s:%d", config.Global.SMTPHost, config.Global.SMTPPort)
-	auth := smtp.PlainAuth("", config.Global.SMTPUsername, config.Global.SMTPPassword, config.Global.SMTPHost)
-
-	to := []string{user.Email}
-	msg := []byte(fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s", user.Email, subject, body))
-
-	if err := smtp.SendMail(addr, auth, config.Global.SMTPFrom, to, msg); err != nil {
-		return fmt.Errorf("failed to send verification email: %w", err)
-	}
-
-	return nil
+	// Send email via gomail
+	return s.sendEmail(user.Email, "邮箱验证", verificationLink, user.Username)
 }
 
 // sendEmail helper method to send email
@@ -134,13 +107,26 @@ func (s *EmailService) sendEmail(recipient, subject, verificationLink, username 
 DebugAI 团队
 `, username, verificationLink)
 
-	addr := fmt.Sprintf("%s:%d", config.Global.SMTPHost, config.Global.SMTPPort)
-	auth := smtp.PlainAuth("", config.Global.SMTPUsername, config.Global.SMTPPassword, config.Global.SMTPHost)
+	// Create email message
+	m := gomail.NewMessage()
+	m.SetHeader("From", config.Global.SMTPFrom)
+	m.SetHeader("To", recipient)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain; charset=UTF-8", body)
 
-	to := []string{recipient}
-	msg := []byte(fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s", recipient, subject, body))
+	// Dial and send email
+	d := gomail.NewDialer(
+		config.Global.SMTPHost,
+		config.Global.SMTPPort,
+		config.Global.SMTPUsername,
+		config.Global.SMTPPassword,
+	)
 
-	return smtp.SendMail(addr, auth, config.Global.SMTPFrom, to, msg)
+	if err := d.DialAndSend(m); err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	return nil
 }
 
 // VerifyToken verifies the verification token and returns the user ID if valid
