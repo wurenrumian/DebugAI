@@ -1,6 +1,11 @@
+# DebugAI 项目 Docker Compose 编排配置
+# 用途：一键启动所有服务（PostgreSQL、Redis、Go后端、Python AI服务、Vue前端）
+# 使用方法：docker-compose up -d
+
 version: '3.8'
 
 services:
+  # PostgreSQL 16 数据库
   postgres:
     image: postgres:16-alpine
     container_name: debugai-postgres
@@ -21,6 +26,25 @@ services:
     networks:
       - debugai-network
 
+  # Redis 7 缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: debugai-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - debugai-network
+
+  # Go 后端 API 服务
   backend:
     build:
       context: ./backend-go
@@ -32,6 +56,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-debugai}
       DB_PORT: 5432
+      REDIS_ADDR: redis:6379
       JWT_SECRET: ${JWT_SECRET}
       AI_SERVICE_URL: http://ai-service:8000
       ENV: ${ENV:-development}
@@ -39,6 +64,8 @@ services:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       ai-service:
         condition: service_healthy
@@ -51,6 +78,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Python AI 服务
   ai-service:
     build:
       context: ./ai-python
@@ -76,6 +104,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Vue 前端服务
   frontend:
     build:
       context: ./frontend-vue
@@ -91,6 +120,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
 
 networks:
   debugai-network:

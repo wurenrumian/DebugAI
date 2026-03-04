@@ -35,6 +35,7 @@ func InitDB() {
 		&models.Conversation{},
 		&models.Class{},
 		&models.ClassMember{},
+		&models.AuditLog{},
 	)
 
 	// 创建索引优化查询性能

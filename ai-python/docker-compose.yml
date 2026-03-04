@@ -1,30 +1,28 @@
 version: '3.8'
 
 # ============================================================
-# AI 服务容器化部署配置
+# AI 服务独立部署配置
 #
-# 本地开发测试使用方法:
-# 1. 设置环境变量（Windows PowerShell）:
-#    $env:OPENAI_API_KEY="your-api-key"
-#    $env:OPENAI_BASE_URL="https://api.openai.com/v1"  # 可选
-#    $env:LLM_MODEL="gpt-4"  # 或 "gpt-3.5-turbo"
-# 2. 启动服务: docker-compose up ai-service
-# 3. 访问健康检查: http://localhost:8000/health
+# 用途：单独启动 Python AI 服务（用于开发测试）
+# 注意：完整部署请使用根目录 docker-compose.yml
 #
-# 完整集成部署（与 Go 后端一起）:
-#   在根目录执行: docker-compose up --build
+# 使用方法：
+# 1. 设置环境变量：
+#    Windows: $env:DEEPSEEK_API_KEY="your-api-key"
+#    Linux/macOS: export DEEPSEEK_API_KEY="your-api-key"
+# 2. 启动服务：docker-compose up
+# 3. 健康检查：http://localhost:8000/health
 # ============================================================
 
 services:
-  # AI 服务容器
   ai-service:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: debugai-ai-service
     environment:
-      # DeepSeek API 配置（必需）
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      ENV: ${ENV:-development}
     ports:
       - "8000:8000"
     healthcheck:
