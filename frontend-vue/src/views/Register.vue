@@ -46,7 +46,7 @@
             placeholder="请输入密码"
             required
           />
-          <div class="hint">密码长度不少于8位</div>
+          <div class="hint">密码长度不少于6位，支持数字和字母组合</div>
         </div>
         
         <div class="form-group">

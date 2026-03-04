@@ -4,10 +4,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"backend-go/config"
 )
-
-// 定义一个密钥，实际项目中建议放在环境变量中
-var jwtKey = []byte("your_secret_key_123456")
 
 // MyClaims 定义 JWT 中存储的信息
 type MyClaims struct {
@@ -20,8 +18,8 @@ type MyClaims struct {
 
 // GenerateToken 生成 Token
 func GenerateToken(id uint, studentID string, userType string, tokenVersion int) (string, error) {
-	// 设置过期时间：24 小时
-	expirationTime := time.Now().Add(24 * time.Hour)
+	// 从配置读取过期时间
+	expirationTime := time.Now().Add(time.Duration(config.Global.JWTExpiry) * time.Hour)
 	claims := &MyClaims{
 		ID:           id,
 		StudentID:    studentID,
@@ -35,13 +33,13 @@ func GenerateToken(id uint, studentID string, userType string, tokenVersion int)
 
 	// 使用 HS256 算法签名
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtKey)
+	return token.SignedString([]byte(config.Global.JWTSecret))
 }
 
 // ParseToken 解析并验证 Token
 func ParseToken(tokenString string) (*MyClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &MyClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return jwtKey, nil
+		return []byte(config.Global.JWTSecret), nil
 	})
 
 	if err != nil {

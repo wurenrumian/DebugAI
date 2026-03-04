@@ -7,6 +7,7 @@ import (
 	"backend-go/middleware"
 	"backend-go/models"
 	"backend-go/service"
+	"backend-go/utils"
 
 	"os"
 
@@ -15,14 +16,17 @@ import (
 	"go.uber.org/zap"
 )
 
+var appConfig *config.Config
+
 func main() {
 	// 加载 .env 文件中的环境变量
 	godotenv.Load()
 
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = "development"
-	}
+	// 初始化配置
+	config.InitConfig()
+	appConfig = config.Global
+
+	env := appConfig.AppEnv
 
 	logger.InitLogger(env)
 	defer logger.Logger.Sync()
@@ -33,6 +37,12 @@ func main() {
 	)
 
 	config.InitDB()
+
+	// 初始化Redis
+	config.InitRedis()
+
+	// 初始化安全管理器（使用Redis）
+	utils.InitSecurityManager(config.RedisClient)
 
 	pythonBaseURL := os.Getenv("AI_SERVICE_URL")
 	if pythonBaseURL == "" {
