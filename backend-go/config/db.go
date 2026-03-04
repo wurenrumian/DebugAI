@@ -54,5 +54,5 @@ func createIndexes(db *gorm.DB) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_class_members_user_class ON class_members (user_id, class_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_class_members_class_role ON class_members (class_id, member_role)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_user_weak_points_student_weakpoint_date ON user_weak_points (student_id, weak_point_id, record_date)")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_air_records_conv_student_created ON air_records (conversation_id, student_id, created_at)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_ai_records_conv_student_created ON ai_records (conversation_id, student_id, created_at)")
 }

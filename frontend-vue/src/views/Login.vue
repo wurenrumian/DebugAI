@@ -11,6 +11,13 @@
           {{ errorMessage }}
         </div>
         
+        <div v-if="emailVerificationRequired" class="message message-warning">
+          请先验证邮箱：{{ email }}
+          <button type="button" @click="handleResendVerification" :disabled="resendLoading" class="btn-link">
+            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
+          </button>
+        </div>
+        
         <div class="form-group">
           <label for="studentId">学号</label>
           <input 
@@ -60,10 +67,14 @@ const formData = ref({
 })
 
 const loading = ref(false)
+const resendLoading = ref(false)
 const errorMessage = ref('')
+const emailVerificationRequired = ref(false)
+const email = ref('')
 
 const handleLogin = async () => {
   errorMessage.value = ''
+  emailVerificationRequired.value = false
   loading.value = true
   
   try {
@@ -72,12 +83,35 @@ const handleLogin = async () => {
     if (result.success) {
       router.push('/profile')
     } else {
-      errorMessage.value = result.error || '登录失败，请检查学号和密码'
+      // 检查是否需要邮箱验证
+      if (result.error && result.error.includes('请先验证邮箱')) {
+        emailVerificationRequired.value = true
+        email.value = authStore.email || ''
+        errorMessage.value = '请先完成邮箱验证'
+      } else {
+        errorMessage.value = result.error || '登录失败，请检查学号和密码'
+      }
     }
   } catch (error) {
     errorMessage.value = '登录失败，请检查网络连接'
   } finally {
     loading.value = false
+  }
+}
+
+const handleResendVerification = async () => {
+  resendLoading.value = true
+  try {
+    const result = await authStore.resendVerificationEmail()
+    if (result.success) {
+      alert('验证邮件已发送，请查收')
+    } else {
+      alert('发送失败：' + (result.error || '请稍后重试'))
+    }
+  } catch (error) {
+    alert('发送失败，请检查网络连接')
+  } finally {
+    resendLoading.value = false
   }
 }
 </script>
@@ -139,5 +173,32 @@ const handleLogin = async () => {
 
 .link:hover {
   text-decoration: underline;
+}
+
+.message-warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #409eff;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font-size: 14px;
+}
+
+.btn-link:disabled {
+  color: #c0c4cc;
+  cursor: not-allowed;
 }
 </style>

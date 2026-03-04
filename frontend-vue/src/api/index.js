@@ -49,6 +49,14 @@ export const authAPI = {
 	},
 	logout() {
 		return api.post('/auth/logout')
+	},
+	// 邮箱验证
+	verifyEmail(token) {
+		return api.get('/auth/verify-email', { params: { token } })
+	},
+	// 重新发送验证邮件
+	resendVerificationEmail() {
+		return api.post('/auth/resend-verification')
 	}
 }
 

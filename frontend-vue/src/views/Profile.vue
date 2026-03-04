@@ -30,6 +30,26 @@
           <span class="label">账户类型</span>
           <span class="value">{{ userTypeText }}</span>
         </div>
+        
+        <div class="info-item" v-if="authStore.email">
+          <span class="label">邮箱</span>
+          <span class="value">{{ authStore.email }}</span>
+          <span class="status-badge" :class="authStore.emailVerified ? 'verified' : 'unverified'">
+            {{ authStore.emailVerified ? '已验证' : '未验证' }}
+          </span>
+          <button
+            v-if="!authStore.emailVerified"
+            @click="handleResendVerification"
+            :disabled="resendLoading"
+            class="btn-resend"
+          >
+            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
+          </button>
+        </div>
+      </div>
+      
+      <div v-if="resendMessage" class="message" :class="resendMessage.includes('成功') ? 'message-success' : 'message-error'">
+        {{ resendMessage }}
       </div>
       
 
@@ -112,6 +132,8 @@ const user = ref({
 })
 
 const loading = ref(false)
+const resendLoading = ref(false)
+const resendMessage = ref('')
 
 // 计算头像文字
 const avatarText = computed(() => {
@@ -142,6 +164,27 @@ const fetchProfile = async () => {
     console.error('Failed to fetch profile:', error)
   } finally {
     loading.value = false
+  }
+}
+
+// 重新发送验证邮件
+const handleResendVerification = async () => {
+  resendLoading.value = true
+  resendMessage.value = ''
+  try {
+    const result = await authStore.resendVerificationEmail()
+    if (result.success) {
+      resendMessage.value = '验证邮件已发送，请查收'
+    } else {
+      resendMessage.value = '发送失败：' + (result.error || '请稍后重试')
+    }
+  } catch (error) {
+    resendMessage.value = '发送失败，请检查网络连接'
+  } finally {
+    resendLoading.value = false
+    setTimeout(() => {
+      resendMessage.value = ''
+    }, 5000)
   }
 }
 
@@ -216,6 +259,7 @@ onMounted(() => {
 .info-item {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   padding: 15px 0;
   border-bottom: 1px solid #f0f0f0;
 }
@@ -233,6 +277,59 @@ onMounted(() => {
   color: #303133;
   font-size: 14px;
   font-weight: 500;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin-left: 10px;
+}
+
+.status-badge.verified {
+  background-color: #f0f9ff;
+  color: #409eff;
+  border: 1px solid #409eff;
+}
+
+.status-badge.unverified {
+  background-color: #fef0f0;
+  color: #f56c6c;
+  border: 1px solid #f56c6c;
+}
+
+.btn-resend {
+  padding: 4px 12px;
+  font-size: 12px;
+  background-color: #409eff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 10px;
+}
+
+.btn-resend:disabled {
+  background-color: #c0c4cc;
+  cursor: not-allowed;
+}
+
+.message {
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.message-success {
+  background-color: #f0f9ff;
+  border: 1px solid #409eff;
+  color: #409eff;
+}
+
+.message-error {
+  background-color: #fef0f0;
+  border: 1px solid #f56c6c;
+  color: #f56c6c;
 }
 
 .class-card {

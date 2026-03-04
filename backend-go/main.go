@@ -36,6 +36,14 @@ func main() {
 		zap.Int("port", 8080),
 	)
 
+	// 打印SMTP配置检查
+	logger.Info("SMTP配置检查",
+		zap.String("SMTPHost", config.Global.SMTPHost),
+		zap.String("SMTPUsername", config.Global.SMTPUsername),
+		zap.Bool("SMTPPasswordSet", config.Global.SMTPPassword != ""),
+		zap.String("SMTPFrom", config.Global.SMTPFrom),
+		zap.Bool("IsEmailConfigured", service.NewEmailService(config.DB).IsEmailConfigured()),
+	)
 	config.InitDB()
 
 	// 初始化Redis
@@ -83,6 +91,8 @@ func main() {
 	r.POST("/auth/register", controller.Register)
 	r.POST("/auth/login", controller.Login)
 	r.POST("/auth/logout", controller.Logout)
+	r.GET("/auth/verify-email", controller.VerifyEmail)
+	r.POST("/auth/resend-verification", controller.ResendVerificationEmail)
 
 	// 受保护路由组
 	api := r.Group("/api/v1")

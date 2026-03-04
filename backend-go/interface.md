@@ -281,6 +281,7 @@
 **请求体**：
 ```json
 {
+  "student_id": "2024001",  // 可选，如果提供必须与认证用户一致
   "conversation_id": "eval_1234567890",
   "code": "def add(a, b):\n    return a + b",
   "problem_description": "实现两个数的加法",
@@ -328,6 +329,7 @@
 **请求体**：
 ```json
 {
+  "student_id": "2024001",  // 可选，如果提供必须与认证用户一致
   "weak_points": {
     "循环": 3,
     "数组": 2,
@@ -355,6 +357,10 @@
 - 错误码同 `debug_v2`
 
 **注意**：该接口会同时更新 `user_weak_points` 表，累加传入的薄弱点计数。
+
+**安全说明**：
+- `student_id` 字段为可选参数，如果提供则必须与当前认证用户的 `student_id` 一致
+- 后端会进行严格校验，防止越权访问其他学生的数据
 
 ---
 
@@ -519,16 +525,7 @@
 - `end_date`（可选）：结束日期
 
 **响应**：
-- `200 OK`：
-  ```json
-  {
-    "message": "Top weak points fetched successfully",
-    "data": [
-      { "keyword": "循环", "category": "编程基础", "count": 5, "description": "..." },
-      { "keyword": "数组", "category": "数据结构", "count": 3, "description": "..." }
-    ]
-  }
-  ```
+- `200 OK`：格式同 [`/ai/weak_points`](#获取用户薄弱点统计)，返回按 `count` 降序排列的前 N 条记录
 
 ---
 
@@ -554,7 +551,12 @@
         "student_id": "2024001",
         "username": "张三",
         "weak_points": [
-          { "keyword": "数组", "category": "数据结构", "count": 5 }
+          {
+            "keyword": "数组",
+            "category": "数据结构",
+            "count": 5,
+            "description": "数组操作相关知识点"
+          }
         ],
         "total_count": 15
       }
@@ -564,6 +566,32 @@
 - `403 Forbidden`：无权限
 - `404 Not Found`：班级不存在
 - `400 Bad Request`：参数错误或学生不属于该班级
+
+---
+
+### 导出班级薄弱点（CSV）
+
+**GET** `/ai/weak_points/class/export`
+
+导出班级所有学生的薄弱点统计为 CSV 文件（仅班级管理员或系统管理员可访问）。
+
+**查询参数**：同 [`/ai/weak_points/class`](#获取班级薄弱点)
+
+**响应**：
+- `200 OK`：
+  - Header：`Content-Type: text/csv; charset=utf-8`
+  - Header：`Content-Disposition: attachment; filename=weak_points_class_<班级ID>_<日期>.csv`
+  - Body：CSV 格式数据，包含 BOM 头以支持 Excel 中文显示
+- `403 Forbidden`：无权限
+- `404 Not Found`：班级不存在
+- `400 Bad Request`：参数错误或学生不属于该班级
+
+**CSV 格式**：
+```csv
+学生学号,学生姓名,薄弱点关键词,分类,出现次数,记录日期
+2024001,张三,数组,数据结构,5,2024-01-01
+2024001,张三,循环,编程基础,3,2024-01-01
+```
 
 ---
 
@@ -589,7 +617,7 @@
     "message": "班级创建成功",
     "data": {
       "id": 1,
-      "class_name": "软件工程2024",
+      "name": "软件工程2024",
       "created_by": 1,
       "created_at": "2024-01-01T00:00:00Z"
     }
@@ -800,7 +828,10 @@
         "role": "student",
         "request_payload": "{...}",
         "response_payload": "{...}",
-        "created_at": "2024-01-01T10:00:00Z"
+        "error": null,
+        "created_at": "2024-01-01T10:00:00Z",
+        "updated_at": "2024-01-01T10:00:00Z",
+        "deleted_at": null
       }
     ]
   }
@@ -848,6 +879,9 @@
 **说明**：
 - 筛选条件：`conversation_id` 以 `rec_` 开头
 
+**说明**：
+- 筛选条件：`conversation_id` 以 `rec_` 开头
+
 ---
 
 ### 导出班级 Debug 历史记录
@@ -881,7 +915,10 @@
           "role": "student",
           "request_payload": "{...}",
           "response_payload": "{...}",
-          "created_at": "2024-01-01T10:00:00Z"
+          "error": null,
+          "created_at": "2024-01-01T10:00:00Z",
+          "updated_at": "2024-01-01T10:00:00Z",
+          "deleted_at": null
         }
       ]
     }
@@ -902,7 +939,7 @@
 - `200 OK`：
   - Header：`Content-Type: application/json`
   - Header：`Content-Disposition: attachment; filename=evaluate_history.json`
-  - Body：同查询响应格式
+  - Body：同查询响应格式（包含 `error`、`updated_at`、`deleted_at` 字段）
 
 ---
 
@@ -918,7 +955,7 @@
 - `200 OK`：
   - Header：`Content-Type: application/json`
   - Header：`Content-Disposition: attachment; filename=recommend_history.json`
-  - Body：同查询响应格式
+  - Body：同查询响应格式（包含 `error`、`updated_at`、`deleted_at` 字段）
 
 ---
 
@@ -945,6 +982,17 @@
 - **Evaluate**：`conversation_id` 以 `eval_` 开头
 - **Recommend**：`conversation_id` 以 `rec_` 开头
 
+**识别逻辑示例**（伪代码）：
+```go
+if record.RoundNumber > 0 && (strings.HasPrefix(record.ConversationID, "conv_") || strings.HasPrefix(record.ConversationID, "dbg_")) {
+    taskType = "debug"
+} else if strings.HasPrefix(record.ConversationID, "eval_") {
+    taskType = "evaluate"
+} else if strings.HasPrefix(record.ConversationID, "rec_") {
+    taskType = "recommend"
+}
+```
+
 ### Conversation（对话会话）
 
 | 字段              | 类型        | 说明                                           |
@@ -964,7 +1012,8 @@
 | `weak_point_id` | uint      | 薄弱点 ID（关联 `weak_points` 表） |
 | `count`         | int       | 该薄弱点出现次数                   |
 | `record_date`   | time.Time | 记录日期（按天聚合）               |
-| `description`   | string    | 薄弱点描述（冗余字段，便于查询）   |
+
+**注意**：`description` 字段不在本表中，通过关联 `WeakPoint` 表获取。
 
 ---
 

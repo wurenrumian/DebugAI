@@ -9,22 +9,40 @@ import (
 
 // Config 应用配置结构
 type Config struct {
-	AppEnv      string
-	JWTSecret   string
-	JWTExpiry   int // 小时
-	BCryptCost  int
-	Debug       bool
-	CORSOrigins []string
+	AppEnv                string
+	JWTSecret             string
+	JWTExpiry             int // 小时
+	BCryptCost            int
+	Debug                 bool
+	CORSOrigins           []string
+	SkipEmailVerification bool // 测试环境跳过邮箱验证（仅用于开发测试）
+
+	// SMTP 邮件服务器配置
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+
+	// 前端URL（用于生成验证链接等）
+	FrontendURL string
 }
 
 // LoadConfig 从环境变量加载配置
 func LoadConfig() *Config {
 	cfg := &Config{
-		AppEnv:     getEnvString("ENV", "development"),
-		JWTSecret:  getEnvString("JWT_SECRET", ""),
-		JWTExpiry:  getEnvInt("JWT_EXPIRY_HOURS", 24),
-		BCryptCost: getEnvInt("BCRYPT_COST", 10),
-		Debug:      getEnvBool("DEBUG", false),
+		AppEnv:                getEnvString("ENV", "development"),
+		JWTSecret:             getEnvString("JWT_SECRET", ""),
+		JWTExpiry:             getEnvInt("JWT_EXPIRY_HOURS", 24),
+		BCryptCost:            getEnvInt("BCRYPT_COST", 10),
+		Debug:                 getEnvBool("DEBUG", false),
+		SkipEmailVerification: getEnvBool("SKIP_EMAIL_VERIFICATION", false),
+		SMTPHost:              getEnvString("SMTP_HOST", ""),
+		SMTPPort:              getEnvInt("SMTP_PORT", 587),
+		SMTPUsername:          getEnvString("SMTP_USERNAME", ""),
+		SMTPPassword:          getEnvString("SMTP_PASSWORD", ""),
+		SMTPFrom:              getEnvString("SMTP_FROM", ""),
+		FrontendURL:           getEnvString("FRONTEND_URL", ""),
 	}
 
 	// 解析CORS源
@@ -54,6 +72,25 @@ func (c *Config) Validate() error {
 	// 验证JWT过期时间
 	if c.JWTExpiry <= 0 || c.JWTExpiry > 720 { // 最大30天
 		errors = append(errors, "JWT_EXPIRY_HOURS must be between 1 and 720")
+	}
+
+	// 验证SMTP配置（如果提供了部分配置，则需要完整配置）
+	if c.SMTPHost != "" || c.SMTPUsername != "" || c.SMTPPassword != "" || c.SMTPFrom != "" {
+		if c.SMTPHost == "" {
+			errors = append(errors, "SMTP_HOST is required when SMTP is configured")
+		}
+		if c.SMTPPort == 0 {
+			errors = append(errors, "SMTP_PORT is required when SMTP is configured")
+		}
+		if c.SMTPUsername == "" {
+			errors = append(errors, "SMTP_USERNAME is required when SMTP is configured")
+		}
+		if c.SMTPPassword == "" {
+			errors = append(errors, "SMTP_PASSWORD is required when SMTP is configured")
+		}
+		if c.SMTPFrom == "" {
+			errors = append(errors, "SMTP_FROM is required when SMTP is configured")
+		}
 	}
 
 	// 生产环境额外检查
