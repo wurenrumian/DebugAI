@@ -20,9 +20,11 @@ func GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "获取成功",
 		"data": gin.H{
-			"student_id": user.StudentID,
-			"username":   user.Username,
-			"user_type":  user.UserType,
+			"student_id":     user.StudentID,
+			"username":       user.Username,
+			"user_type":      user.UserType,
+			"email":          user.Email,
+			"email_verified": user.EmailVerified,
 		},
 	})
 }
