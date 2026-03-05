@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"backend-go/logger"
 	"backend-go/models"
+	"backend-go/service/cache"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -37,14 +39,17 @@ type AIService struct {
 	DB                 *gorm.DB
 	PythonServiceURL   string
 	keywordCategoryMap map[string]string // keyword -> category mapping cache
+	weakPointCache     *cache.WeakPointCache
 }
 
 // NewAIService creates a new AIService
 func NewAIService(db *gorm.DB, pythonServiceURL string) *AIService {
+	redisCache := cache.NewRedisCache()
 	service := &AIService{
 		DB:                 db,
 		PythonServiceURL:   pythonServiceURL,
 		keywordCategoryMap: make(map[string]string),
+		weakPointCache:     cache.NewWeakPointCache(redisCache, db),
 	}
 	service.loadKeywordCategoryMap()
 	return service
@@ -278,6 +283,16 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 // Returns enhanced data with category and description
 // Optimized to avoid N+1 queries
 func (s *AIService) GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
+	// 尝试从缓存获取
+	if s.weakPointCache != nil {
+		result, err := s.weakPointCache.GetUserWeakPoints(context.Background(), studentID, startDate, endDate)
+		if err == nil {
+			return result, nil
+		}
+		// 缓存失败时降级到DB查询
+	}
+
+	// 直接查询数据库（无缓存或缓存失败）
 	var userWeakPoints []models.UserWeakPoint
 	query := s.DB.Where("student_id = ?", studentID)
 
@@ -421,12 +436,27 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 			s.DB.Save(&userWP)
 		}
 	}
+
+	// 异步失效用户薄弱点缓存
+	if s.weakPointCache != nil {
+		s.weakPointCache.InvalidateUserWeakPoints(studentID)
+	}
+
 	return nil
 }
 
 // GetTopWeakPoints returns the top N weak points for a user with count and optional date range
 // Returns enhanced data with category and description
 func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
+	// 尝试从缓存获取
+	if s.weakPointCache != nil {
+		result, err := s.weakPointCache.GetTopWeakPoints(context.Background(), studentID, limit, startDate, endDate)
+		if err == nil {
+			return result, nil
+		}
+	}
+
+	// 直接查询数据库
 	if limit <= 0 {
 		limit = 5
 	}
@@ -481,6 +511,14 @@ func (s *AIService) GetTopWeakPoints(studentID string, limit int, startDate, end
 // studentIDs: 可选的學生ID列表，为空时返回班级所有学生
 // startDate, endDate: 日期范围，默认当天
 func (s *AIService) GetClassWeakPoints(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
+	// 尝试从缓存获取
+	if s.weakPointCache != nil {
+		result, err := s.weakPointCache.GetClassWeakPoints(context.Background(), classID, studentIDs, startDate, endDate)
+		if err == nil {
+			return result, nil
+		}
+	}
+
 	// Default to today if no date range provided
 	if startDate == nil && endDate == nil {
 		today := time.Now().Truncate(24 * time.Hour)
