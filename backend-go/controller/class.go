@@ -253,6 +253,7 @@ func GetClassMembers(c *gin.Context) {
 					ID:        m.ID,
 					ClassID:   membersInfo.ClassID,
 					UserID:    m.UserID,
+					StudentID: m.StudentID,
 					Username:  m.Username,
 					Role:      m.MemberRole,
 					IsCreator: m.IsCreator,

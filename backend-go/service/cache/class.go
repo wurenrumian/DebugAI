@@ -45,6 +45,7 @@ type ClassMembersInfo struct {
 type ClassMemberInfo struct {
 	ID         uint   `json:"id"`
 	UserID     uint   `json:"user_id"`
+	StudentID  string `json:"student_id"`
 	Username   string `json:"username"`
 	MemberRole string `json:"member_role"`
 	IsCreator  bool   `json:"is_creator"`
@@ -183,9 +184,14 @@ func (s *ClassCache) GetClassMembers(ctx context.Context, classID uint) (*ClassM
 				members := make([]ClassMemberInfo, 0, len(membersData))
 				for _, item := range membersData {
 					if memberMap, ok := item.(map[string]interface{}); ok {
+						studentID := ""
+						if sid, ok := memberMap["student_id"].(string); ok {
+							studentID = sid
+						}
 						member := ClassMemberInfo{
 							ID:         uint(memberMap["id"].(float64)),
 							UserID:     uint(memberMap["user_id"].(float64)),
+							StudentID:  studentID,
 							Username:   memberMap["username"].(string),
 							MemberRole: memberMap["member_role"].(string),
 							IsCreator:  memberMap["is_creator"].(bool),
@@ -225,9 +231,14 @@ func (s *ClassCache) fetchClassMembersFromDB(classID uint) (*ClassMembersInfo, e
 		if m.User.Username != "" {
 			username = m.User.Username
 		}
+		studentID := ""
+		if m.User.StudentID != "" {
+			studentID = m.User.StudentID
+		}
 		result.Members = append(result.Members, ClassMemberInfo{
 			ID:         m.ID,
 			UserID:     m.UserID,
+			StudentID:  studentID,
 			Username:   username,
 			MemberRole: m.MemberRole,
 			IsCreator:  m.IsCreator,
