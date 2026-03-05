@@ -4,6 +4,7 @@ import (
 	"backend-go/config"
 	"backend-go/models"
 	"backend-go/service"
+	"backend-go/service/cache"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +12,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// ClassCache 全局班级缓存服务
+var classCache *cache.ClassCache
+
+// InitClassCache 初始化班级缓存服务
+func InitClassCache(redisCache *cache.RedisCache, db *gorm.DB) {
+	classCache = cache.NewClassCache(redisCache, db)
+}
 
 // CreateClass 创建班级（仅 admin 可执行）
 func CreateClass(c *gin.Context) {
@@ -57,6 +66,11 @@ func CreateClass(c *gin.Context) {
 	}
 	config.DB.Create(&member)
 
+	// 失效班级列表缓存
+	if classCache != nil {
+		classCache.InvalidateClassList()
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "班级创建成功",
 		"data":    class,
@@ -65,6 +79,16 @@ func CreateClass(c *gin.Context) {
 
 // GetClasses 获取班级列表（包含创建者信息）
 func GetClasses(c *gin.Context) {
+	// 尝试从缓存获取
+	if classCache != nil {
+		classes, err := classCache.GetClasses(c.Request.Context())
+		if err == nil && len(classes) > 0 {
+			c.JSON(http.StatusOK, gin.H{"data": classes})
+			return
+		}
+	}
+
+	// 降级到数据库查询
 	var classes []models.Class
 	// 预加载创建者信息
 	if err := config.DB.Preload("Creator").Find(&classes).Error; err != nil {
@@ -139,6 +163,11 @@ func JoinClass(c *gin.Context) {
 		return
 	}
 
+	// 失效班级成员缓存
+	if classCache != nil {
+		classCache.InvalidateClassDetail(uint(classID))
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "加入班级成功", "data": member})
 }
 
@@ -150,6 +179,16 @@ func GetClassDetail(c *gin.Context) {
 		return
 	}
 
+	// 尝试从缓存获取
+	if classCache != nil {
+		classInfo, err := classCache.GetClassBasic(c.Request.Context(), uint(classID))
+		if err == nil && classInfo != nil {
+			c.JSON(http.StatusOK, gin.H{"data": classInfo})
+			return
+		}
+	}
+
+	// 降级到数据库查询
 	var class models.Class
 	// 预加载创建者信息
 	if err := config.DB.Preload("Creator").First(&class, classID).Error; err != nil {
@@ -194,6 +233,37 @@ func GetClassMembers(c *gin.Context) {
 		return
 	}
 
+	// 尝试从缓存获取
+	if classCache != nil {
+		membersInfo, err := classCache.GetClassMembers(c.Request.Context(), uint(classID))
+		if err == nil && membersInfo != nil {
+			// 转换为前端格式
+			type MemberResponse struct {
+				ID        uint   `json:"id"`
+				ClassID   uint   `json:"class_id"`
+				UserID    uint   `json:"user_id"`
+				StudentID string `json:"student_id"`
+				Username  string `json:"username"`
+				Role      string `json:"role"`
+				IsCreator bool   `json:"is_creator"`
+			}
+			response := make([]MemberResponse, 0, len(membersInfo.Members))
+			for _, m := range membersInfo.Members {
+				response = append(response, MemberResponse{
+					ID:        m.ID,
+					ClassID:   membersInfo.ClassID,
+					UserID:    m.UserID,
+					Username:  m.Username,
+					Role:      m.MemberRole,
+					IsCreator: m.IsCreator,
+				})
+			}
+			c.JSON(http.StatusOK, gin.H{"data": response})
+			return
+		}
+	}
+
+	// 降级到数据库查询
 	var members []models.ClassMember
 	// 预加载用户信息
 	if err := config.DB.Preload("User").Where("class_id = ?", classID).Find(&members).Error; err != nil {
@@ -455,6 +525,11 @@ func AddMembers(c *gin.Context) {
 		}
 	}
 
+	// 失效班级详情和成员缓存
+	if classCache != nil {
+		classCache.InvalidateClassDetail(uint(classID))
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "批量添加完成",
 		"summary": gin.H{
@@ -607,6 +682,11 @@ func RemoveMembers(c *gin.Context) {
 		case "not_member":
 			notMemberCount++
 		}
+	}
+
+	// 失效班级详情和成员缓存
+	if classCache != nil {
+		classCache.InvalidateClassDetail(uint(classID))
 	}
 
 	c.JSON(http.StatusOK, gin.H{

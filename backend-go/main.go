@@ -7,6 +7,7 @@ import (
 	"backend-go/middleware"
 	"backend-go/models"
 	"backend-go/service"
+	"backend-go/service/cache"
 	"backend-go/utils"
 
 	"os"
@@ -68,6 +69,10 @@ func main() {
 	// Initialize AI Service and Controller (for evaluate and recommend)
 	aiService := service.NewAIService(config.DB, pythonBaseURL)
 	aiController := controller.NewAIController(aiService, dispatcher)
+
+	// Initialize Class Cache
+	redisCache := cache.NewRedisCache()
+	controller.InitClassCache(redisCache, config.DB)
 
 	// Seed default weak point keywords
 	aiService.SeedWeakPointKeywords()

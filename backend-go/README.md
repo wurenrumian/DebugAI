@@ -10,6 +10,37 @@
 
 ## 核心特性
 
+### Redis 热点数据缓存
+
+基于 Redis 的多层缓存架构，显著降低数据库压力：
+
+| 数据类型     | 缓存键                                          | TTL | 命中率目标 |
+| ------------ | ----------------------------------------------- | --- | ---------- |
+| 轮次配置     | `round_info:{round}`                            | 24h | >95%       |
+| 班级列表     | `classes:list`                                  | 1h  | >80%       |
+| 班级详情     | `class:basic:{id}`                              | 1h  | >80%       |
+| 班级成员     | `class:members:{id}`                            | 15m | >70%       |
+| 用户薄弱点   | `weak_points:user:{student_id}:{start}:{end}`   | 10m | >80%       |
+| Top-N 薄弱点 | `weak_points:user:top:{student_id}:{limit}:...` | 5m  | >75%       |
+| 班级薄弱点   | `weak_points:class:{class_id}:{start}:{end}`    | 10m | >70%       |
+
+**防护机制**：
+- **缓存击穿**：`GetWithMutex()` 使用 SETNX 互斥锁
+- **缓存雪崩**：TTL ±30秒随机化
+- **缓存穿透**：空值也缓存（2分钟）
+- **数据一致性**：写操作后异步失效缓存（双重删除 + 重试）
+
+**监控指标**（Prometheus）：
+- `debugai_cache_hit_total` - 缓存命中次数
+- `debugai_cache_miss_total` - 缓存未命中次数
+- `debugai_cache_error_total` - 缓存错误次数
+
+**开关控制**：
+```bash
+# 禁用缓存（用于回滚或调试）
+CACHE_ENABLED=false
+```
+
 ### 异步 Worker Pool 架构
 
 独立任务队列实现资源隔离：
