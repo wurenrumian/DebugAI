@@ -40,6 +40,10 @@
           />
         </div>
         
+        <div class="form-options">
+          <router-link to="/forgot-password" class="link forgot-link">忘记密码？</router-link>
+        </div>
+        
         <button type="submit" class="btn btn-primary login-btn" :disabled="loading">
           {{ loading ? '登录中...' : '登录' }}
         </button>
@@ -166,6 +170,16 @@ const handleResendVerification = async () => {
   padding: 12px;
   font-size: 16px;
   margin-top: 10px;
+}
+
+.form-options {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+
+.forgot-link {
+  font-size: 14px;
 }
 
 .login-footer {

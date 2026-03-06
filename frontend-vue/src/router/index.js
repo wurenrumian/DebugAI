@@ -19,6 +19,18 @@ const routes = [
 		meta: { requiresAuth: false }
 	},
 	{
+		path: '/forgot-password',
+		name: 'ForgotPassword',
+		component: () => import('../views/ForgotPassword.vue'),
+		meta: { requiresAuth: false }
+	},
+	{
+		path: '/reset-password',
+		name: 'ResetPassword',
+		component: () => import('../views/ResetPassword.vue'),
+		meta: { requiresAuth: false }
+	},
+	{
 		path: '/profile',
 		name: 'Profile',
 		component: () => import('../views/Profile.vue'),
@@ -67,7 +79,7 @@ router.beforeEach((to, from, next) => {
 
 	if (to.meta.requiresAuth && !authStore.isAuthenticated) {
 		next('/login')
-	} else if ((to.path === '/login' || to.path === '/register') && authStore.isAuthenticated) {
+	} else if ((to.path === '/login' || to.path === '/register' || to.path === '/forgot-password' || to.path === '/reset-password') && authStore.isAuthenticated) {
 		next('/profile')
 	} else {
 		next()

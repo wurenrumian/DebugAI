@@ -57,6 +57,14 @@ export const authAPI = {
 	// 重新发送验证邮件
 	resendVerificationEmail() {
 		return api.post('/auth/resend-verification')
+	},
+	// 忘记密码
+	forgotPassword(data) {
+		return api.post('/auth/forgot-password', data)
+	},
+	// 重置密码
+	resetPassword(data) {
+		return api.post('/auth/reset-password', data)
 	}
 }
 

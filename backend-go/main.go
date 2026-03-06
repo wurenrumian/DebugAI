@@ -98,6 +98,8 @@ func main() {
 	r.POST("/auth/logout", controller.Logout)
 	r.GET("/auth/verify-email", controller.VerifyEmail)
 	r.POST("/auth/resend-verification", controller.ResendVerificationEmail)
+	r.POST("/auth/forgot-password", controller.ForgotPassword)
+	r.POST("/auth/reset-password", controller.ResetPassword)
 
 	// 受保护路由组
 	api := r.Group("/api/v1")

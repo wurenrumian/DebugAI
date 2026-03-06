@@ -131,6 +131,24 @@ export const useAuthStore = defineStore('auth', {
 			}
 		},
 
+		async forgotPassword(data) {
+			try {
+				const response = await authAPI.forgotPassword(data)
+				return { success: true, data: response.data }
+			} catch (error) {
+				return { success: false, error: error.error || '请求失败' }
+			}
+		},
+
+		async resetPassword(data) {
+			try {
+				const response = await authAPI.resetPassword(data)
+				return { success: true, data: response.data }
+			} catch (error) {
+				return { success: false, error: error.error || '重置失败' }
+			}
+		},
+
 		clearAuth() {
 			this.token = ''
 			this.user = {}
