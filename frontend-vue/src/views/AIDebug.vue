@@ -251,6 +251,7 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 import { useAuthStore } from '../stores/auth'
 import { aiAPI } from '../api'
 import AIResponseDisplay from '../components/AIResponseDisplay.vue'
@@ -513,6 +514,24 @@ onMounted(() => {
   }
   // 获取第一轮的初始信息
   fetchRoundInfo(1)
+})
+
+// Enter 键提交（表单验证通过时）
+useKeyboardShortcut(['enter'], (event) => {
+  // 如果在输入框内，不处理（让输入框可以换行）
+  if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT') {
+    return
+  }
+  if (!loading.value && canStart.value && !isConversationClosed.value && currentRound.value <= 4) {
+    startDebug()
+  }
+})
+
+// Ctrl+Enter 键提交（针对 textarea）
+useKeyboardShortcut(['ctrl+enter'], () => {
+  if (!loading.value && canStart.value && !isConversationClosed.value && currentRound.value <= 4) {
+    startDebug()
+  }
 })
 </script>
 

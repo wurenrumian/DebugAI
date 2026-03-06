@@ -52,6 +52,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useKeyboardShortcut } from '../../composables/useKeyboardShortcut'
 import { useClassStore } from '../../stores/class'
 import { useAuthStore } from '../../stores/auth'
 
@@ -69,6 +70,13 @@ const currentClassId = computed(() => classStore.currentClass?.id)
 const isAdmin = computed(() => {
   const user = authStore.user
   return user && user.user_type === 'admin'
+})
+
+// ESC 键关闭创建对话框
+useKeyboardShortcut(['escape'], () => {
+  if (showCreateDialog.value) {
+    showCreateDialog.value = false
+  }
 })
 
 onMounted(async () => {

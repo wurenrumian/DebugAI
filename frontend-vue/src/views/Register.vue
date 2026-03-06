@@ -103,6 +103,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -120,6 +121,13 @@ const resendLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const emailSent = ref(false)
+
+// Enter 键提交注册
+useKeyboardShortcut(['enter'], () => {
+  if (!loading.value && !emailSent.value && formData.value.student_id && formData.value.username && formData.value.password && formData.value.confirmPassword && formData.value.email) {
+    handleRegister()
+  }
+})
 
 const handleRegister = async () => {
   errorMessage.value = ''
