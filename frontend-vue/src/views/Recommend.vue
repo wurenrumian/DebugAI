@@ -146,6 +146,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useKeyboardShortcut } from '@/composables/useKeyboardShortcut'
 import { useAuthStore } from '@/stores/auth'
 import { aiAPI } from '@/api'
 import WeakPointDisplay from '@/components/WeakPointDisplay.vue'
@@ -272,6 +273,24 @@ const resetForm = () => {
   result.value = null
   errorMessage.value = ''
 }
+
+// Enter 键提交（表单验证通过时）
+useKeyboardShortcut(['enter'], (event) => {
+  // 如果在输入框内，不处理
+  if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT') {
+    return
+  }
+  if (!loading.value && canSubmit.value) {
+    submitRecommend()
+  }
+})
+
+// Ctrl+Enter 键提交
+useKeyboardShortcut(['ctrl+enter'], () => {
+  if (!loading.value && canSubmit.value) {
+    submitRecommend()
+  }
+})
 
 // 获取相关度样式类
 const getRelevanceClass = (relevance) => {

@@ -158,6 +158,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useKeyboardShortcut } from '../../composables/useKeyboardShortcut'
 import AIResponseDisplay from '../AIResponseDisplay.vue'
 
 const props = defineProps({
@@ -176,7 +177,12 @@ const props = defineProps({
   }
 })
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+
+// ESC 键关闭模态框
+useKeyboardShortcut(['escape'], () => {
+  emit('close')
+})
 
 const showCodeModal = ref(false)
 

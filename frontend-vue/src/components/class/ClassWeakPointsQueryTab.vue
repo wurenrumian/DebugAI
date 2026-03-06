@@ -92,10 +92,18 @@ const students = computed(() => {
 
 // 统计信息
 const studentCount = computed(() => {
-  return classStore.classWeakPoints.length
+  // 如果后端返回的是直接的薄弱点列表，则学生人数可能无法直接从该列表获取
+  // 这里假设如果数据结构是直接的列表，我们可能需要从 classStore.members 获取或者根据业务逻辑调整
+  // 如果 classStore.classWeakPoints 已经是薄弱点列表，那么 length 就是薄弱点种类的数量
+  return classStore.members.filter(m => m.role === 'student').length
 })
 
 const totalWeakPoints = computed(() => {
+  if (classStore.classWeakPoints.length > 0 && !classStore.classWeakPoints[0].weak_points) {
+    // 直接列表格式
+    return classStore.classWeakPoints.reduce((sum, wp) => sum + (wp.count || 0), 0)
+  }
+  // 按学生聚合格式
   return classStore.classWeakPoints.reduce((sum, student) => {
     return sum + (student.weak_points?.reduce((s, wp) => s + wp.count, 0) || 0)
   }, 0)
@@ -117,18 +125,27 @@ function getQueryParams() {
   return params
 }
 
-// 转换数据：将后端返回的"按学生聚合"格式转换为"按关键词聚合"格式
+// 转换数据：兼容后端返回的两种格式
+// 1. 按学生聚合格式: [{ student_id: 1, weak_points: [...] }, ...]
+// 2. 直接薄弱点列表格式: [{ category: "...", count: 1, ... }, ...]
 const transformedWeakPoints = computed(() => {
+  if (classStore.classWeakPoints.length === 0) return []
+
+  // 检查是否是直接的薄弱点列表格式 (如用户提供的 JSON 示例)
+  if (!classStore.classWeakPoints[0].weak_points) {
+    return [...classStore.classWeakPoints].sort((a, b) => b.count - a.count)
+  }
+
+  // 按学生聚合格式转换为按关键词聚合
   const keywordMap = {}
-  
   classStore.classWeakPoints.forEach(student => {
     if (student.weak_points && Array.isArray(student.weak_points)) {
       student.weak_points.forEach(wp => {
         const key = wp.keyword
         if (!keywordMap[key]) {
-          keywordMap[key] = { 
-            keyword: wp.keyword, 
-            category: wp.category, 
+          keywordMap[key] = {
+            keyword: wp.keyword,
+            category: wp.category,
             count: 0,
             description: wp.description || ''
           }

@@ -12,18 +12,21 @@
         @click="activeTab = 'debug'"
       >
         🤖 AI调试
+        <span class="shortcut-hint">Ctrl+1</span>
       </button>
       <button
         :class="['tab-btn', { active: activeTab === 'evaluate' }]"
         @click="activeTab = 'evaluate'"
       >
         📝 代码评价
+        <span class="shortcut-hint">Ctrl+2</span>
       </button>
       <button
         :class="['tab-btn', { active: activeTab === 'recommend' }]"
         @click="activeTab = 'recommend'"
       >
         📚 题目推荐
+        <span class="shortcut-hint">Ctrl+3</span>
       </button>
     </div>
     
@@ -82,6 +85,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 import { useAuthStore } from '../stores/auth'
 import { aiAPI } from '../api'
 import DebugHistoryTab from '../components/HistoryTabs/DebugHistoryTab.vue'
@@ -308,6 +312,16 @@ onMounted(() => {
     return
   }
   fetchRecords()
+})
+
+// 标签页切换快捷键
+const tabKeys = ['ctrl+1', 'ctrl+2', 'ctrl+3']
+useKeyboardShortcut(tabKeys, (event) => {
+  const index = parseInt(event.key) - 1
+  if (index >= 0 && index < 3) {
+    const tabMap = ['debug', 'evaluate', 'recommend']
+    activeTab.value = tabMap[index]
+  }
 })
 </script>
 
@@ -615,8 +629,18 @@ onMounted(() => {
 }
 
 .history-content-wrapper {
-	max-width: 1000px;
-	margin: 0 auto;
-	padding: 20px;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.shortcut-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #909399;
+  background: #f5f7fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
 }
 </style>

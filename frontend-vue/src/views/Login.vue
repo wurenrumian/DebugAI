@@ -57,6 +57,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -71,6 +72,13 @@ const resendLoading = ref(false)
 const errorMessage = ref('')
 const emailVerificationRequired = ref(false)
 const email = ref('')
+
+// Enter 键提交登录
+useKeyboardShortcut(['enter'], () => {
+  if (!loading.value && formData.value.student_id && formData.value.password) {
+    handleLogin()
+  }
+})
 
 const handleLogin = async () => {
   errorMessage.value = ''

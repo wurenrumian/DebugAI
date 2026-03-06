@@ -25,6 +25,7 @@
             >
               <span class="tab-icon">📋</span>
               班级信息
+              <span class="shortcut-hint">Ctrl+1</span>
             </button>
             <button
               v-if="isClassAdmin"
@@ -33,6 +34,7 @@
             >
               <span class="tab-icon">👥</span>
               成员管理
+              <span class="shortcut-hint">Ctrl+2</span>
             </button>
             <button
               v-if="isClassAdmin"
@@ -41,6 +43,7 @@
             >
               <span class="tab-icon">📊</span>
               学生历史
+              <span class="shortcut-hint">Ctrl+3</span>
             </button>
             <button
               v-if="isClassAdmin"
@@ -49,6 +52,7 @@
             >
               <span class="tab-icon">🎯</span>
               班级薄弱点
+              <span class="shortcut-hint">Ctrl+4</span>
             </button>
           </div>
         </div>
@@ -98,6 +102,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 import { useClassStore } from '../stores/class'
 import { useAuthStore } from '../stores/auth'
 import ClassSelector from '../components/class/ClassSelector.vue'
@@ -144,6 +149,31 @@ onMounted(() => {
     classStore.fetchMembers(classStore.currentClass.id)
   }
 })
+
+// ESC 键关闭创建对话框
+useKeyboardShortcut(['escape'], () => {
+  if (showCreateDialog.value) {
+    showCreateDialog.value = false
+  }
+})
+
+// 标签页切换快捷键
+const tabs = ['info', 'manage', 'history', 'weakpoints']
+useKeyboardShortcut(['ctrl+1', 'ctrl+2', 'ctrl+3', 'ctrl+4'], (event) => {
+  const index = parseInt(event.key) - 1
+  if (tabs[index] && isTabVisible(tabs[index])) {
+    activeTab.value = tabs[index]
+  }
+})
+
+// 检查标签是否可见（根据用户权限）
+const isTabVisible = (tabName) => {
+  if (tabName === 'info') return true
+  if (tabName === 'manage' || tabName === 'history' || tabName === 'weakpoints') {
+    return isClassAdmin.value
+  }
+  return false
+}
 
 // 创建班级
 const createClass = async () => {
@@ -266,6 +296,16 @@ const createClass = async () => {
 
 .tab-icon {
   font-size: 18px;
+}
+
+.shortcut-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #909399;
+  background: #f5f7fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
 }
 
 .main-content {
