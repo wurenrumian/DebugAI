@@ -32,7 +32,7 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
     healthcheck:
       test: [ "CMD-SHELL", "redis-cli ping" ]
       interval: 10s
@@ -55,6 +55,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-debugai}
       DB_PORT: 5432
       REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:-your-strong-secret-key-min-32-chars}
       AI_SERVICE_URL: http://ai-service:8000
       ENV: ${ENV:-development}

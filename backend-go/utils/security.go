@@ -3,6 +3,8 @@ package utils
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -241,16 +243,23 @@ func (sm *SecurityManager) CheckRateLimit(key string, limit int) bool {
 	return true
 }
 
-// GenerateCaptcha 生成4位数字验证码
+// GenerateCaptcha 生成6位字母数字验证码（增强安全性）
 func GenerateCaptcha() (string, string) {
-	b := make([]byte, 2)
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 排除易混淆字符
+	b := make([]byte, 6)
 	rand.Read(b)
-	num := int(b[0])*256 + int(b[1])
-	captcha := fmt.Sprintf("%04d", num%10000)
-	return captcha, captcha
+	for i := 0; i < 6; i++ {
+		b[i] = chars[int(b[i])%len(chars)]
+	}
+	captcha := string(b)
+
+	// 存储哈希值而非明文
+	hash := sha256.Sum256([]byte(captcha))
+	return captcha, hex.EncodeToString(hash[:])
 }
 
-// VerifyCaptcha 验证验证码
-func VerifyCaptcha(userInput, storedCaptcha string) bool {
-	return strings.ToUpper(userInput) == strings.ToUpper(storedCaptcha)
+// VerifyCaptcha 验证验证码（使用哈希比对）
+func VerifyCaptcha(userInput, storedHash string) bool {
+	hash := sha256.Sum256([]byte(strings.ToUpper(userInput)))
+	return hex.EncodeToString(hash[:]) == storedHash
 }

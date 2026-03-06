@@ -16,6 +16,12 @@ func InitRedis() {
 	// 从环境变量读取配置，提供默认值
 	redisAddr := getEnvString("REDIS_ADDR", "localhost:6379")
 	redisPassword := getEnvString("REDIS_PASSWORD", "")
+
+	// 生产环境强制要求 Redis 密码
+	if Global != nil && Global.AppEnv == "production" && redisPassword == "" {
+		panic("REDIS_PASSWORD is required in production environment")
+	}
+
 	redisDB := getEnvString("REDIS_DB", "0")
 	poolSize := getEnvInt("REDIS_POOL_SIZE", 10)
 

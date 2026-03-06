@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -37,8 +39,8 @@ func Register(c *gin.Context) {
 	ip := utils.GetIPFromRequest(c.Request)
 
 	// 频率限制检查
-	if utils.GlobalSecurity != nil && !utils.GlobalSecurity.CheckRateLimit("register:"+ip, 10) {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "注册频率过高，请稍后再试"})
+	if utils.GlobalSecurity != nil && !utils.GlobalSecurity.CheckRateLimit("register:"+ip+":"+input.StudentID, 10) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "请求频率过高，请稍后再试"})
 		return
 	}
 
@@ -65,10 +67,13 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// 统一返回模糊错误，防止账户枚举
+	genericConflictError := "注册失败，请稍后重试或使用其他信息"
+
 	// 检查学号是否已存在
 	var existingUser models.User
 	if err := config.DB.Where("student_id = ?", input.StudentID).First(&existingUser).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "学号不可用"})
+		c.JSON(http.StatusConflict, gin.H{"error": genericConflictError})
 		return
 	} else if err != gorm.ErrRecordNotFound {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
@@ -78,7 +83,7 @@ func Register(c *gin.Context) {
 	// 检查邮箱是否已被注册
 	var existingEmail models.User
 	if err := config.DB.Where("email = ?", input.Email).First(&existingEmail).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "邮箱已被注册"})
+		c.JSON(http.StatusConflict, gin.H{"error": genericConflictError})
 		return
 	}
 
@@ -150,15 +155,14 @@ func Register(c *gin.Context) {
 	}, verificationLink); err != nil {
 		logger.Logger.Error("发送验证邮件失败",
 			zap.Error(err),
-			zap.String("email", input.Email),
-			zap.String("link", verificationLink),
+			zap.String("email", maskEmail(input.Email)),
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送验证邮件失败"})
 		return
 	}
 	logger.Logger.Info("发送验证邮件成功",
-		zap.String("email", input.Email),
-		zap.String("link", verificationLink),
+		zap.String("email", maskEmail(input.Email)),
+		zap.String("token_prefix", verificationToken[:8]+"..."),
 	)
 
 	// 记录注册尝试审计日志
@@ -230,16 +234,16 @@ func VerifyEmail(c *gin.Context) {
 	password, _ := registerData["password"].(string)
 	email, _ := registerData["email"].(string)
 
-	// 再次检查学号是否已被注册
+	// 再次检查学号是否已被注册（防止竞态条件）
 	var existingUser models.User
 	if err := config.DB.Where("student_id = ?", studentID).First(&existingUser).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "学号已被注册"})
+		c.JSON(http.StatusConflict, gin.H{"error": "注册失败，该学号已被占用"})
 		return
 	}
 
 	// 再次检查邮箱是否已被注册
 	if err := config.DB.Where("email = ?", email).First(&existingUser).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "邮箱已被注册"})
+		c.JSON(http.StatusConflict, gin.H{"error": "注册失败，该邮箱已被占用"})
 		return
 	}
 
@@ -320,8 +324,17 @@ func Login(c *gin.Context) {
 		var captchaInput struct {
 			Captcha string `json:"captcha" binding:"required"`
 		}
-		if err := c.ShouldBindJSON(&captchaInput); err != nil || !utils.VerifyCaptcha(captchaInput.Captcha, "") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "需要验证码或验证码错误"})
+		// 获取存储的验证码哈希
+		ctx := c.Request.Context()
+		captchaKey := fmt.Sprintf("captcha_value:user:%s", input.StudentID)
+		storedHash, err := config.RedisClient.Get(ctx, captchaKey).Result()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码已过期，请重新获取"})
+			return
+		}
+
+		if err := c.ShouldBindJSON(&captchaInput); err != nil || !utils.VerifyCaptcha(captchaInput.Captcha, storedHash) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
 			return
 		}
 		utils.GlobalSecurity.ClearCaptchaRequirement(input.StudentID)
@@ -356,7 +369,9 @@ func Login(c *gin.Context) {
 
 	// Set HttpOnly cookie
 	expirySeconds := config.Global.JWTExpiry * 3600
-	c.SetCookie("auth_token", token, expirySeconds, "/", "", false, true)
+	secureFlag := config.Global.AppEnv == "production"
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("auth_token", token, expirySeconds, "/", "", secureFlag, true)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "登录成功",
@@ -374,7 +389,9 @@ func Logout(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	studentID, _ := c.Get("student_id")
 
-	c.SetCookie("auth_token", "", -1, "/", "", false, true)
+	secureFlag := config.Global.AppEnv == "production"
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("auth_token", "", -1, "/", "", secureFlag, true)
 
 	go recordLogout(c, getUint(userID), getString(studentID))
 
@@ -511,6 +528,8 @@ func ForgotPassword(c *gin.Context) {
 	resetData := map[string]interface{}{
 		"student_id": user.StudentID,
 		"email":      user.Email,
+		"ip":         ip,
+		"user_agent": c.Request.UserAgent(),
 		"expires_at": time.Now().Add(1 * time.Hour).Format(time.RFC3339),
 	}
 
@@ -643,6 +662,14 @@ func ResetPassword(c *gin.Context) {
 	}
 
 	studentID, _ := resetData["student_id"].(string)
+	originalIP, _ := resetData["ip"].(string)
+	currentIP := utils.GetIPFromRequest(c.Request)
+
+	// 验证 IP 是否一致（可选，根据安全策略）
+	if originalIP != currentIP && config.Global.AppEnv == "production" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "安全校验失败，请在发起重置请求的设备上操作"})
+		return
+	}
 
 	// 查询用户信息
 	var user models.User
@@ -742,4 +769,16 @@ func getString(val interface{}) string {
 		return v
 	}
 	return ""
+}
+
+func maskEmail(email string) string {
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return email
+	}
+	if len(parts[0]) <= 2 {
+		return strings.Repeat("*", len(parts[0])) + "@" + parts[1]
+	}
+	masked := parts[0][:2] + strings.Repeat("*", len(parts[0])-2)
+	return masked + "@" + parts[1]
 }
