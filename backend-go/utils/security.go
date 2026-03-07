@@ -34,11 +34,11 @@ type SecurityConfig struct {
 
 // DefaultSecurityConfig 默认安全配置
 var DefaultSecurityConfig = SecurityConfig{
-	MaxLoginAttempts:  5,
-	LockoutDuration:   15 * time.Minute,
+	MaxLoginAttempts:  15,
+	LockoutDuration:   5 * time.Minute,
 	FailureWindow:     15 * time.Minute,
-	CaptchaThreshold:  3,
-	RegisterRateLimit: 40,
+	CaptchaThreshold:  15,
+	RegisterRateLimit: 20,
 	LoginRateLimit:    20,
 }
 
