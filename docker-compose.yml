@@ -119,6 +119,8 @@ services:
       context: ./frontend-vue
       dockerfile: Dockerfile
     container_name: debugai-frontend
+    environment:
+      BACKEND_PORT: ${BACKEND_PORT:-8080}
     ports:
       - "${FRONTEND_PORT:-80}:80"
     depends_on:

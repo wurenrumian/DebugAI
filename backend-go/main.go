@@ -10,6 +10,7 @@ import (
 	"backend-go/service/cache"
 	"backend-go/utils"
 
+	"fmt"
 	"os"
 
 	"slices"
@@ -36,7 +37,7 @@ func main() {
 
 	logger.Info("Starting DebugAI backend",
 		zap.String("env", env),
-		zap.Int("port", 8080),
+		zap.Int("port", config.Global.Port),
 	)
 
 	// 打印SMTP配置检查
@@ -164,5 +165,5 @@ func main() {
 		api.GET("/classes/:id/records/recommend/export", controller.ExportClassRecommendRecords) // 导出班级recommend历史
 	}
 
-	r.Run(":8080")
+	r.Run(fmt.Sprintf(":%d", config.Global.Port))
 }

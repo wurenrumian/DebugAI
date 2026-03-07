@@ -3,7 +3,9 @@ package config
 import (
 	"backend-go/models"
 	"fmt"
+	"log"
 	"os"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -21,9 +23,19 @@ func InitDB() {
 		getEnv("DB_NAME", "debugai"),
 		getEnv("DB_PORT", "5432"),
 	)
-	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	// 增加重试逻辑，应对容器启动顺序问题
+	for i := 0; i < 10; i++ {
+		DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err == nil {
+			break
+		}
+		log.Printf("数据库连接尝试失败 (%d/10): %v. 2秒后重试...", i+1, err)
+		time.Sleep(2 * time.Second)
+	}
+
 	if err != nil {
-		panic("数据库连接失败: " + err.Error())
+		panic("数据库连接最终失败: " + err.Error())
 	}
 
 	// 自动同步表结构

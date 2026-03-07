@@ -16,6 +16,7 @@ type Config struct {
 	Debug                 bool
 	CORSOrigins           []string
 	SkipEmailVerification bool // 测试环境跳过邮箱验证（仅用于开发测试）
+	Port                  int  // 服务端口
 
 	// SMTP 邮件服务器配置
 	SMTPHost     string
@@ -37,6 +38,7 @@ func LoadConfig() *Config {
 		BCryptCost:            getEnvInt("BCRYPT_COST", 10),
 		Debug:                 getEnvBool("DEBUG", false),
 		SkipEmailVerification: getEnvBool("SKIP_EMAIL_VERIFICATION", false),
+		Port:                  getEnvInt("BACKEND_PORT", 8080),
 		SMTPHost:              getEnvString("SMTP_HOST", ""),
 		SMTPPort:              getEnvInt("SMTP_PORT", 587),
 		SMTPUsername:          getEnvString("SMTP_USERNAME", ""),

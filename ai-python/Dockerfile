@@ -6,7 +6,7 @@
 # ============================================================
 # Python 3.11 slim 版本安全且轻量
 # -------------------- 第一阶段: 构建 --------------------
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir -r requirements.txt
 
 # -------------------- 第二阶段: 运行 --------------------
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # 设置工作目录
 WORKDIR /app
