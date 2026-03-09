@@ -81,6 +81,47 @@ export const aiAPI = {
 	debugV2(data) {
 		return api.post('/api/v1/ai/debug_v2', data)
 	},
+	// 流式调试请求
+	async debugV2Stream(data, onChunk) {
+		const token = localStorage.getItem('token')
+		const response = await fetch('/api/v1/ai/debug_v2/stream', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'Authorization': token ? `Bearer ${token}` : ''
+			},
+			body: JSON.stringify(data)
+		})
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}))
+			throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+		}
+
+		const reader = response.body.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+
+			buffer += decoder.decode(value, { stream: true })
+			const lines = buffer.split('\n')
+			buffer = lines.pop()
+
+			for (const line of lines) {
+				if (line.trim()) {
+					try {
+						const chunk = JSON.parse(line)
+						onChunk(chunk)
+					} catch (e) {
+						console.error('Failed to parse chunk:', line, e)
+					}
+				}
+			}
+		}
+	},
 	// 获取AI交互历史（所有类型）
 	getRecords() {
 		return api.get('/api/v1/ai/records')
@@ -109,9 +150,91 @@ export const aiAPI = {
 	evaluate(data) {
 		return api.post('/api/v1/ai/evaluate', data)
 	},
+	// 流式代码评价
+	async evaluateStream(data, onChunk) {
+		const token = localStorage.getItem('token')
+		const response = await fetch('/api/v1/ai/evaluate/stream', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'Authorization': token ? `Bearer ${token}` : ''
+			},
+			body: JSON.stringify(data)
+		})
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}))
+			throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+		}
+
+		const reader = response.body.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+
+			buffer += decoder.decode(value, { stream: true })
+			const lines = buffer.split('\n')
+			buffer = lines.pop()
+
+			for (const line of lines) {
+				if (line.trim()) {
+					try {
+						const chunk = JSON.parse(line)
+						onChunk(chunk)
+					} catch (e) {
+						console.error('Failed to parse chunk:', line, e)
+					}
+				}
+			}
+		}
+	},
 	// 题目推荐
 	recommend(data) {
 		return api.post('/api/v1/ai/recommend', data)
+	},
+	// 流式题目推荐
+	async recommendStream(data, onChunk) {
+		const token = localStorage.getItem('token')
+		const response = await fetch('/api/v1/ai/recommend/stream', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'Authorization': token ? `Bearer ${token}` : ''
+			},
+			body: JSON.stringify(data)
+		})
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}))
+			throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+		}
+
+		const reader = response.body.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+
+			buffer += decoder.decode(value, { stream: true })
+			const lines = buffer.split('\n')
+			buffer = lines.pop()
+
+			for (const line of lines) {
+				if (line.trim()) {
+					try {
+						const chunk = JSON.parse(line)
+						onChunk(chunk)
+					} catch (e) {
+						console.error('Failed to parse chunk:', line, e)
+					}
+				}
+			}
+		}
 	},
 	// 获取用户薄弱点（支持日期筛选）
 	getWeakPoints(params = {}) {

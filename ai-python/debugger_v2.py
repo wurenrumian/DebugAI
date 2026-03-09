@@ -283,3 +283,127 @@ class CodeDebuggerV2:
                 "error_message": "AI服务暂时不可用，请稍后重试"
             }
         )
+    
+    async def debug_stream(self, submission: CodeSubmissionV2):
+        """
+        流式多轮对话调试
+        
+        Yields:
+            dict: NDJSON 格式的数据行
+        """
+        logger.info("starting_debug_stream",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            current_round=submission.current_round,
+            code_length=len(submission.code),
+        )
+        
+        try:
+            # 根据当前轮次选择不同的提示词
+            if submission.current_round == 1:
+                sysprompt = f"""
+你是专业的编程教学助手，请你帮助学生调试代码。请严格按照JSON格式返回结果。
+
+这是第1轮对话：理解学生思路。请分析学生代码，理解学生的解题思路，并用自己的话描述出来。
+
+返回JSON格式要求：
+{{
+    "student_thought": "<你理解的学生解题思路，约100字>",
+    "suggested_correction": "<如果学生对题意有明显误解，指出问题和建议>"
+}}
+
+注意事项：
+1. 重点理解学生的整体思路
+2. 该轮只分析学生思路是否符合题意，不要调试代码，不用点出学生的逻辑错误
+"""
+                prompt = self._create_round1_prompt(submission)
+            elif submission.current_round == 2:
+                sysprompt = f"""
+你是专业的编程教学助手，请你帮助学生调试代码。请严格按照JSON格式返回结果。
+
+这是第2轮对话：指出问题点和薄弱点。
+1. 请结合学生的思路确认结果和测试点通过信息，指出代码中的主要问题。
+2. 薄弱点识别：每一处问题从以下规范的关键词中选取1个作为薄弱点：
+
+薄弱点关键词规范（必须使用以下关键词）：
+语法类：语法错误,类型不匹配,头文件缺失,未声明变量
+逻辑类：边界条件错误,条件判断错误,循环条件错误,逻辑顺序错误,状态处理错误
+算法类：算法选择不当,时间复杂度高,空间复杂度高,递归深度过大,未优化算法
+内存类：数组越界,空指针访问,内存泄漏,栈溢出
+其他类：输入处理错误,输出格式错误,文件操作错误,其他
+
+返回JSON格式要求：
+{{
+    "problem_summary": "<问题总述，50字以内>",
+    "key_issues": [
+        {{
+            "location": "<问题位置，如\"for循环\"或函数名>",
+            "description": "<问题描述，30字以内>"
+        }}
+    ],
+    "weak_points": [
+        "<薄弱点关键词1>",
+        "<薄弱点关键词2>",
+        ...
+    ],
+    "ask_for_help": "是否需要我提供调试建议？"
+}}
+
+注意事项：
+1. 基于学生的确认结果和测试点进行分析
+2. 先指出问题点，不要给解决方案
+3. 问题描述要具体但简洁
+4. 薄弱点关键词必须从上述规范列表中选择
+"""
+                prompt = self._create_round2_prompt(submission)
+            elif submission.current_round == 3:
+                sysprompt = f"""
+你是专业的编程教学助手，请你帮助学生调试代码。请严格按照JSON格式返回结果。
+
+这是第3轮对话：提供debug要点。学生已请求帮助，请结合题目和学生代码，提供调试要点和思路。
+
+返回JSON格式要求：
+{{
+    "debug_guidance": "<调试指导，针对每一个问题点，用提问的形式引发学生思考，100字以内>",
+    "ask_for_detail": "是否需要更详细的修改指导？"
+}}
+
+注意事项：提问引导学生思考，让学生自己想答案
+"""
+                prompt = self._create_round3_prompt(submission)
+            elif submission.current_round == 4:
+                sysprompt = f"""
+你是专业的编程教学助手，请你帮助学生调试代码。请严格按照JSON格式返回结果。
+
+这是第4轮对话：详细指导修改。请提供详细的修改指导，但不直接给出完整代码。
+
+返回JSON格式要求：
+{{
+    "suggestions": [
+        "<具体建议1，不要提供完整代码>",
+        "<具体建议2，不要提供完整代码>",
+        ...
+    ]
+}}
+
+注意事项：
+1. 不要直接给出修改后的代码
+2. 提供详细的思考过程
+"""
+                prompt = self._create_round4_prompt(submission)
+            else:
+                raise ValueError(f"无效的轮次: {submission.current_round}")
+            
+            # 流式调用 LLM，实时返回文本片段
+            async for chunk in self.llm_client.call_llm_stream(sysprompt, prompt, json_mode=True):
+                yield chunk
+            
+        except Exception as e:
+            logger.error("debug_stream_error",
+                student_id=submission.student_id,
+                conversation_id=submission.conversation_id,
+                current_round=submission.current_round,
+                error=str(e),
+                exc_info=True,
+            )
+            yield {"type": "error", "message": f"调试流式处理失败: {str(e)}"}

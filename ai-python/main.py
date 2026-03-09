@@ -1,5 +1,7 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict
 from logger_config import configure_logging, get_logger
@@ -170,6 +172,188 @@ async def debug_code_v2(request: Request):
             status_code=500,
             detail={
                 "message": "V2调试失败，请联系老师或管理员",
+                "error": str(e)
+            }
+        )
+
+@app.post("/evaluate/stream")
+async def evaluate_code_stream(request: Request):
+    """
+    流式代码评价接口
+    """
+    try:
+        data = await request.json()
+        
+        submission = CodeSubmission(
+            student_id=data.get("student_id", ""),
+            conversation_id=data.get("conversation_id", ""),
+            code=data.get("code", ""),
+            problem_description=data.get("problem_description", ""),
+            test_points=[TestPoint(**tp) for tp in data.get("test_points", [])],
+            task_type=TaskType.EVALUATE
+        )
+        
+        logger.info("received_evaluate_stream_request",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            code_length=len(submission.code),
+        )
+        
+        async def generate():
+            try:
+                async for chunk in evaluator.evaluate_stream(submission):
+                    # 转换为 NDJSON 格式
+                    yield f"{json.dumps(chunk)}\n"
+            except Exception as e:
+                logger.error("evaluate_stream_generator_error",
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                yield f"{json.dumps({'type': 'error', 'message': str(e)})}\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error("evaluate_stream_failed",
+            student_id=data.get("student_id", "") if isinstance(data, dict) else "",
+            conversation_id=data.get("conversation_id", "") if isinstance(data, dict) else "",
+            error=str(e),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "流式评价失败，请联系老师或管理员",
+                "error": str(e)
+            }
+        )
+
+@app.post("/debug_v2/stream")
+async def debug_code_v2_stream(request: Request):
+    """
+    流式多轮对话调试接口
+    """
+    try:
+        data = await request.json()
+        
+        submission = CodeSubmissionV2(
+            student_id=data.get("student_id", ""),
+            conversation_id=data.get("conversation_id", ""),
+            code=data.get("code", ""),
+            problem_description=data.get("problem_description", ""),
+            test_points=[TestPoint(**tp) for tp in data.get("test_points", [])],
+            current_round=data.get("current_round", 1),
+            dialogue_history=data.get("dialogue_history", []),
+            student_response=data.get("student_response")
+        )
+        
+        logger.info("received_debug_v2_stream_request",
+            student_id=submission.student_id,
+            conversation_id=submission.conversation_id,
+            current_round=submission.current_round,
+        )
+        
+        async def generate():
+            try:
+                async for chunk in debugger_v2.debug_stream(submission):
+                    # 转换为 NDJSON 格式
+                    yield f"{json.dumps(chunk)}\n"
+            except Exception as e:
+                logger.error("debug_stream_generator_error",
+                    student_id=submission.student_id,
+                    conversation_id=submission.conversation_id,
+                    current_round=submission.current_round,
+                    error=str(e),
+                    exc_info=True,
+                )
+                yield f"{json.dumps({'type': 'error', 'message': str(e)})}\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error("debug_v2_stream_failed",
+            student_id=data.get("student_id", "") if isinstance(data, dict) else "",
+            conversation_id=data.get("conversation_id", "") if isinstance(data, dict) else "",
+            current_round=data.get("current_round", 1),
+            error=str(e),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "流式调试失败，请联系老师或管理员",
+                "error": str(e)
+            }
+        )
+
+@app.post("/recommend/stream")
+async def recommend_problems_stream(request: Request):
+    """
+    流式题目推荐接口
+    """
+    try:
+        data = await request.json()
+        
+        recommend_request = RecommendRequest(
+            student_id=data.get("student_id", ""),
+            weak_points=data.get("weak_points", {}),
+            max_recommendations=data.get("max_recommendations", 5)
+        )
+        
+        logger.info("received_recommend_stream_request",
+            student_id=recommend_request.student_id,
+            weak_points_count=len(recommend_request.weak_points),
+            max_recommendations=recommend_request.max_recommendations,
+        )
+        
+        async def generate():
+            try:
+                async for chunk in recommender.recommend_stream(recommend_request):
+                    # 转换为 NDJSON 格式
+                    yield f"{json.dumps(chunk)}\n"
+            except Exception as e:
+                logger.error("recommend_stream_generator_error",
+                    student_id=recommend_request.student_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                yield f"{json.dumps({'type': 'error', 'message': str(e)})}\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error("recommend_stream_failed",
+            student_id=data.get("student_id", "") if isinstance(data, dict) else "",
+            error=str(e),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "流式推荐失败，请联系老师或管理员",
                 "error": str(e)
             }
         )

@@ -66,49 +66,61 @@
           </div>
           
           <div v-else class="evaluation-result">
-            <!-- 整体评价 -->
-            <div class="eval-section overall">
-              <h3>📊 整体评价</h3>
-              <p>{{ result.overall_evaluation }}</p>
+            <!-- 流式输出显示 -->
+            <div v-if="isStreaming" class="streaming-output">
+              <div class="streaming-header">
+                <span class="streaming-label">🤖 AI 正在思考</span>
+                <span class="streaming-dots">...</span>
+              </div>
+              <div class="streaming-content" v-html="formatStreamingContent(streamingText)"></div>
             </div>
             
-            <!-- 各项评分 -->
-            <div class="eval-grid">
-              <div class="eval-item">
-                <div class="eval-label">✅ 功能正确</div>
-                <div class="eval-score" :class="getScoreClass(result.functional_correctness?.grade)">
-                  {{ result.functional_correctness?.grade || 'N/A' }}
-                </div>
-                <div class="eval-analysis">{{ result.functional_correctness?.analysis }}</div>
+            <!-- 结构化结果显示 -->
+            <div v-else class="structured-result">
+              <!-- 整体评价 -->
+              <div class="eval-section overall">
+                <h3>📊 整体评价</h3>
+                <p>{{ result.overall_evaluation }}</p>
               </div>
               
-              <div class="eval-item">
-                <div class="eval-label">🔍 逻辑严谨</div>
-                <div class="eval-score" :class="getScoreClass(result.logical_rigor?.grade)">
-                  {{ result.logical_rigor?.grade || 'N/A' }}
+              <!-- 各项评分 -->
+              <div class="eval-grid">
+                <div class="eval-item">
+                  <div class="eval-label">✅ 功能正确</div>
+                  <div class="eval-score" :class="getScoreClass(result.functional_correctness?.grade)">
+                    {{ result.functional_correctness?.grade || 'N/A' }}
+                  </div>
+                  <div class="eval-analysis">{{ result.functional_correctness?.analysis }}</div>
                 </div>
-                <div class="eval-analysis">{{ result.logical_rigor?.analysis }}</div>
-              </div>
-              
-              <div class="eval-item">
-                <div class="eval-label">⚡ 算法效率</div>
-                <div class="eval-score" :class="getScoreClass(result.algorithm_quality?.grade)">
-                  {{ result.algorithm_quality?.grade || 'N/A' }}
+                
+                <div class="eval-item">
+                  <div class="eval-label">🔍 逻辑严谨</div>
+                  <div class="eval-score" :class="getScoreClass(result.logical_rigor?.grade)">
+                    {{ result.logical_rigor?.grade || 'N/A' }}
+                  </div>
+                  <div class="eval-analysis">{{ result.logical_rigor?.analysis }}</div>
                 </div>
-                <div class="eval-analysis">{{ result.algorithm_quality?.analysis }}</div>
-              </div>
-              
-              <div class="eval-item">
-                <div class="eval-label">📐 结构规范</div>
-                <div class="eval-score" :class="getScoreClass(result.structural_normativity?.grade)">
-                  {{ result.structural_normativity?.grade || 'N/A' }}
+                
+                <div class="eval-item">
+                  <div class="eval-label">⚡ 算法效率</div>
+                  <div class="eval-score" :class="getScoreClass(result.algorithm_quality?.grade)">
+                    {{ result.algorithm_quality?.grade || 'N/A' }}
+                  </div>
+                  <div class="eval-analysis">{{ result.algorithm_quality?.analysis }}</div>
                 </div>
-                <div class="eval-analysis">{{ result.structural_normativity?.analysis }}</div>
+                
+                <div class="eval-item">
+                  <div class="eval-label">📐 结构规范</div>
+                  <div class="eval-score" :class="getScoreClass(result.structural_normativity?.grade)">
+                    {{ result.structural_normativity?.grade || 'N/A' }}
+                  </div>
+                  <div class="eval-analysis">{{ result.structural_normativity?.analysis }}</div>
+                </div>
               </div>
             </div>
           </div>
           
-          <div v-if="loading" class="loading-item">
+          <div v-if="loading && !hasResult" class="loading-item">
             <div class="dialogue-avatar">🤖</div>
             <div class="dialogue-bubble">
               <div class="dialogue-label">AI 助手</div>
@@ -150,6 +162,10 @@ const loading = ref(false)
 
 // 结果数据
 const result = ref(null)
+
+// 流式状态
+const isStreaming = ref(false)
+const streamingText = ref('')
 
 // 错误信息
 const errorMessage = ref('')
@@ -197,12 +213,40 @@ const parseTestPoints = () => {
   return testPoints
 }
 
+// 格式化流式内容（简单的 Markdown 转换）
+const formatStreamingContent = (content) => {
+  if (!content) return ''
+  // 转义 HTML
+  let formatted = content
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+  
+  // 简单的代码块转换
+  formatted = formatted.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+  formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>')
+  
+  // 换行转换
+  formatted = formatted.replace(/\n/g, '<br>')
+  
+  return formatted
+}
+
 // 提交评价
 const submitEvaluate = async () => {
   if (!canSubmit.value || loading.value) return
   
   loading.value = true
   errorMessage.value = ''
+  isStreaming.value = true
+  streamingText.value = ''
+  result.value = {
+    overall_evaluation: '',
+    functional_correctness: { grade: '', analysis: '' },
+    logical_rigor: { grade: '', analysis: '' },
+    algorithm_quality: { grade: '', analysis: '' },
+    structural_normativity: { grade: '', analysis: '' }
+  }
   
   const requestData = {
     student_id: authStore.user.student_id,
@@ -214,11 +258,28 @@ const submitEvaluate = async () => {
   }
   
   try {
-    const response = await aiAPI.evaluate(requestData)
-    result.value = response
+    await aiAPI.evaluateStream(requestData, (chunk) => {
+      if (chunk.type === 'text') {
+        // 流式过程中只累积文本，不解析
+        streamingText.value += chunk.content
+      } else if (chunk.type === 'error') {
+        errorMessage.value = chunk.message
+      } else if (chunk.type === 'done') {
+        // 流式完成，尝试解析最终结果
+        isStreaming.value = false
+        try {
+          const parsed = JSON.parse(streamingText.value)
+          result.value = parsed
+        } catch (e) {
+          console.error('Final parse error:', e)
+          errorMessage.value = '解析评价结果失败'
+        }
+      }
+    })
   } catch (error) {
-    errorMessage.value = error.error || '评价请求失败，请稍后重试'
+    errorMessage.value = error.message || '评价请求失败，请稍后重试'
     console.error('Evaluate error:', error)
+    isStreaming.value = false
   } finally {
     loading.value = false
   }
@@ -232,6 +293,8 @@ const resetForm = () => {
   }
   testPointsText.value = ''
   result.value = null
+  streamingText.value = ''
+  isStreaming.value = false
   errorMessage.value = ''
 }
 
@@ -298,6 +361,61 @@ const getScoreClass = (score) => {
   overflow-y: auto;
 }
 
+.streaming-output {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.streaming-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f0f9eb;
+  border-radius: 8px;
+  border-left: 4px solid #67c23a;
+}
+
+.streaming-label {
+  font-weight: 600;
+  color: #303133;
+}
+
+.streaming-dots {
+  color: #67c23a;
+  animation: blink 1.5s infinite;
+}
+
+.streaming-content {
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.streaming-content :deep(pre) {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.streaming-content :deep(code) {
+  background: #f4f4f4;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+}
+
 .eval-section {
   margin-bottom: 20px;
 }
@@ -360,6 +478,54 @@ const getScoreClass = (score) => {
 
 .score-poor {
   color: #dc3545;
+}
+
+.loading-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.dialogue-avatar {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.dialogue-bubble {
+  flex: 1;
+}
+
+.dialogue-label {
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.dialogue-text {
+  color: #606266;
+  line-height: 1.6;
+}
+
+.loading-dots .dots {
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.error-message {
+  background: #fef0f0;
+  color: #f56c6c;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border-left: 4px solid #f56c6c;
+  margin-top: 16px;
 }
 
 @media (max-width: 900px) {

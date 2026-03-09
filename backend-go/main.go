@@ -120,6 +120,8 @@ func main() {
 
 		// AI Debug V2 代理路由
 		api.POST("/ai/debug_v2", aiProxyController.HandleDebugV2)
+		// AI Debug V2 流式路由
+		api.POST("/ai/debug_v2/stream", aiController.HandleDebugV2Stream)
 		// 关闭对话
 		api.POST("/ai/debug/close", aiProxyController.HandleCloseConversation)
 		// 获取AI交互历史记录
@@ -131,8 +133,12 @@ func main() {
 
 		// AI Evaluate 代理路由
 		api.POST("/ai/evaluate", aiController.HandleEvaluate)
+		// AI Evaluate 流式路由
+		api.POST("/ai/evaluate/stream", aiController.HandleEvaluateStream)
 		// AI Recommend 代理路由
 		api.POST("/ai/recommend", aiController.HandleRecommend)
+		// AI Recommend 流式路由
+		api.POST("/ai/recommend/stream", aiController.HandleRecommendStream)
 		// 获取用户薄弱点
 		api.GET("/ai/weak_points", aiController.GetUserWeakPoints)
 		// 获取用户前5个薄弱点（用于推荐）

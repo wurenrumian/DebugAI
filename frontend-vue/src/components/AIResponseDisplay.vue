@@ -13,6 +13,15 @@
 
     <!-- AI 回复 -->
     <div v-if="aiResponse" class="ai-response-content">
+      <!-- 纯文本显示（当无法解析为结构化 JSON 时） -->
+      <div v-if="aiResponse.content && !isStructured" class="section">
+        <div class="section-header">
+          <span class="section-icon">🤖</span>
+          <span class="section-title">AI 助手</span>
+        </div>
+        <div class="section-content" v-html="formatContent(aiResponse.content)"></div>
+      </div>
+
       <!-- 学生思路 -->
       <div v-if="aiResponse.student_thought" class="section">
         <div class="section-header">
@@ -152,6 +161,17 @@ const props = defineProps({
     type: String,
     default: ''
   }
+})
+
+// 判断是否为结构化响应
+const isStructured = computed(() => {
+  if (!props.aiResponse) return false
+  const keys = [
+    'student_thought', 'suggested_correction', 'problem_summary',
+    'key_issues', 'keyIssues', 'weak_points', 'weakpoints',
+    'debug_guidance', 'suggestions'
+  ]
+  return keys.some(key => props.aiResponse[key] !== undefined)
 })
 
 // 处理 key_issues（兼容不同命名）

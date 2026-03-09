@@ -244,6 +244,10 @@ const submitRecommend = async () => {
   
   loading.value = true
   errorMessage.value = ''
+  result.value = {
+    analysis: '',
+    recommendations: []
+  }
   
   // 构建 weak_points 字典
   const weakPoints = {}
@@ -257,11 +261,30 @@ const submitRecommend = async () => {
     max_recommendations: maxRecommendations.value
   }
   
+  let fullContent = ''
   try {
-    const response = await aiAPI.recommend(requestData)
-    result.value = response
+    await aiAPI.recommendStream(requestData, (chunk) => {
+      if (chunk.type === 'text') {
+        fullContent += chunk.content
+        try {
+          const parsed = JSON.parse(fullContent)
+          result.value = { ...result.value, ...parsed }
+        } catch (e) {
+          // 忽略解析错误
+        }
+      } else if (chunk.type === 'error') {
+        errorMessage.value = chunk.message
+      } else if (chunk.type === 'done') {
+        try {
+          const parsed = JSON.parse(fullContent)
+          result.value = { ...result.value, ...parsed }
+        } catch (e) {
+          console.error('Final parse error:', e)
+        }
+      }
+    })
   } catch (error) {
-    errorMessage.value = error.error || '推荐请求失败，请稍后重试'
+    errorMessage.value = error.message || '推荐请求失败，请稍后重试'
     console.error('Recommend error:', error)
   } finally {
     loading.value = false
