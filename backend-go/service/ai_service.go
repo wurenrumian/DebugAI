@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,9 @@ import (
 type AIServiceIface interface {
 	ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
 	ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error)
+	ProxyEvaluateStream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error)
+	ProxyDebugV2Stream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error)
+	ProxyRecommendStream(requestBody []byte, studentID string) (io.ReadCloser, error)
 	GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error
 	GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error)
@@ -206,6 +210,323 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 	}
 
 	return result, nil
+}
+
+// ProxyEvaluateStream proxies the evaluate stream request to the Python AI service
+func (s *AIService) ProxyEvaluateStream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error) {
+	// 1. Save request record (async, don't wait)
+	go s.saveAIRecordAsync(models.AIRecord{
+		ConversationID: conversationID,
+		StudentID:      studentID,
+		RoundNumber:    0,
+		Role:           "student",
+		RequestPayload: string(requestBody),
+	})
+
+	// 2. Forward request to Python AI service stream endpoint
+	req, err := http.NewRequest("POST", s.PythonServiceURL+"/evaluate/stream", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stream request to AI service: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 0, // No timeout for streaming
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Log error asynchronously
+		go s.saveAIRecordAsync(models.AIRecord{
+			ConversationID: conversationID,
+			StudentID:      studentID,
+			RoundNumber:    0,
+			Role:           "system_error",
+			RequestPayload: string(requestBody),
+			Error:          fmt.Sprintf("AI stream service unreachable: %v", err),
+		})
+		return nil, fmt.Errorf("AI stream service request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		// Log error asynchronously
+		go s.saveAIRecordAsync(models.AIRecord{
+			ConversationID:  conversationID,
+			StudentID:       studentID,
+			RoundNumber:     0,
+			Role:            "ai_service_error",
+			RequestPayload:  string(requestBody),
+			ResponsePayload: string(body),
+			Error:           fmt.Sprintf("AI stream service returned status %d", resp.StatusCode),
+		})
+		return nil, fmt.Errorf("AI stream service returned non-OK status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 3. Return a wrapped reader that logs the response when closed
+	return &streamLogger{
+		ReadCloser:     resp.Body,
+		db:             s.DB,
+		studentID:      studentID,
+		conversationID: conversationID,
+		roundNumber:    0,
+		requestPayload: string(requestBody),
+	}, nil
+}
+
+// ProxyDebugV2Stream proxies the debug_v2 stream request to the Python AI service
+func (s *AIService) ProxyDebugV2Stream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error) {
+	// Parse request to get current_round for logging
+	var req map[string]interface{}
+	currentRound := 0
+	if err := json.Unmarshal(requestBody, &req); err == nil {
+		if round, ok := req["current_round"].(float64); ok {
+			currentRound = int(round)
+		}
+	}
+
+	// Save request record asynchronously (use currentRound extracted above)
+	go s.saveAIRecordAsync(models.AIRecord{
+		ConversationID: conversationID,
+		StudentID:      studentID,
+		RoundNumber:    currentRound,
+		Role:           "student",
+		RequestPayload: string(requestBody),
+	})
+
+	// Forward request to Python AI service stream endpoint
+	httpReq, err := http.NewRequest("POST", s.PythonServiceURL+"/debug_v2/stream", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create debug stream request to AI service: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 0, // No timeout for streaming
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		// Log error asynchronously
+		go s.saveAIRecordAsync(models.AIRecord{
+			ConversationID: conversationID,
+			StudentID:      studentID,
+			RoundNumber:    currentRound,
+			Role:           "system_error",
+			RequestPayload: string(requestBody),
+			Error:          fmt.Sprintf("AI debug stream service unreachable: %v", err),
+		})
+		return nil, fmt.Errorf("AI debug stream service request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		// Log error asynchronously
+		go s.saveAIRecordAsync(models.AIRecord{
+			ConversationID:  conversationID,
+			StudentID:       studentID,
+			RoundNumber:     currentRound,
+			Role:            "ai_service_error",
+			RequestPayload:  string(requestBody),
+			ResponsePayload: string(body),
+			Error:           fmt.Sprintf("AI debug stream service returned status %d", resp.StatusCode),
+		})
+		return nil, fmt.Errorf("AI debug stream service returned non-OK status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 3. Return a wrapped reader that logs the response when closed
+	return &streamLogger{
+		ReadCloser:     resp.Body,
+		db:             s.DB,
+		studentID:      studentID,
+		conversationID: conversationID,
+		roundNumber:    currentRound,
+		requestPayload: string(requestBody),
+		aiService:      s,
+	}, nil
+}
+
+// ProxyRecommendStream proxies the recommend stream request to the Python AI service
+func (s *AIService) ProxyRecommendStream(requestBody []byte, studentID string) (io.ReadCloser, error) {
+	// Parse request to get max_recommendations for logging
+	var req map[string]interface{}
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		// If parsing fails, still continue with default conversation ID
+	}
+
+	// Generate conversation ID for stream
+	conversationID := fmt.Sprintf("rec_stream_%d", time.Now().UnixNano())
+
+	// Save request record asynchronously
+	go s.saveAIRecordAsync(models.AIRecord{
+		ConversationID: conversationID,
+		StudentID:      studentID,
+		RoundNumber:    0,
+		Role:           "student",
+		RequestPayload: string(requestBody),
+	})
+
+	// Forward request to Python AI service stream endpoint
+	httpReq, err := http.NewRequest("POST", s.PythonServiceURL+"/recommend/stream", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create recommend stream request to AI service: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 0, // No timeout for streaming
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		// Log error asynchronously
+		go s.saveAIRecordAsync(models.AIRecord{
+			ConversationID: conversationID,
+			StudentID:      studentID,
+			RoundNumber:    0,
+			Role:           "system_error",
+			RequestPayload: string(requestBody),
+			Error:          fmt.Sprintf("AI recommend stream service unreachable: %v", err),
+		})
+		return nil, fmt.Errorf("AI recommend stream service request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		go s.saveAIRecordAsync(models.AIRecord{
+			ConversationID:  conversationID,
+			StudentID:       studentID,
+			RoundNumber:     0,
+			Role:            "ai_service_error",
+			RequestPayload:  string(requestBody),
+			ResponsePayload: string(body),
+			Error:           fmt.Sprintf("AI recommend stream service returned status %d", resp.StatusCode),
+		})
+		return nil, fmt.Errorf("AI recommend stream service returned non-OK status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Return a wrapped reader that logs the response when closed
+	return &streamLogger{
+		ReadCloser:     resp.Body,
+		db:             s.DB,
+		studentID:      studentID,
+		conversationID: conversationID,
+		roundNumber:    0,
+		requestPayload: string(requestBody),
+	}, nil
+}
+
+// streamLogger wraps an io.ReadCloser to capture and log the stream content
+type streamLogger struct {
+	io.ReadCloser
+	db             *gorm.DB
+	studentID      string
+	conversationID string
+	roundNumber    int
+	requestPayload string
+	buffer         bytes.Buffer
+	aiService      *AIService
+}
+
+func (sl *streamLogger) Read(p []byte) (n int, err error) {
+	n, err = sl.ReadCloser.Read(p)
+	if n > 0 {
+		sl.buffer.Write(p[:n])
+	}
+	return n, err
+}
+
+func (sl *streamLogger) Close() error {
+	// Capture the full response
+	fullResponse := sl.buffer.String()
+
+	// Parse NDJSON to extract text content and final data
+	lines := strings.Split(fullResponse, "\n")
+	var textContent strings.Builder
+	var finalData string
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &chunk); err == nil {
+			if chunkType, ok := chunk["type"].(string); ok {
+				switch chunkType {
+				case "text":
+					if content, ok := chunk["content"].(string); ok {
+						textContent.WriteString(content)
+					}
+				case "done":
+					// If there's data in the done chunk, use it
+					if data, ok := chunk["data"]; ok {
+						dataBytes, _ := json.Marshal(data)
+						finalData = string(dataBytes)
+					}
+				}
+			}
+		}
+	}
+
+	// If we didn't get explicit finalData, use the accumulated textContent
+	// (which should be the full JSON string if json_mode was used)
+	responsePayload := finalData
+	if responsePayload == "" {
+		responsePayload = textContent.String()
+	}
+
+	// Save the record
+	record := models.AIRecord{
+		ConversationID:  sl.conversationID,
+		StudentID:       sl.studentID,
+		RoundNumber:     sl.roundNumber,
+		Role:            "assistant",
+		RequestPayload:  sl.requestPayload,
+		ResponsePayload: responsePayload,
+	}
+
+	// Use a background context or a new goroutine to avoid blocking close
+	go func() {
+		if err := sl.db.Create(&record).Error; err != nil {
+			logger.Error("Failed to save stream AIRecord",
+				zap.Error(err),
+				zap.String("student_id", sl.studentID),
+			)
+		}
+
+		// If it's a debug round 2, extract weak points
+		if sl.roundNumber == 2 && sl.aiService != nil {
+			var aiResp map[string]interface{}
+			if err := json.Unmarshal([]byte(responsePayload), &aiResp); err == nil {
+				if weakPoints, ok := aiResp["weak_points"].([]interface{}); ok {
+					wpMap := make(map[string]int)
+					for _, wp := range weakPoints {
+						if wpStr, ok := wp.(string); ok {
+							wpMap[wpStr] = wpMap[wpStr] + 1
+						}
+					}
+					if len(wpMap) > 0 {
+						sl.aiService.UpdateUserWeakPoints(sl.studentID, wpMap, time.Now())
+					}
+				}
+			}
+		}
+	}()
+
+	return sl.ReadCloser.Close()
+}
+
+// saveAIRecordAsync saves an AI record asynchronously
+func (s *AIService) saveAIRecordAsync(record models.AIRecord) {
+	go func() {
+		if err := s.DB.Create(&record).Error; err != nil {
+			logger.Error("Failed to save AIRecord asynchronously",
+				zap.Error(err),
+				zap.String("student_id", record.StudentID),
+				zap.String("conversation_id", record.ConversationID),
+			)
+		}
+	}()
 }
 
 // ProxyRecommend proxies the recommend request to the Python AI service
@@ -421,7 +742,8 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 		result = s.DB.Where("student_id = ? AND weak_point_id = ? AND DATE(record_date) = ?",
 			studentID, wp.ID, recordDate.Format("2006-01-02")).First(&userWP)
 
-		if result.Error == gorm.ErrRecordNotFound {
+		switch {
+		case errors.Is(result.Error, gorm.ErrRecordNotFound):
 			// Create new association with date
 			userWP = models.UserWeakPoint{
 				StudentID:   studentID,
@@ -430,7 +752,7 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 				RecordDate:  recordDate,
 			}
 			s.DB.Create(&userWP)
-		} else if result.Error == nil {
+		case result.Error == nil:
 			// Update existing association
 			userWP.Count += count
 			s.DB.Save(&userWP)

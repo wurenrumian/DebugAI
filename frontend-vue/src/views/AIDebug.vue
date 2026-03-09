@@ -92,9 +92,10 @@
                 <div class="dialogue-label">{{ item.role === 'student' ? '你' : 'AI 助手' }}</div>
                 <!-- 学生消息直接显示 -->
                 <div v-if="item.role === 'student'" class="dialogue-text" v-html="formatContent(item.content)"></div>
-                <!-- AI 消息使用专用组件解析显示 -->
+                <!-- AI 消息：流式时显示纯文本，完成后显示结构化组件 -->
+                <div v-else-if="item.role === 'assistant' && item.isStreaming" class="dialogue-text streaming-text" v-html="formatContent(item.content)"></div>
                 <AIResponseDisplay
-                  v-else-if="item.role === 'assistant'"
+                  v-else-if="item.role === 'assistant' && !item.isStreaming"
                   :ai-response="item.ai_response || parseAIResponse(item.content)"
                   :student-response="item.student_response || ''"
                 />
@@ -102,16 +103,7 @@
               </div>
             </div>
             
-            <div v-if="loading" class="dialogue-item assistant loading-item">
-              <div class="dialogue-avatar">🤖</div>
-              <div class="dialogue-bubble">
-                <div class="dialogue-label">AI 助手</div>
-                <div class="dialogue-text loading-dots">
-                  <span>正在思考</span>
-                  <span class="dots">...</span>
-                </div>
-              </div>
-            </div>
+
           </div>
           
           <!-- 学生回复输入 -->
@@ -389,41 +381,72 @@ const startDebug = async () => {
     })
   }
   
+  // 预先添加一个空的 AI 消息占位（标记为流式状态）
+  const aiMessageIndex = dialogueHistory.value.length
+  dialogueHistory.value.push({
+    round_number: currentRound.value,
+    role: 'assistant',
+    content: '',
+    ai_response: null,
+    isStreaming: true
+  })
+  
+  let fullContent = ''
   try {
-    const response = await aiAPI.debugV2(requestData)
-    
-    if (response) {
-      // 更新轮次信息
-      if (response.round_info) {
-        roundInfo.value = response.round_info
-      }
-      
-      // 如果有对话记录
-      if (response.dialogue_turn) {
-        const aiMessage = response.dialogue_turn
+    await aiAPI.debugV2Stream(requestData, (chunk) => {
+      if (chunk.type === 'text') {
+        fullContent += chunk.content
+        // 更新占位消息的内容
+        dialogueHistory.value[aiMessageIndex].content = fullContent
+        try {
+          // 尝试解析 JSON 以更新结构化显示
+          const parsed = JSON.parse(fullContent)
+          dialogueHistory.value[aiMessageIndex].ai_response = parsed
+        } catch (e) {
+          // 忽略解析错误
+        }
+        scrollToBottom()
+      } else if (chunk.type === 'round_info') {
+        // 处理流中可能包含的轮次信息更新
+        roundInfo.value = chunk.data
+      } else if (chunk.type === 'error') {
+        errorMessage.value = chunk.message
+      } else if (chunk.type === 'done') {
+        // 流式完成，标记结束
+        dialogueHistory.value[aiMessageIndex].isStreaming = false
         
-        // 添加 AI 消息到对话历史，保存原始的 ai_response 数据
-        dialogueHistory.value.push({
-          round_number: currentRound.value,
-          role: 'assistant',
-          content: aiMessage.content,
-          ai_response: response.ai_response || null
-        })
+        // 最终解析
+        try {
+          const parsed = JSON.parse(fullContent)
+          dialogueHistory.value[aiMessageIndex].ai_response = parsed
+          
+          // 如果后端在 done chunk 中返回了额外数据（如 round_info），可以在这里处理
+          if (chunk.data && chunk.data.round_info) {
+            roundInfo.value = chunk.data.round_info
+          }
+        } catch (e) {
+          console.error('Final parse error:', e)
+        }
+        
+        // 更新轮次
+        currentRound.value++
+        // 检查是否还有后续输入
+        showStudentInput.value = currentRound.value <= 4
+        // 清空学生回复和按钮选择状态
+        studentResponse.value = ''
+        buttonSelection.value = ''
+        
+        // 重新获取下一轮的轮次信息
+        if (currentRound.value <= 4) {
+          fetchRoundInfo(currentRound.value)
+        }
       }
-      
-      // 更新轮次
-      currentRound.value++
-      
-      // 检查是否还有后续输入
-      showStudentInput.value = currentRound.value <= 4
-      
-      // 清空学生回复和按钮选择状态
-      studentResponse.value = ''
-      buttonSelection.value = ''
-    }
+    })
   } catch (error) {
-    errorMessage.value = error.error || '请求失败，请稍后重试'
+    errorMessage.value = error.message || '请求失败，请稍后重试'
     console.error('Debug error:', error)
+    // 如果出错，移除占位消息
+    dialogueHistory.value.splice(aiMessageIndex, 1)
   } finally {
     loading.value = false
     scrollToBottom()
@@ -624,6 +647,13 @@ useKeyboardShortcut(['ctrl+enter'], () => {
   overflow-y: auto;
   padding: 10px 0;
   max-height: 400px;
+}
+
+.streaming-text {
+  font-family: 'Courier New', monospace;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .loading-dots .dots {

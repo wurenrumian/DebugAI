@@ -152,7 +152,7 @@ func (wp *WorkerPool) Start() {
 }
 
 // worker is the main loop for a worker
-func (wp *WorkerPool) worker(id int) {
+func (wp *WorkerPool) worker(_ int) {
 	for job := range wp.JobQueue {
 		startTime := time.Now()
 

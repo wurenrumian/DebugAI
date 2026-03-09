@@ -3,14 +3,17 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
 
+	"backend-go/logger"
 	"backend-go/models"
 	"backend-go/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // DispatcherIface defines the interface for dispatcher operations
@@ -614,6 +617,273 @@ func (ctrl *AIController) GetRecommendRecords(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Recommend records fetched successfully", "data": records})
+}
+
+// HandleEvaluateStream handles the /api/v1/ai/evaluate/stream endpoint
+func (ctrl *AIController) HandleEvaluateStream(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	// Read request body
+	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
+		return
+	}
+
+	// Parse request
+	var req models.EvaluateRequest
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON request body"})
+		return
+	}
+
+	// Security check
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request
+	if err := models.ValidateEvaluateRequest(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Generate conversation ID if not provided
+	if req.ConversationID == "" {
+		req.ConversationID = generateConversationID()
+	}
+
+	// Call stream proxy
+	streamReader, err := ctrl.AIService.ProxyEvaluateStream(requestBody, studentID, req.ConversationID)
+	if err != nil {
+		logger.Error("Failed to proxy evaluate stream",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.String("conversation_id", req.ConversationID),
+		)
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI stream service error: %v", err.Error())})
+		return
+	}
+	defer streamReader.Close()
+
+	// Set headers for streaming
+	c.Header("Content-Type", "application/x-ndjson")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	// Stream data to client
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
+		return
+	}
+
+	// Copy stream to response
+	buf := make([]byte, 4096)
+	for {
+		n, err := streamReader.Read(buf)
+		if n > 0 {
+			c.Writer.Write(buf[:n])
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			logger.Error("Error reading from stream",
+				zap.Error(err),
+				zap.String("student_id", studentID),
+			)
+			break
+		}
+	}
+}
+
+// HandleDebugV2Stream handles the /api/v1/ai/debug_v2/stream endpoint
+func (ctrl *AIController) HandleDebugV2Stream(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	// Read request body
+	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
+		return
+	}
+
+	// Parse request to get conversation ID and validate
+	var req models.DebugV2Request
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON request body"})
+		return
+	}
+
+	// Security check
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request
+	if err := models.ValidateDebugRequest(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Generate conversation ID if not provided
+	if req.ConversationID == "" {
+		req.ConversationID = generateConversationID()
+	}
+
+	// Ensure conversation record exists in database (create if not)
+	// This is needed because when using streaming, the conversation record should be created here
+	if aiService, ok := ctrl.AIService.(*service.AIService); ok {
+		db := aiService.GetDB()
+		var count int64
+		db.Model(&models.Conversation{}).Where("conversation_id = ?", req.ConversationID).Count(&count)
+		if count == 0 {
+			// Create new conversation record
+			conv := models.Conversation{
+				ConversationID: req.ConversationID,
+				StudentID:      studentID,
+				TaskType:       "debug",
+				IsClosed:       false,
+			}
+			if err := db.Create(&conv).Error; err != nil {
+				logger.Error("Failed to create conversation record",
+					zap.Error(err),
+					zap.String("conversation_id", req.ConversationID),
+					zap.String("student_id", studentID),
+				)
+				// Continue anyway, don't fail the request
+			}
+		}
+	}
+
+	// Call stream proxy
+	streamReader, err := ctrl.AIService.ProxyDebugV2Stream(requestBody, studentID, req.ConversationID)
+	if err != nil {
+		logger.Error("Failed to proxy debug stream",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.String("conversation_id", req.ConversationID),
+			zap.Int("current_round", req.CurrentRound),
+		)
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI debug stream service error: %v", err.Error())})
+		return
+	}
+	defer streamReader.Close()
+
+	// Set headers for streaming
+	c.Header("Content-Type", "application/x-ndjson")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	// Stream data to client
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
+		return
+	}
+
+	// Copy stream to response
+	buf := make([]byte, 4096)
+	for {
+		n, err := streamReader.Read(buf)
+		if n > 0 {
+			c.Writer.Write(buf[:n])
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			logger.Error("Error reading from debug stream",
+				zap.Error(err),
+				zap.String("student_id", studentID),
+				zap.Int("current_round", req.CurrentRound),
+			)
+			break
+		}
+	}
+}
+
+// HandleRecommendStream handles the /api/v1/ai/recommend/stream endpoint
+func (ctrl *AIController) HandleRecommendStream(c *gin.Context) {
+	studentID := c.MustGet("student_id").(string)
+
+	// Read request body
+	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
+		return
+	}
+
+	// Parse request
+	var req models.RecommendRequest
+	if err := json.Unmarshal(requestBody, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON request body"})
+		return
+	}
+
+	// Security check
+	if req.StudentID != "" && req.StudentID != studentID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权访问其他学生的数据"})
+		return
+	}
+
+	// Validate request
+	if err := models.ValidateRecommendRequest(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Call stream proxy
+	streamReader, err := ctrl.AIService.ProxyRecommendStream(requestBody, studentID)
+	if err != nil {
+		logger.Error("Failed to proxy recommend stream",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+		)
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI recommend stream service error: %v", err.Error())})
+		return
+	}
+	defer streamReader.Close()
+
+	// Set headers for streaming
+	c.Header("Content-Type", "application/x-ndjson")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	// Stream data to client
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
+		return
+	}
+
+	// Copy stream to response
+	buf := make([]byte, 4096)
+	for {
+		n, err := streamReader.Read(buf)
+		if n > 0 {
+			c.Writer.Write(buf[:n])
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			logger.Error("Error reading from recommend stream",
+				zap.Error(err),
+				zap.String("student_id", studentID),
+			)
+			break
+		}
+	}
 }
 
 // generateConversationID generates a unique conversation ID

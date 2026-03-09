@@ -161,3 +161,66 @@ class ProblemRecommender:
                 exc_info=True,
             )
             raise
+    
+    async def recommend_stream(self, request: RecommendRequest):
+        """
+        流式题目推荐
+        
+        Yields:
+            dict: NDJSON 格式的数据行
+        """
+        logger.info("starting_recommendation_stream",
+            student_id=request.student_id,
+            weak_points_count=len(request.weak_points),
+            max_recommendations=request.max_recommendations,
+        )
+        
+        tags_reference = self._get_tags_reference()
+        prompt = self.create_recommendation_prompt(request)
+        sysprompt = f"""
+你是专业的编程教学助手，请你根据学生的薄弱点数据推荐适合的题目类型。请严格按照JSON格式返回结果。
+
+任务要求：
+1. 分析学生的薄弱点，找出最需要加强的知识领域
+2. 推荐{request.max_recommendations}个题目标签，帮助学生针对性练习
+3. 每个标签需要给出相关度分数（0.0-1.0）和推荐理由
+
+{tags_reference}
+
+推荐原则：
+1. 针对性：针对薄弱点选择相关标签
+2. 渐进性：从基础到进阶，难度适中
+3. 多样性：覆盖不同知识点，避免单一
+4. 实用性：选择常见的编程考点
+
+返回JSON格式要求：
+{{
+    "analysis": "<推荐分析总结，50-100字>",
+    "recommendations": [
+        {{
+            "tag": "<题目标签，必须从上面的规范列表中选择>",
+            "relevance": <相关度分数，0.0-1.0>,
+            "reason": "<推荐理由，不超过50字>"
+        }}
+    ]
+}}
+
+注意事项：
+1. 标签必须从规范列表中选择，不要自创标签
+2. 相关度分数要合理，与薄弱点关联性越强分数越高
+3. 推荐理由要具体，说明为什么这个标签适合该学生
+4. 确保推荐多样性，不要过于集中
+"""
+        
+        try:
+            # 流式调用 LLM，实时返回文本片段
+            async for chunk in self.llm_client.call_llm_stream(sysprompt, prompt, json_mode=True):
+                yield chunk
+            
+        except Exception as e:
+            logger.error("recommendation_stream_error",
+                student_id=request.student_id,
+                error=str(e),
+                exc_info=True,
+            )
+            yield {"type": "error", "message": f"推荐流式处理失败: {str(e)}"}
