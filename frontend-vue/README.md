@@ -20,19 +20,19 @@
 ### 前置条件
 
 - Node.js 18.0+（推荐 20.x LTS）
-- 包管理器：npm 9+ 或 yarn 1.22+ 或 pnpm 8+
+- 包管理器：bun 1.0+ (推荐) 或 npm 9+
 
 ### 安装依赖
 
 ```bash
 cd frontend-vue
-npm ci  # 或 npm install
+bun install
 ```
 
 ### 开发模式
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 访问 `http://localhost:5173` 查看应用。
@@ -40,7 +40,7 @@ npm run dev
 ### 生产构建
 
 ```bash
-npm run build
+bun run build
 ```
 
 构建产物位于 `dist/` 目录。
@@ -293,10 +293,10 @@ onMounted(async () => {
 
 ```bash
 # 生产构建
-npm run build
+bun run build
 
 # 预览构建结果
-npm run preview
+bun run preview
 ```
 
 构建产物位于 `dist/` 目录，可直接部署到任何静态文件服务器（Nginx、Apache、Vercel、Netlify 等）。
@@ -341,7 +341,7 @@ VITE_APP_TITLE=AI 教学辅助平台
 
 构建时自动加载：
 ```bash
-npm run build -- --mode production
+bun run build -- --mode production
 ```
 
 ## 相关项目

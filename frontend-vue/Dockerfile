@@ -1,13 +1,13 @@
 # -------------------- 构建阶段 --------------------
-FROM node:22-alpine AS builder
+FROM oven/bun:alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci
+COPY package*.json bun.lockb* ./
+RUN bun install --frozen-lockfile
 
 COPY . .
-RUN npm run build
+RUN bun run build
 
 # -------------------- 运行阶段 --------------------
 FROM nginx:alpine-slim
