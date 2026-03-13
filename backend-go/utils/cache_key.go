@@ -68,6 +68,50 @@ func WeakPointsClassPattern(classID uint) string {
 	return fmt.Sprintf("weak_points:class:%d:*", classID)
 }
 
+// ==================== AI记录相关缓存键 ====================
+
+// AIRecordUserDebugKey 用户调试记录缓存键
+func AIRecordUserDebugKey(studentID string) string {
+	return fmt.Sprintf("ai_records:user:%s:debug", studentID)
+}
+
+// AIRecordUserEvaluateKey 用户评估记录缓存键
+func AIRecordUserEvaluateKey(studentID string) string {
+	return fmt.Sprintf("ai_records:user:%s:evaluate", studentID)
+}
+
+// AIRecordUserRecommendKey 用户推荐记录缓存键
+func AIRecordUserRecommendKey(studentID string) string {
+	return fmt.Sprintf("ai_records:user:%s:recommend", studentID)
+}
+
+// AIRecordClassDebugKey 班级调试记录缓存键（含分页）
+func AIRecordClassDebugKey(classID uint, page, pageSize int) string {
+	return fmt.Sprintf("ai_records:class:%d:debug:p%d:s%d", classID, page, pageSize)
+}
+
+// AIRecordClassEvaluateKey 班级评估记录缓存键
+func AIRecordClassEvaluateKey(classID uint, page, pageSize int) string {
+	return fmt.Sprintf("ai_records:class:%d:evaluate:p%d:s%d", classID, page, pageSize)
+}
+
+// AIRecordClassRecommendKey 班级推荐记录缓存键
+func AIRecordClassRecommendKey(classID uint, page, pageSize int) string {
+	return fmt.Sprintf("ai_records:class:%d:recommend:p%d:s%d", classID, page, pageSize)
+}
+
+// ==================== 缓存键模式（用于批量删除） ====================
+
+// AIRecordUserPattern 用户AI记录缓存键模式
+func AIRecordUserPattern(studentID string) string {
+	return fmt.Sprintf("ai_records:user:%s:*", studentID)
+}
+
+// AIRecordClassPattern 班级AI记录缓存键模式
+func AIRecordClassPattern(classID uint) string {
+	return fmt.Sprintf("ai_records:class:%d:*", classID)
+}
+
 // ==================== 缓存键前缀（用于版本控制） ====================
 
 const (

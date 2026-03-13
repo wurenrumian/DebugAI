@@ -270,6 +270,34 @@ func (c *RedisCache) GetWithMutex(ctx context.Context, key string, ttl time.Dura
 	return result, nil
 }
 
+// GetWithMutexJSON 带互斥锁的缓存获取，并自动反序列化到 target
+func (c *RedisCache) GetWithMutexJSON(ctx context.Context, key string, ttl time.Duration, target interface{},
+	fetchFunc func() (interface{}, error)) error {
+
+	data, err := c.GetWithMutex(ctx, key, ttl, fetchFunc)
+	if err != nil {
+		return err
+	}
+
+	if data == nil {
+		return nil
+	}
+
+	// 如果 data 已经是目标类型（从 fetchFunc 返回），直接赋值是不行的，因为 target 是指针
+	// 最稳妥的方法是再次序列化和反序列化，或者使用反射
+	// 考虑到性能和复杂度的平衡，这里使用 json 转换
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data for target conversion: %w", err)
+	}
+
+	if err := json.Unmarshal(bytes, target); err != nil {
+		return fmt.Errorf("failed to unmarshal data into target: %w", err)
+	}
+
+	return nil
+}
+
 // GetMulti 批量获取缓存
 func (c *RedisCache) GetMulti(ctx context.Context, keys []string) ([]string, error) {
 	if c.client == nil || len(keys) == 0 {

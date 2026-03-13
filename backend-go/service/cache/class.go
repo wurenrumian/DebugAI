@@ -56,28 +56,13 @@ func (s *ClassCache) GetClasses(ctx context.Context) ([]ClassInfo, error) {
 	cacheKey := utils.ClassListKey()
 
 	// 尝试从缓存获取
+	var result []ClassInfo
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, time.Hour, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, time.Hour, &result, func() (interface{}, error) {
 			return s.fetchClassesFromDB()
 		})
-		if err == nil && data != nil {
-			// 将 []interface{} 转换为 []ClassInfo
-			if dataSlice, ok := data.([]interface{}); ok {
-				result := make([]ClassInfo, 0, len(dataSlice))
-				for _, item := range dataSlice {
-					if m, ok := item.(map[string]interface{}); ok {
-						// 将 map 转换为 ClassInfo
-						classInfo := ClassInfo{
-							ID:          uint(m["id"].(float64)),
-							Name:        m["name"].(string),
-							CreatedBy:   uint(m["created_by"].(float64)),
-							CreatorName: m["creator_name"].(string),
-						}
-						result = append(result, classInfo)
-					}
-				}
-				return result, nil
-			}
+		if err == nil && len(result) > 0 {
+			return result, nil
 		}
 	}
 
@@ -119,21 +104,13 @@ func (s *ClassCache) GetClassBasic(ctx context.Context, classID uint) (*ClassInf
 	cacheKey := utils.ClassBasicKey(classID)
 
 	// 尝试从缓存获取
+	var result ClassInfo
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, time.Hour, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, time.Hour, &result, func() (interface{}, error) {
 			return s.fetchClassBasicFromDB(classID)
 		})
-		if err == nil && data != nil {
-			// 将 map[string]interface{} 转换为 *ClassInfo
-			if m, ok := data.(map[string]interface{}); ok {
-				result := &ClassInfo{
-					ID:          uint(m["id"].(float64)),
-					Name:        m["name"].(string),
-					CreatedBy:   uint(m["created_by"].(float64)),
-					CreatorName: m["creator_name"].(string),
-				}
-				return result, nil
-			}
+		if err == nil {
+			return &result, nil
 		}
 	}
 
@@ -173,39 +150,13 @@ func (s *ClassCache) GetClassMembers(ctx context.Context, classID uint) (*ClassM
 	cacheKey := utils.ClassMembersKey(classID)
 
 	// 尝试从缓存获取
+	var result ClassMembersInfo
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, 15*time.Minute, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, 15*time.Minute, &result, func() (interface{}, error) {
 			return s.fetchClassMembersFromDB(classID)
 		})
-		if err == nil && data != nil {
-			// 将 map[string]interface{} 转换为 *ClassMembersInfo
-			if m, ok := data.(map[string]interface{}); ok {
-				membersData, _ := m["members"].([]interface{})
-				members := make([]ClassMemberInfo, 0, len(membersData))
-				for _, item := range membersData {
-					if memberMap, ok := item.(map[string]interface{}); ok {
-						studentID := ""
-						if sid, ok := memberMap["student_id"].(string); ok {
-							studentID = sid
-						}
-						member := ClassMemberInfo{
-							ID:         uint(memberMap["id"].(float64)),
-							UserID:     uint(memberMap["user_id"].(float64)),
-							StudentID:  studentID,
-							Username:   memberMap["username"].(string),
-							MemberRole: memberMap["member_role"].(string),
-							IsCreator:  memberMap["is_creator"].(bool),
-						}
-						members = append(members, member)
-					}
-				}
-				result := &ClassMembersInfo{
-					ClassID:    uint(m["class_id"].(float64)),
-					Members:    members,
-					TotalCount: int(m["total_count"].(float64)),
-				}
-				return result, nil
-			}
+		if err == nil {
+			return &result, nil
 		}
 	}
 

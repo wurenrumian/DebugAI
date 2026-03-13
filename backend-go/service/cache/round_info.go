@@ -33,22 +33,13 @@ func (s *RoundInfoCache) GetRoundInfo(ctx context.Context, round int) (*RoundInf
 	cacheKey := utils.RoundInfoKey(round)
 
 	// 尝试从缓存获取
+	var result RoundInfo
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, 24*time.Hour, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, 24*time.Hour, &result, func() (interface{}, error) {
 			return s.fetchRoundInfoFromConfig(round)
 		})
-		if err == nil && data != nil {
-			// 将 map[string]interface{} 转换为 *RoundInfo
-			if m, ok := data.(map[string]interface{}); ok {
-				result := &RoundInfo{
-					Round:       int(m["round"].(float64)),
-					Prompt:      m["prompt"].(string),
-					Description: m["description"].(string),
-					MaxTurns:    int(m["max_turns"].(float64)),
-					Enabled:     m["enabled"].(bool),
-				}
-				return result, nil
-			}
+		if err == nil {
+			return &result, nil
 		}
 	}
 

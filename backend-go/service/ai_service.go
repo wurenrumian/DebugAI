@@ -44,6 +44,7 @@ type AIService struct {
 	PythonServiceURL   string
 	keywordCategoryMap map[string]string // keyword -> category mapping cache
 	weakPointCache     *cache.WeakPointCache
+	recordCache        *cache.RecordCache
 }
 
 // NewAIService creates a new AIService
@@ -54,6 +55,7 @@ func NewAIService(db *gorm.DB, pythonServiceURL string) *AIService {
 		PythonServiceURL:   pythonServiceURL,
 		keywordCategoryMap: make(map[string]string),
 		weakPointCache:     cache.NewWeakPointCache(redisCache, db),
+		recordCache:        cache.NewRecordCache(redisCache, db),
 	}
 	service.loadKeywordCategoryMap()
 	return service
@@ -143,6 +145,11 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 		return nil, fmt.Errorf("failed to save evaluate request record: %w", err)
 	}
 
+	// 缓存失效
+	if s.recordCache != nil && studentID != "" {
+		s.recordCache.InvalidateUserRecords(studentID)
+	}
+
 	// 2. Forward request to Python AI service
 	req, err := http.NewRequest("POST", s.PythonServiceURL+"/evaluate", bytes.NewBuffer(requestBody))
 	if err != nil {
@@ -162,6 +169,10 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 			Error:          fmt.Sprintf("AI service unreachable: %v", err),
 		}
 		s.DB.Create(&errorRecord)
+		// 缓存失效
+		if s.recordCache != nil && studentID != "" {
+			s.recordCache.InvalidateUserRecords(studentID)
+		}
 		return nil, fmt.Errorf("AI service request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -183,6 +194,10 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 			Error:           fmt.Sprintf("AI service returned status %d", resp.StatusCode),
 		}
 		s.DB.Create(&errorRecord)
+		// 缓存失效
+		if s.recordCache != nil && studentID != "" {
+			s.recordCache.InvalidateUserRecords(studentID)
+		}
 		return nil, fmt.Errorf("AI service returned non-OK status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
@@ -201,6 +216,11 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 			zap.String("student_id", studentID),
 			zap.String("conversation_id", conversationID),
 		)
+	} else {
+		// 缓存失效
+		if s.recordCache != nil && studentID != "" {
+			s.recordCache.InvalidateUserRecords(studentID)
+		}
 	}
 
 	// 4. Parse and return response
@@ -525,6 +545,12 @@ func (s *AIService) saveAIRecordAsync(record models.AIRecord) {
 				zap.String("student_id", record.StudentID),
 				zap.String("conversation_id", record.ConversationID),
 			)
+			return
+		}
+
+		// 缓存失效：新记录插入后，使该用户的记录缓存失效
+		if s.recordCache != nil && record.StudentID != "" {
+			s.recordCache.InvalidateUserRecords(record.StudentID)
 		}
 	}()
 }
@@ -595,6 +621,11 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 			zap.Error(err),
 			zap.String("student_id", studentID),
 		)
+	} else {
+		// 缓存失效
+		if s.recordCache != nil && studentID != "" {
+			s.recordCache.InvalidateUserRecords(studentID)
+		}
 	}
 
 	return result, nil
@@ -1033,6 +1064,16 @@ func (s *AIService) SeedWeakPointKeywords() error {
 
 // GetDebugRecords fetches debug records (round_number > 0) for a student
 func (s *AIService) GetDebugRecords(studentID string) ([]models.AIRecord, error) {
+	// 尝试从缓存获取
+	if s.recordCache != nil {
+		records, err := s.recordCache.GetUserDebugRecords(context.Background(), studentID)
+		if err == nil {
+			return records, nil
+		}
+		// 缓存失败降级到DB
+	}
+
+	// 直接查询数据库（无缓存或缓存失败）
 	var records []models.AIRecord
 	if err := s.DB.Where("student_id = ? AND round_number > 0", studentID).Order("created_at desc").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("failed to get debug records: %w", err)
@@ -1042,6 +1083,13 @@ func (s *AIService) GetDebugRecords(studentID string) ([]models.AIRecord, error)
 
 // GetEvaluateRecords fetches evaluation records for a student (from AIRecord table)
 func (s *AIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, error) {
+	if s.recordCache != nil {
+		records, err := s.recordCache.GetUserEvaluateRecords(context.Background(), studentID)
+		if err == nil {
+			return records, nil
+		}
+	}
+
 	var records []models.AIRecord
 	// Only fetch records with conversation_id starting with "eval_"
 	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'eval_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
@@ -1052,6 +1100,13 @@ func (s *AIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, err
 
 // GetRecommendRecords fetches recommendation records for a student (from AIRecord table)
 func (s *AIService) GetRecommendRecords(studentID string) ([]models.AIRecord, error) {
+	if s.recordCache != nil {
+		records, err := s.recordCache.GetUserRecommendRecords(context.Background(), studentID)
+		if err == nil {
+			return records, nil
+		}
+	}
+
 	var records []models.AIRecord
 	// Only fetch records with conversation_id starting with "rec_"
 	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'rec_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {

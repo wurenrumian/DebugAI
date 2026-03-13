@@ -40,21 +40,13 @@ func (s *WeakPointCache) GetUserWeakPoints(ctx context.Context, studentID string
 	cacheKey := utils.WeakPointsUserKey(studentID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 
 	// 尝试从缓存获取
+	var result []map[string]interface{}
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, s.ttl, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, s.ttl, &result, func() (interface{}, error) {
 			return s.fetchUserWeakPointsFromDB(studentID, startDate, endDate)
 		})
-		if err == nil && data != nil {
-			// 将 []interface{} 转换为 []map[string]interface{}
-			if dataSlice, ok := data.([]interface{}); ok {
-				result := make([]map[string]interface{}, 0, len(dataSlice))
-				for _, item := range dataSlice {
-					if m, ok := item.(map[string]interface{}); ok {
-						result = append(result, m)
-					}
-				}
-				return result, nil
-			}
+		if err == nil && len(result) > 0 {
+			return result, nil
 		}
 	}
 
@@ -140,21 +132,13 @@ func (s *WeakPointCache) GetTopWeakPoints(ctx context.Context, studentID string,
 	cacheKey := utils.WeakPointsUserTopKey(studentID, limit, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 
 	// 尝试从缓存获取
+	var result []map[string]interface{}
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, 5*time.Minute, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, 5*time.Minute, &result, func() (interface{}, error) {
 			return s.fetchTopWeakPointsFromDB(studentID, limit, startDate, endDate)
 		})
-		if err == nil && data != nil {
-			// 将 []interface{} 转换为 []map[string]interface{}
-			if dataSlice, ok := data.([]interface{}); ok {
-				result := make([]map[string]interface{}, 0, len(dataSlice))
-				for _, item := range dataSlice {
-					if m, ok := item.(map[string]interface{}); ok {
-						result = append(result, m)
-					}
-				}
-				return result, nil
-			}
+		if err == nil && len(result) > 0 {
+			return result, nil
 		}
 	}
 
@@ -235,21 +219,13 @@ func (s *WeakPointCache) GetClassWeakPoints(ctx context.Context, classID uint, s
 	cacheKey := utils.WeakPointsClassKey(classID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 
 	// 尝试从缓存获取
+	var result []map[string]interface{}
 	if s.cache != nil {
-		data, err := s.cache.GetWithMutex(ctx, cacheKey, s.ttl, func() (interface{}, error) {
+		err := s.cache.GetWithMutexJSON(ctx, cacheKey, s.ttl, &result, func() (interface{}, error) {
 			return s.fetchClassWeakPointsFromDB(classID, studentIDs, startDate, endDate)
 		})
-		if err == nil && data != nil {
-			// 将 []interface{} 转换为 []map[string]interface{}
-			if dataSlice, ok := data.([]interface{}); ok {
-				result := make([]map[string]interface{}, 0, len(dataSlice))
-				for _, item := range dataSlice {
-					if m, ok := item.(map[string]interface{}); ok {
-						result = append(result, m)
-					}
-				}
-				return result, nil
-			}
+		if err == nil && len(result) > 0 {
+			return result, nil
 		}
 	}
 
