@@ -2,7 +2,7 @@
 
 基于 Python 3.9+ 和 FastAPI 构建的 AI 核心服务，提供代码评价、题目推荐、多轮代码调试三大能力。
 
-**技术栈**：Python 3.9+ | FastAPI | OpenAI/兼容 API
+**技术栈**：Python 3.9+ | FastAPI >=0.135.0 | OpenAI >=2.24.0 | Pydantic >=2.12.0
 
 **服务端口**：`http://localhost:8000`
 
@@ -163,6 +163,17 @@ python -m venv venv
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
+### 核心依赖版本
+
+主要依赖版本（见 [`requirements.txt`](requirements.txt:1)）：
+
+- FastAPI: >=0.135.0 - Web 框架
+- Uvicorn: >=0.41.0 - ASGI 服务器
+- OpenAI: >=2.24.0 - LLM 客户端
+- Pydantic: >=2.12.0 - 数据验证
+- HTTPX: >=0.28.0 - 异步 HTTP 客户端
+- Structlog: >=24.1.0 - 结构化日志
 
 ### 配置环境变量
 

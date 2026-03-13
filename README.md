@@ -15,15 +15,19 @@
 
 | 组件    | 技术                        | 版本               | 说明                 |
 | ------- | --------------------------- | ------------------ | -------------------- |
-| 前端    | Vue 3 + Vite + Pinia        | 3.4+ / 5.2+ / 2.1+ | 现代化 SPA 框架      |
-| 后端    | Go + Gin + GORM             | 1.25+              | 高性能并发处理       |
-| AI 服务 | Python + FastAPI + DeepSeek | 3.9+               | 基于大模型的智能分析 |
+| 前端    | Vue 3 + Vite + Pinia        | 3.4.21 / 5.2.8 / 2.1.7 | 现代化 SPA 框架      |
+| 后端    | Go + Gin + GORM             | 1.25.5             | 高性能并发处理       |
+| AI 服务 | Python + FastAPI            | 3.9+ / >=0.135.0   | 基于大模型的智能分析 |
 | 数据库  | SQLite / PostgreSQL         | -                  | 开发/生产环境        |
 
 **核心依赖版本**：
 - Go: 1.25.5（见 [`backend-go/go.mod`](backend-go/go.mod:3)）
 - Vue: 3.4.21（见 [`frontend-vue/package.json`](frontend-vue/package.json:14)）
-- FastAPI: 0.104.1（见 [`ai-python/requirements.txt`](ai-python/requirements.txt:1)）
+- Vite: 5.2.8（见 [`frontend-vue/package.json`](frontend-vue/package.json:20)）
+- Pinia: 2.1.7（见 [`frontend-vue/package.json`](frontend-vue/package.json:13)）
+- Vue Router: 4.3.0（见 [`frontend-vue/package.json`](frontend-vue/package.json:16)）
+- Axios: 1.6.8（见 [`frontend-vue/package.json`](frontend-vue/package.json:11)）
+- FastAPI: 0.135.0+（见 [`ai-python/requirements.txt`](ai-python/requirements.txt:2)）
 - 结构化日志：`go.uber.org/zap` (Go) / `structlog` (Python)
 
 ## 快速启动
