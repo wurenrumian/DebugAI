@@ -8,6 +8,9 @@
 # -------------------- 第一阶段: 构建 --------------------
 FROM python:3.11-slim-bookworm AS builder
 
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources \
+	&& sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources
+
 WORKDIR /app
 
 # 安装系统依赖（仅构建需要）
