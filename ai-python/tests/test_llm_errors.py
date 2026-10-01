@@ -162,3 +162,20 @@ def test_complete_json_raises_output_error_after_retry():
     with pytest.raises(LLMOutputError):
         asyncio.run(llm.complete_json("s", "p", task="evaluate", validator=lambda d: d))
     assert BadCompletions.calls == 2
+
+
+
+def test_total_timeout_raises_llm_error():
+    from llm_client import LLMError
+
+    class SlowCompletions:
+        async def create(self, **kwargs):
+            await asyncio.sleep(5)
+
+    class SlowClient:
+        class chat:
+            completions = SlowCompletions()
+
+    llm = LLMClient(settings=LLMSettings(api_key="k", total_timeout=0.05), client=SlowClient())
+    with pytest.raises(LLMError):
+        asyncio.run(llm.complete_json("s", "p", task="evaluate", validator=lambda d: d))

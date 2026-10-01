@@ -139,6 +139,22 @@ class LLMClient:
         validator 接收解析后的 dict，校验失败应抛出 ValueError / ValidationError。
         解析或校验失败时追加纠正指令重试一次；仍失败抛出 LLMOutputError。
         """
+        try:
+            # 总时限覆盖 SDK 重试与格式纠正重试，避免 Go 端已放弃后仍在调用计费
+            async with asyncio.timeout(self.settings.total_timeout):
+                return await self._complete_json(sysprompt, prompt, task=task, validator=validator)
+        except TimeoutError as e:
+            logger.error("llm_total_timeout", task=task, total_timeout=self.settings.total_timeout)
+            raise LLMError("LLM 调用超时") from e
+
+    async def _complete_json(
+        self,
+        sysprompt: str,
+        prompt: str,
+        *,
+        task: str,
+        validator: Callable[[Dict[str, Any]], T],
+    ) -> T:
         messages = [
             {"role": "system", "content": sysprompt},
             {"role": "user", "content": prompt},

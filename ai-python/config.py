@@ -60,6 +60,8 @@ class LLMSettings:
     base_url: str = "https://api.deepseek.com"
     timeout: float = 60.0
     max_retries: int = 1
+    # 单次请求（含格式纠正重试）的总时限，应小于 Go 网关的等待时间
+    total_timeout: float = 120.0
     max_concurrency: int = 16
     # 每类任务的输出上限与温度（评分任务温度更低以减少波动）
     max_tokens: Dict[str, int] = field(default_factory=lambda: dict(DEFAULT_MAX_TOKENS))
@@ -83,6 +85,7 @@ def load_llm_settings() -> LLMSettings:
         base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com").strip() or "https://api.deepseek.com",
         timeout=_get_float("LLM_TIMEOUT", 60.0),
         max_retries=_get_int("LLM_MAX_RETRIES", 1),
+        total_timeout=_get_float("LLM_TOTAL_TIMEOUT", 120.0),
         max_concurrency=_get_int("LLM_MAX_CONCURRENCY", 16, minimum=1),
         max_tokens={
             task: _get_int(f"LLM_MAX_TOKENS_{task.upper()}", default, minimum=1)

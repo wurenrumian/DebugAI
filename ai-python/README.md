@@ -208,6 +208,7 @@ X-Internal-Token: <AI_SERVICE_TOKEN 的值>
 | `LLM_BASE_URL`              | `https://api.deepseek.com` | OpenAI 兼容接口地址                                          |
 | `LLM_TIMEOUT`               | `60`                       | 单次 LLM 请求超时（秒）                                      |
 | `LLM_MAX_RETRIES`           | `1`                        | SDK 层面的网络/限流重试次数                                  |
+| `LLM_TOTAL_TIMEOUT`         | `120`                      | 非流式请求（含所有重试）的总时限（秒），超时返回 502          |
 | `LLM_MAX_CONCURRENCY`       | `16`                       | 单个 worker 进程内同时进行的 LLM 调用上限                    |
 | `LLM_MAX_TOKENS_EVALUATE`   | `3000`                     | 评价任务输出 token 上限                                      |
 | `LLM_MAX_TOKENS_DEBUG`      | `1500`                     | 调试任务输出 token 上限                                      |
@@ -218,7 +219,7 @@ X-Internal-Token: <AI_SERVICE_TOKEN 的值>
 | `AI_PORT`                   | `8000`                     | 监听端口                                                     |
 | `UVICORN_WORKERS`           | `2`                        | Docker 镜像中的 uvicorn worker 数                            |
 
-注意时间预算：非流式接口最坏情况下会进行 2 次模型调用（解析失败的纠正重试），每次又受 `LLM_TIMEOUT` × (1 + `LLM_MAX_RETRIES`) 约束；请确保 Go 网关的超时大于该预算，或适当调低这些值。
+注意时间预算：非流式接口最坏情况下会进行 2 次模型调用（解析失败的纠正重试），每次又受 `LLM_TIMEOUT` × (1 + `LLM_MAX_RETRIES`) 约束；整体再由 `LLM_TOTAL_TIMEOUT` 兜底。请确保 Go 网关的超时大于 `LLM_TOTAL_TIMEOUT`。
 
 并发：`LLM_MAX_CONCURRENCY` 按 worker 进程生效，总并发约为 `UVICORN_WORKERS × LLM_MAX_CONCURRENCY`。
 
