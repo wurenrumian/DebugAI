@@ -229,11 +229,13 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(config.Global.ShutdownTimeoutSeconds)*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		// 超时仍有请求未结束（如 SSE 长连接），此时不能关闭 dispatcher 队列，否则正在处理的请求会 panic
+		// 超时仍有请求未结束（如流式长连接），继续关闭流程；dispatcher 停止后提交任务会返回错误而不是 panic
 		logger.Error("HTTP server shutdown timed out", zap.Error(err))
-	} else {
-		dispatcher.Stop()
 	}
+	// 停止接收新任务并等待进行中的任务（上限 AI_DISPATCHER_DRAIN_TIMEOUT）
+	dispatcher.Stop()
+	// 等待异步写入的 AI 记录 / 薄弱点落库
+	aiService.WaitBackground()
 
 	if sqlDB, err := config.DB.DB(); err == nil {
 		sqlDB.Close()
