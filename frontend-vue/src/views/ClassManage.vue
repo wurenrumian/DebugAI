@@ -1,102 +1,79 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
-      <h1>📖 我的班级</h1>
-    </div>
-    
-    <div class="content-wrapper">
-      <aside class="sidebar">
-        <div class="sidebar-section selector-section">
-          <!-- 管理员创建班级按钮 -->
-          <div v-if="isSystemAdmin" class="admin-create-section">
-            <button class="create-btn" @click="showCreateDialog = true">
-              + 创建班级
-            </button>
-          </div>
-          <ClassSelector @class-selected="onClassSelected" />
-        </div>
-        
-        <div class="sidebar-section">
-          <div class="tab-nav" v-if="classStore.currentClass">
-            <button
-              :class="['tab-nav-btn', { active: activeTab === 'info' }]"
-              @click="activeTab = 'info'"
-            >
-              <span class="tab-icon">📋</span>
-              班级信息
-              <span class="shortcut-hint">Ctrl+1</span>
-            </button>
-            <button
-              v-if="isClassAdmin"
-              :class="['tab-nav-btn', { active: activeTab === 'manage' }]"
-              @click="activeTab = 'manage'"
-            >
-              <span class="tab-icon">👥</span>
-              成员管理
-              <span class="shortcut-hint">Ctrl+2</span>
-            </button>
-            <button
-              v-if="isClassAdmin"
-              :class="['tab-nav-btn', { active: activeTab === 'history' }]"
-              @click="activeTab = 'history'"
-            >
-              <span class="tab-icon">📊</span>
-              学生历史
-              <span class="shortcut-hint">Ctrl+3</span>
-            </button>
-            <button
-              v-if="isClassAdmin"
-              :class="['tab-nav-btn', { active: activeTab === 'weakpoints' }]"
-              @click="activeTab = 'weakpoints'"
-            >
-              <span class="tab-icon">🎯</span>
-              班级薄弱点
-              <span class="shortcut-hint">Ctrl+4</span>
-            </button>
-          </div>
-        </div>
+  <div class="class-page">
+    <PageHeader
+      title="我的班级"
+      description="查看班级信息；教师与助教可以管理成员、查询学生历史与班级薄弱点。"
+    >
+      <template v-if="isSystemAdmin" #actions>
+        <AppButton variant="primary" icon="plus" @click="showCreateDialog = true">创建班级</AppButton>
+      </template>
+    </PageHeader>
+
+    <div class="class-layout">
+      <aside class="class-sidebar" aria-label="班级列表">
+        <AppCard title="班级列表" icon="users" padding="sm">
+          <ClassSelector :show-header="false" @class-selected="onClassSelected" />
+        </AppCard>
       </aside>
-      
-      <main class="main-content">
-        <div v-if="classStore.currentClass" class="card content-card">
-          <ClassInfoTab v-show="activeTab === 'info'" />
-          <ClassManageTab v-show="activeTab === 'manage'" />
-          <ClassHistoryQueryTab v-show="activeTab === 'history'" />
-          <ClassWeakPointsQueryTab v-show="activeTab === 'weakpoints'" />
-        </div>
-        <div v-else class="card empty-card">
-          <div class="empty-content">
-            <div class="empty-icon">📚</div>
-            <p>暂无班级</p>
-            <p class="empty-hint">请在左侧班级选择器中创建或加入班级</p>
-          </div>
-        </div>
+
+      <main class="class-main">
+        <AppCard v-if="classStore.currentClass" class="content-card" padding="lg">
+          <template #header>
+            <div class="class-heading">
+              <h2 class="class-name">{{ classStore.currentClass.name }}</h2>
+              <AppBadge v-if="isClassAdmin" tone="primary" size="sm">管理权限</AppBadge>
+            </div>
+          </template>
+
+          <AppTabs v-model="activeTab" :tabs="tabs" label="班级功能">
+            <ClassInfoTab v-show="activeTab === 'info'" />
+            <ClassManageTab v-show="activeTab === 'manage'" />
+            <ClassHistoryQueryTab v-show="activeTab === 'history'" />
+            <ClassWeakPointsQueryTab v-show="activeTab === 'weakpoints'" />
+          </AppTabs>
+        </AppCard>
+
+        <AppCard v-else>
+          <AppEmpty
+            icon="users"
+            title="暂无班级"
+            :description="isSystemAdmin ? '还没有班级，点击右上角“创建班级”开始。' : '你还没有加入任何班级，请联系任课教师将你加入班级。'"
+          />
+        </AppCard>
       </main>
     </div>
-  </div>
 
-  <!-- 创建班级对话框 -->
-  <div v-if="showCreateDialog" class="dialog-overlay" @click.self="showCreateDialog = false">
-    <div class="dialog">
-      <h3>创建班级</h3>
-      <input
-        v-model="newClassName"
-        type="text"
-        placeholder="请输入班级名称"
-        @keyup.enter="createClass"
-      />
-      <div class="dialog-actions">
-        <button class="cancel-btn" @click="showCreateDialog = false">取消</button>
-        <button
-          class="confirm-btn"
-          @click="createClass"
-          :disabled="!newClassName.trim() || loading"
+    <!-- 创建班级对话框 -->
+    <AppModal
+      v-if="showCreateDialog"
+      title="创建班级"
+      size="sm"
+      @close="showCreateDialog = false"
+    >
+      <form id="create-class-form" @submit.prevent="createClass">
+        <div class="field">
+          <label class="field-label" for="new-class-name">班级名称</label>
+          <input
+            id="new-class-name"
+            v-model="newClassName"
+            type="text"
+            placeholder="请输入班级名称"
+          />
+        </div>
+      </form>
+      <template #footer>
+        <AppButton @click="showCreateDialog = false">取消</AppButton>
+        <AppButton
+          type="submit"
+          form="create-class-form"
+          variant="primary"
+          :loading="loading"
+          :disabled="!newClassName.trim()"
         >
           {{ loading ? '创建中...' : '创建' }}
-        </button>
-      </div>
-    </div>
+        </AppButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -111,6 +88,13 @@ import ClassInfoTab from '../components/class/ClassInfoTab.vue'
 import ClassManageTab from '../components/class/ClassManageTab.vue'
 import ClassHistoryQueryTab from '../components/class/ClassHistoryQueryTab.vue'
 import ClassWeakPointsQueryTab from '../components/class/ClassWeakPointsQueryTab.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import AppCard from '../components/ui/AppCard.vue'
+import AppButton from '../components/ui/AppButton.vue'
+import AppBadge from '../components/ui/AppBadge.vue'
+import AppEmpty from '../components/ui/AppEmpty.vue'
+import AppModal from '../components/ui/AppModal.vue'
+import AppTabs from '../components/ui/AppTabs.vue'
 
 const classStore = useClassStore()
 const authStore = useAuthStore()
@@ -148,19 +132,22 @@ onMounted(() => {
   }
 })
 
-// ESC 键关闭创建对话框
-useKeyboardShortcut(['escape'], () => {
-  if (showCreateDialog.value) {
-    showCreateDialog.value = false
-  }
-})
+// 创建班级对话框的 Esc 关闭由 AppModal 处理
+
+// 标签页（管理类标签仅班级管理员可见）
+const tabs = computed(() => [
+  { key: 'info', label: '班级信息', icon: 'file', shortcut: 'Ctrl+1' },
+  { key: 'manage', label: '成员管理', icon: 'users', shortcut: 'Ctrl+2', hidden: !isClassAdmin.value },
+  { key: 'history', label: '学生历史', icon: 'clock', shortcut: 'Ctrl+3', hidden: !isClassAdmin.value },
+  { key: 'weakpoints', label: '班级薄弱点', icon: 'chart', shortcut: 'Ctrl+4', hidden: !isClassAdmin.value }
+])
 
 // 标签页切换快捷键
-const tabs = ['info', 'manage', 'history', 'weakpoints']
+const tabKeys = ['info', 'manage', 'history', 'weakpoints']
 useKeyboardShortcut(['ctrl+1', 'ctrl+2', 'ctrl+3', 'ctrl+4'], (event) => {
   const index = parseInt(event.key) - 1
-  if (tabs[index] && isTabVisible(tabs[index])) {
-    activeTab.value = tabs[index]
+  if (tabKeys[index] && isTabVisible(tabKeys[index])) {
+    activeTab.value = tabKeys[index]
   }
 })
 
@@ -195,247 +182,48 @@ const createClass = async () => {
 </script>
 
 <style scoped>
-.page-container {
-  min-height: 100vh;
-  background-color: #f5f7fa;
-  padding: 20px;
+.class-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
 }
 
-.page-header {
-  max-width: 1200px;
-  margin: 0 auto 12px;
+.class-sidebar {
+  position: sticky;
+  top: calc(var(--nav-height) + var(--space-6));
 }
 
-.back-link {
-  display: inline-block;
-  margin-bottom: 4px;
-  color: #409eff;
-  text-decoration: none;
-  font-size: 14px;
-  transition: color 0.2s;
-}
-
-.back-link:hover {
-  color: #66b1ff;
-  text-decoration: none;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.content-wrapper {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-.sidebar {
-  width: 320px;
-  flex-shrink: 0;
-}
-
-.sidebar-section {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.selector-section :deep(.class-selector) {
-  padding: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.selector-section :deep(.selector-header) {
-  display: none;
-}
-
-.tab-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.tab-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  background: #f5f7fa;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: #606266;
-  transition: all 0.2s;
-  text-align: left;
-}
-
-.tab-nav-btn:hover {
-  background-color: #ecf5ff;
-  color: #409eff;
-  border-color: #409eff;
-}
-
-.tab-nav-btn.active {
-  background-color: #409eff;
-  color: white;
-  border-color: #409eff;
-}
-
-.tab-icon {
-  font-size: 18px;
-}
-
-.shortcut-hint {
-  margin-left: auto;
-  font-size: 12px;
-  color: #909399;
-  background: #f5f7fa;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid #e4e7ed;
-}
-
-.main-content {
-  flex: 1;
+.class-main {
   min-width: 0;
 }
 
-.content-card {
-  padding: 24px;
-  min-height: 600px;
-  height: 100%;
-}
-
-.empty-card {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 80px 20px;
-}
-
-.empty-content {
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 64px;
-  margin-bottom: 20px;
-  opacity: 0.5;
-}
-
-.empty-content p {
-  margin: 0;
-  color: #909399;
-  font-size: 18px;
-}
-
-.empty-hint {
-  margin-top: 8px;
-  font-size: 14px !important;
-  color: #c0c4cc !important;
-}
-.admin-create-section {
-  margin-bottom: 12px;
-}
-
-.create-btn {
-  width: 100%;
-  padding: 10px 16px;
-  background-color: #409eff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.create-btn:hover {
-  background-color: #66b1ff;
-}
-
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+.class-heading {
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 1000;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
-.dialog {
-  background: white;
-  padding: 24px;
-  border-radius: 8px;
-  width: 400px;
-  max-width: 90%;
+.class-name {
+  font-size: var(--fs-xl);
+  word-break: break-word;
 }
 
-.dialog h3 {
-  margin: 0 0 16px 0;
-  font-size: 18px;
+.content-card :deep(.card-header + .card-body) {
+  padding-top: var(--space-3);
 }
 
-.dialog input {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  font-size: 14px;
-  box-sizing: border-box;
-}
+@media (max-width: 900px) {
+  .class-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
 
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.cancel-btn, .confirm-btn {
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.cancel-btn {
-  background-color: #f5f7fa;
-  border: 1px solid #dcdfe6;
-  color: #606266;
-}
-
-.cancel-btn:hover {
-  background-color: #f0f2f5;
-}
-
-.confirm-btn {
-  background-color: #409eff;
-  border: none;
-  color: white;
-}
-
-.confirm-btn:hover:not(:disabled) {
-  background-color: #66b1ff;
-}
-
-.confirm-btn:disabled {
-  background-color: #a0cfff;
-  cursor: not-allowed;
+  .class-sidebar {
+    position: static;
+    min-width: 0;
+  }
 }
 </style>
-

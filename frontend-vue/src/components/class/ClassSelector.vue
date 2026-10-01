@@ -1,63 +1,83 @@
 <template>
   <div class="class-selector">
-    <div class="selector-header">
+    <div v-if="showHeader" class="selector-header">
       <h3>我的班级</h3>
-      <button 
-        v-if="isAdmin" 
-        class="create-btn" 
+      <AppButton
+        v-if="isAdmin"
+        size="sm"
+        variant="primary"
+        icon="plus"
         @click="showCreateDialog = true"
       >
-        + 创建班级
-      </button>
-    </div>
-    
-    <div class="class-list" v-if="classes.length > 0">
-      <div 
-        v-for="cls in classes" 
-        :key="cls.id"
-        :class="['class-item', { active: currentClassId === cls.id }]"
-        @click="selectClass(cls.id)"
-      >
-        {{ cls.name }}
-      </div>
-    </div>
-    <div v-else class="empty-state">
-      暂无班级
+        创建班级
+      </AppButton>
     </div>
 
+    <ul v-if="classes.length > 0" class="class-list">
+      <li v-for="cls in classes" :key="cls.id">
+        <button
+          type="button"
+          :class="['class-item', { active: currentClassId === cls.id }]"
+          :aria-current="currentClassId === cls.id ? 'true' : undefined"
+          @click="selectClass(cls.id)"
+        >
+          <span class="class-dot" aria-hidden="true"></span>
+          <span class="class-label">{{ cls.name }}</span>
+        </button>
+      </li>
+    </ul>
+    <p v-else class="empty-state">暂无班级</p>
+
     <!-- 创建班级对话框 -->
-    <div v-if="showCreateDialog" class="dialog-overlay" @click.self="showCreateDialog = false">
-      <div class="dialog">
-        <h3>创建班级</h3>
-        <input 
-          v-model="newClassName" 
-          type="text" 
-          placeholder="请输入班级名称"
-          @keyup.enter="createClass"
-        />
-        <div class="dialog-actions">
-          <button class="cancel-btn" @click="showCreateDialog = false">取消</button>
-          <button 
-            class="confirm-btn" 
-            @click="createClass"
-            :disabled="!newClassName.trim() || loading"
-          >
-            {{ loading ? '创建中...' : '创建' }}
-          </button>
+    <AppModal
+      v-if="showCreateDialog"
+      title="创建班级"
+      size="sm"
+      @close="showCreateDialog = false"
+    >
+      <form :id="formId" @submit.prevent="createClass">
+        <div class="field">
+          <label class="field-label" :for="`${formId}-name`">班级名称</label>
+          <input
+            :id="`${formId}-name`"
+            v-model="newClassName"
+            type="text"
+            placeholder="请输入班级名称"
+          />
         </div>
-      </div>
-    </div>
+      </form>
+      <template #footer>
+        <AppButton @click="showCreateDialog = false">取消</AppButton>
+        <AppButton
+          type="submit"
+          :form="formId"
+          variant="primary"
+          :loading="loading"
+          :disabled="!newClassName.trim()"
+        >
+          {{ loading ? '创建中...' : '创建' }}
+        </AppButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useKeyboardShortcut } from '../../composables/useKeyboardShortcut'
 import { useClassStore } from '../../stores/class'
 import { useAuthStore } from '../../stores/auth'
 import { toast } from '../../utils/toast'
+import { uid } from '../../utils/uid'
+import AppButton from '../ui/AppButton.vue'
+import AppModal from '../ui/AppModal.vue'
+
+defineProps({
+  // 是否显示“我的班级”标题与创建按钮（ClassManage 页面在页头提供创建入口）
+  showHeader: { type: Boolean, default: true }
+})
 
 const emit = defineEmits(['class-selected'])
+const formId = uid('create-class')
 
 const classStore = useClassStore()
 const authStore = useAuthStore()
@@ -71,12 +91,7 @@ const currentClassId = computed(() => classStore.currentClass?.id)
 // 仅系统管理员可创建班级（后端同样校验）
 const isAdmin = computed(() => authStore.isAdmin)
 
-// ESC 键关闭创建对话框
-useKeyboardShortcut(['escape'], () => {
-  if (showCreateDialog.value) {
-    showCreateDialog.value = false
-  }
-})
+// 创建班级对话框的 Esc 关闭由 AppModal 处理
 
 onMounted(async () => {
   await classStore.fetchMyClasses()
@@ -114,142 +129,93 @@ const createClass = async () => {
 </script>
 
 <style scoped>
-.class-selector {
-  margin-bottom: 20px;
-}
-
 .selector-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .selector-header h3 {
-  margin: 0;
-  font-size: 16px;
-  color: #333;
-}
-
-.create-btn {
-  padding: 6px 16px;
-  background-color: #409eff;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.create-btn:hover {
-  background-color: #66b1ff;
+  font-size: var(--fs-md);
 }
 
 .class-list {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .class-item {
-  padding: 8px 16px;
-  background-color: #f5f7fa;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 9px var(--space-3);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
+  text-align: left;
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
 }
 
 .class-item:hover {
-  background-color: #ecf5ff;
-  border-color: #409eff;
+  color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 
 .class-item.active {
-  background-color: #409eff;
-  color: white;
-  border-color: #409eff;
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+}
+
+.class-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-border-strong);
+}
+
+.class-item.active .class-dot {
+  background: var(--color-primary);
+}
+
+.class-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-state {
-  padding: 20px;
+  padding: var(--space-4);
   text-align: center;
-  color: #909399;
-  background-color: #f5f7fa;
-  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
 }
 
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
+@media (max-width: 900px) {
+  .class-list {
+    flex-direction: row;
+    gap: var(--space-2);
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
 
-.dialog {
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  width: 400px;
-  max-width: 90%;
-}
+  .class-item {
+    width: auto;
+    white-space: nowrap;
+    border: 1px solid var(--color-border);
+  }
 
-.dialog h3 {
-  margin: 0 0 16px 0;
-  font-size: 18px;
-}
+  .class-item.active {
+    border-color: var(--color-primary-soft-border);
+  }
 
-.dialog input {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  font-size: 14px;
-  box-sizing: border-box;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.cancel-btn, .confirm-btn {
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.cancel-btn {
-  background-color: #f5f7fa;
-  border: 1px solid #dcdfe6;
-  color: #606266;
-}
-
-.cancel-btn:hover {
-  background-color: #f0f2f5;
-}
-
-.confirm-btn {
-  background-color: #409eff;
-  border: none;
-  color: white;
-}
-
-.confirm-btn:hover:not(:disabled) {
-  background-color: #66b1ff;
-}
-
-.confirm-btn:disabled {
-  background-color: #a0cfff;
-  cursor: not-allowed;
+  .class-label {
+    overflow: visible;
+  }
 }
 </style>

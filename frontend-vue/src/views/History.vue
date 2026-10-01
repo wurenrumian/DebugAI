@@ -1,53 +1,29 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
-      <h1>📜 历史记录</h1>
-    </div>
-    
-    <!-- 导航栏 -->
-    <div class="history-tabs">
-      <button
-        :class="['tab-btn', { active: activeTab === 'debug' }]"
-        @click="activeTab = 'debug'"
-      >
-        🤖 AI调试
-        <span class="shortcut-hint">Ctrl+1</span>
-      </button>
-      <button
-        :class="['tab-btn', { active: activeTab === 'evaluate' }]"
-        @click="activeTab = 'evaluate'"
-      >
-        📝 代码评价
-        <span class="shortcut-hint">Ctrl+2</span>
-      </button>
-      <button
-        :class="['tab-btn', { active: activeTab === 'recommend' }]"
-        @click="activeTab = 'recommend'"
-      >
-        📚 题目推荐
-        <span class="shortcut-hint">Ctrl+3</span>
-      </button>
-    </div>
-    
-    <div class="history-content-wrapper">
-      <div v-if="loading" class="loading-container">
-        <div class="loading"></div>
-        <p>加载中...</p>
+  <div class="history-page">
+    <PageHeader
+      title="历史记录"
+      description="回看你的 AI 调试对话、代码评价与题目推荐。"
+    />
+
+    <AppTabs v-model="activeTab" :tabs="tabs" label="历史记录类型">
+      <AppSpinner v-if="loading" block label="加载中..." />
+
+      <div v-else-if="errorMessage" class="state-card">
+        <AppEmpty icon="alert" tone="danger" title="加载失败" :description="errorMessage">
+          <template #actions>
+            <AppButton variant="primary" icon="refresh" @click="fetchRecords">重试</AppButton>
+          </template>
+        </AppEmpty>
       </div>
-      
-      <div v-else-if="errorMessage" class="error-container">
-        <p class="message message-error">{{ errorMessage }}</p>
-        <button @click="fetchRecords" class="btn btn-primary">重试</button>
+
+      <div v-else-if="records.length === 0" class="state-card">
+        <AppEmpty icon="inbox" :title="`暂无${tabTitle}记录`" :description="emptyHint">
+          <template #actions>
+            <AppButton variant="primary" :to="emptyLink">{{ emptyBtnText }}</AppButton>
+          </template>
+        </AppEmpty>
       </div>
-      
-      <div v-else-if="records.length === 0" class="empty-container">
-        <div class="empty-icon">📭</div>
-        <h3>暂无{{ tabTitle }}记录</h3>
-        <p>{{ emptyHint }}</p>
-        <router-link :to="emptyLink" class="btn btn-primary">{{ emptyBtnText }}</router-link>
-      </div>
-      
+
       <div v-else class="records-list">
         <!-- 调试历史 -->
         <DebugHistoryTab
@@ -55,14 +31,14 @@
           :records="records"
           @view-details="handleViewDetails"
         />
-        
+
         <!-- 评价历史 -->
         <EvaluateHistoryTab
           v-else-if="activeTab === 'evaluate'"
           :records="records"
           @view-details="handleViewDetails"
         />
-        
+
         <!-- 推荐历史 -->
         <RecommendHistoryTab
           v-else-if="activeTab === 'recommend'"
@@ -70,8 +46,8 @@
           @view-details="handleViewDetails"
         />
       </div>
-    </div>
-    
+    </AppTabs>
+
     <!-- 详情模态框 - 使用可复用组件 -->
     <HistoryDetailModal
       v-if="showModal"
@@ -92,6 +68,17 @@ import DebugHistoryTab from '../components/HistoryTabs/DebugHistoryTab.vue'
 import EvaluateHistoryTab from '../components/HistoryTabs/EvaluateHistoryTab.vue'
 import RecommendHistoryTab from '../components/HistoryTabs/RecommendHistoryTab.vue'
 import HistoryDetailModal from '../components/HistoryTabs/HistoryDetailModal.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import AppTabs from '../components/ui/AppTabs.vue'
+import AppEmpty from '../components/ui/AppEmpty.vue'
+import AppButton from '../components/ui/AppButton.vue'
+import AppSpinner from '../components/ui/AppSpinner.vue'
+
+const tabs = [
+  { key: 'debug', label: 'AI 调试', icon: 'chat', shortcut: 'Ctrl+1' },
+  { key: 'evaluate', label: '代码评价', icon: 'evaluate', shortcut: 'Ctrl+2' },
+  { key: 'recommend', label: '题目推荐', icon: 'target', shortcut: 'Ctrl+3' }
+]
 
 const authStore = useAuthStore()
 
@@ -326,321 +313,14 @@ useKeyboardShortcut(tabKeys, (event) => {
 </script>
 
 <style scoped>
-.loading-container,
-.error-container,
-.empty-container {
-  max-width: 800px;
+.history-page {
+  max-width: 960px;
   margin: 0 auto;
-  text-align: center;
-  padding: 60px 20px;
-  background: white;
-  border-radius: 12px;
 }
 
-.loading-container .loading {
-  margin-bottom: 15px;
-}
-
-.empty-icon {
-  font-size: 64px;
-  margin-bottom: 20px;
-}
-
-.empty-container h3 {
-  color: #303133;
-  margin-bottom: 10px;
-}
-
-.empty-container p {
-  color: #909399;
-  margin-bottom: 20px;
-}
-
-.records-list {
-  max-width: 100%;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.record-group {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.record-group:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-.group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.group-info h3 {
-  font-size: 16px;
-  color: #303133;
-  margin-bottom: 5px;
-}
-
-.group-time {
-  font-size: 12px;
-  color: #909399;
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.group-stats {
-  display: flex;
-  gap: 20px;
-}
-
-.stat {
-  font-size: 13px;
-  color: #606266;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.stat-icon {
-  font-size: 14px;
-}
-
-/* 模态框样式 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 800px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.modal-header h2 {
-  font-size: 18px;
-  color: #303133;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 28px;
-  color: #909399;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.close-btn:hover {
-  color: #303133;
-}
-
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-/* 首次提交区域样式 */
-.initial-submission {
-  background: #f5f7fa;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  overflow: hidden;
-}
-
-.submission-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 15px;
-  background: #409eff;
-  color: white;
-  cursor: pointer;
-}
-
-.submission-title {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.expand-icon {
-  font-size: 12px;
-}
-
-.submission-content {
-  padding: 15px;
-}
-
-.problem-description {
-  margin-bottom: 15px;
-}
-
-.problem-description h4,
-.code-section h4 {
-  font-size: 13px;
-  color: #606266;
-  margin-bottom: 8px;
-}
-
-.problem-text {
-  background: white;
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 13px;
-  color: #303133;
-  max-height: 150px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  line-height: 1.5;
-}
-
-.code-section {
-  margin-top: 15px;
-}
-
-.code-display {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.record-detail {
-  margin-bottom: 20px;
-  padding: 15px;
-  border-radius: 8px;
-  background: #f5f7fa;
-}
-
-.record-detail.student {
-  background: #f0f9eb;
-  border-left: 4px solid #67c23a;
-}
-
-.record-detail.assistant {
-  background: #ecf5ff;
-  border-left: 4px solid #409eff;
-}
-
-.record-detail.system_error,
-.record-detail.ai_service_error {
-  background: #fef0f0;
-}
-
-.detail-header {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  font-size: 14px;
-}
-
-.detail-role {
-  font-weight: 500;
-}
-
-.detail-round {
-  color: #909399;
-}
-
-.detail-content h4 {
-  font-size: 14px;
-  color: #606266;
-  margin-bottom: 10px;
-}
-
-.detail-payload pre {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.error-text {
-  color: #f56c6c;
-  background: #2d2d2d;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.detail-hint {
-  font-size: 13px;
-  color: #909399;
-  margin-bottom: 8px;
-}
-
-.student-message {
-  background: #f0f9eb;
-  padding: 12px;
-  border-radius: 6px;
-  color: #303133;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.history-content-wrapper {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.shortcut-hint {
-  margin-left: 8px;
-  font-size: 12px;
-  color: #909399;
-  background: #f5f7fa;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid #e4e7ed;
+.state-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 </style>

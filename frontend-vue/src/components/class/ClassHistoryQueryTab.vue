@@ -1,70 +1,49 @@
 <template>
-  <div class="page-container">
+  <div class="class-history-tab">
     <!-- 筛选器区域 -->
-    <div class="filter-section">
-      <div class="filter-row">
-        <div class="filter-item">
-          <label>学生筛选：</label>
-          <select v-model="selectedStudents" multiple class="multi-select">
-            <option v-for="student in students" :key="student.student_id" :value="student.student_id">
-              {{ student.username }} ({{ student.student_id }})
-            </option>
-          </select>
-          <span class="hint">按住 Ctrl/Cmd 可多选，不选默认为全班</span>
-        </div>
-        <div class="filter-item">
-          <label>时间范围：</label>
-          <input type="date" v-model="startDate" class="date-input" />
-          <span class="date-separator">至</span>
-          <input type="date" v-model="endDate" class="date-input" />
-        </div>
-      </div>
-      <div class="filter-actions">
-        <button class="btn btn-primary" @click="handleQuery" :disabled="loading">
+    <ClassRecordFilters
+      v-model:selected-students="selectedStudents"
+      v-model:start-date="startDate"
+      v-model:end-date="endDate"
+      :students="students"
+    >
+      <template #actions>
+        <AppButton variant="primary" icon="search" :loading="loading" @click="handleQuery">
           {{ loading ? '查询中...' : '查询' }}
-        </button>
-      </div>
+        </AppButton>
+      </template>
+    </ClassRecordFilters>
+
+    <!-- 记录类型 -->
+    <div class="type-switch" role="group" aria-label="记录类型">
+      <button
+        v-for="opt in typeOptions"
+        :key="opt.key"
+        type="button"
+        :aria-pressed="activeTab === opt.key ? 'true' : 'false'"
+        :class="['type-option', { active: activeTab === opt.key }]"
+        @click="activeTab = opt.key"
+      >
+        <AppIcon :name="opt.icon" :size="15" />
+        {{ opt.label }}
+      </button>
     </div>
 
-    <!-- 导航栏 -->
-    <div class="history-tabs">
-      <button
-        :class="['tab-btn', { active: activeTab === 'debug' }]"
-        @click="activeTab = 'debug'"
-      >
-        🤖 AI调试
-      </button>
-      <button
-        :class="['tab-btn', { active: activeTab === 'evaluate' }]"
-        @click="activeTab = 'evaluate'"
-      >
-        📝 代码评价
-      </button>
-      <button
-        :class="['tab-btn', { active: activeTab === 'recommend' }]"
-        @click="activeTab = 'recommend'"
-      >
-        📚 题目推荐
-      </button>
-    </div>
-    
-    <div class="history-content-wrapper">
-      <div v-if="loading" class="loading-container">
-        <div class="loading"></div>
-        <p>加载中...</p>
+    <div class="history-content">
+      <AppSpinner v-if="loading" block label="加载中..." />
+
+      <div v-else-if="errorMessage" class="state-card">
+        <AppEmpty icon="alert" tone="danger" title="查询失败" :description="errorMessage" compact>
+          <template #actions>
+            <AppButton variant="primary" icon="refresh" @click="handleQuery">重试</AppButton>
+          </template>
+        </AppEmpty>
       </div>
-      
-      <div v-else-if="errorMessage" class="error-container">
-        <p class="message message-error">{{ errorMessage }}</p>
-        <button @click="handleQuery" class="btn btn-primary">重试</button>
+
+      <div v-else-if="records.length === 0" class="state-card">
+        <AppEmpty icon="inbox" :title="`暂无${tabTitle}记录`" :description="emptyHint" compact />
       </div>
-      
-      <div v-else-if="records.length === 0" class="empty-container">
-        <div class="empty-icon">📭</div>
-        <h3>暂无{{ tabTitle }}记录</h3>
-        <p>{{ emptyHint }}</p>
-      </div>
-      
+
       <div v-else class="records-list">
         <!-- 调试历史 -->
         <DebugHistoryTab
@@ -72,14 +51,14 @@
           :records="records"
           @view-details="handleViewDetails"
         />
-        
+
         <!-- 评价历史 -->
         <EvaluateHistoryTab
           v-else-if="activeTab === 'evaluate'"
           :records="records"
           @view-details="handleViewDetails"
         />
-        
+
         <!-- 推荐历史 -->
         <RecommendHistoryTab
           v-else-if="activeTab === 'recommend'"
@@ -88,7 +67,7 @@
         />
       </div>
     </div>
-    
+
     <!-- 详情模态框 -->
     <HistoryDetailModal
       v-if="showModal"
@@ -108,6 +87,17 @@ import DebugHistoryTab from '../HistoryTabs/DebugHistoryTab.vue'
 import EvaluateHistoryTab from '../HistoryTabs/EvaluateHistoryTab.vue'
 import RecommendHistoryTab from '../HistoryTabs/RecommendHistoryTab.vue'
 import HistoryDetailModal from '../HistoryTabs/HistoryDetailModal.vue'
+import ClassRecordFilters from './ClassRecordFilters.vue'
+import AppButton from '../ui/AppButton.vue'
+import AppEmpty from '../ui/AppEmpty.vue'
+import AppIcon from '../ui/AppIcon.vue'
+import AppSpinner from '../ui/AppSpinner.vue'
+
+const typeOptions = [
+  { key: 'debug', label: 'AI 调试', icon: 'chat' },
+  { key: 'evaluate', label: '代码评价', icon: 'evaluate' },
+  { key: 'recommend', label: '题目推荐', icon: 'target' }
+]
 
 const classStore = useClassStore()
 
@@ -246,181 +236,42 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-container {
-  padding: 16px;
-}
-
-.filter-section {
-  background: white;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.filter-row {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.filter-item label {
-  font-weight: 600;
-  white-space: nowrap;
-  color: #303133;
-  font-size: 14px;
-}
-
-.multi-select {
-  min-width: 200px;
-  height: 100px;
-  padding: 8px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-  transition: border-color 0.3s;
-}
-
-.multi-select:focus {
-  border-color: #667eea;
-}
-
-.date-input {
-  padding: 8px 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.3s;
-}
-
-.date-input:focus {
-  border-color: #667eea;
-}
-
-.date-separator {
-  color: #909399;
-  font-size: 14px;
-}
-
-.hint {
-  font-size: 12px;
-  color: #909399;
-}
-
-.filter-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.btn {
-  padding: 8px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.3s;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #409eff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #66b1ff;
-}
-
-/* 历史记录标签页样式 - 与 History.vue 相同 */
-.history-tabs {
-  display: flex;
-  border-bottom: 1px solid #ebeef5;
-  background: #f5f7fa;
-  padding: 0 12px;
-}
-
-.tab-btn {
-  padding: 12px 20px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: #606266;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-
-.tab-btn:hover {
-  color: #409eff;
-  background: white;
-}
-
-.tab-btn.active {
-  color: #409eff;
-  background: white;
-  border-bottom-color: #409eff;
-}
-
-.history-content-wrapper {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-/* 加载、错误、空状态样式 - 与 History.vue 相同 */
-.loading-container,
-.error-container,
-.empty-container {
-  max-width: 800px;
-  margin: 0 auto;
-  text-align: center;
-  padding: 60px 20px;
-  background: white;
-  border-radius: 12px;
-}
-
-.loading-container .loading {
-  margin-bottom: 15px;
-}
-
-.empty-icon {
-  font-size: 64px;
-  margin-bottom: 20px;
-}
-
-.empty-container h3 {
-  color: #303133;
-  margin-bottom: 10px;
-}
-
-.empty-container p {
-  color: #909399;
-}
-
-.message-error {
-  color: #f56c6c;
-  margin-bottom: 15px;
-}
-
-.records-list {
+.type-switch {
+  display: inline-flex;
+  gap: 2px;
   max-width: 100%;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
+  padding: 3px;
+  margin-bottom: var(--space-4);
+  overflow-x: auto;
+  background: var(--color-surface-3);
+  border-radius: var(--radius-md);
+}
+
+.type-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 14px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
+}
+
+.type-option:hover {
+  color: var(--color-text);
+}
+
+.type-option.active {
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.state-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 </style>

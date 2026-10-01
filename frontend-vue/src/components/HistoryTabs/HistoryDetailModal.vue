@@ -1,166 +1,116 @@
 <template>
-  <div class="modal-overlay" @click="$emit('close')">
-    <div class="modal-content" @click.stop>
-      <div class="modal-header">
-        <h2>会话详情</h2>
-        <button @click="$emit('close')" class="close-btn">×</button>
+  <AppModal :title="modalTitle" size="lg" @close="$emit('close')">
+    <!-- 首次提交的题目描述和代码（debug/evaluate类型显示） -->
+    <section v-if="initialSubmission && type !== 'recommend'" class="initial-submission">
+      <button
+        type="button"
+        class="submission-toggle"
+        :aria-expanded="showCodeModal ? 'true' : 'false'"
+        aria-controls="submission-content"
+        @click="showCodeModal = !showCodeModal"
+      >
+        <AppIcon name="file" :size="16" />
+        <span class="submission-title">题目描述与提交的代码</span>
+        <AppIcon name="chevron-down" :size="16" :class="['expand-icon', { open: showCodeModal }]" />
+      </button>
+      <div v-if="showCodeModal" id="submission-content" class="submission-content">
+        <div class="submission-block">
+          <h3 class="block-label">题目</h3>
+          <!-- 学生提交的内容一律按纯文本显示（教师端也会打开此弹窗） -->
+          <div class="problem-text plain-text">{{ initialSubmission.problem_description }}</div>
+        </div>
+        <div v-if="initialSubmission.code" class="submission-block">
+          <h3 class="block-label">提交的代码</h3>
+          <CodeBlock :code="initialSubmission.code" max-height="280px" />
+        </div>
       </div>
-      
-      <div class="modal-body">
-        <!-- 首次提交的题目描述和代码（debug/evaluate类型显示） -->
-        <div v-if="initialSubmission && type !== 'recommend'" class="initial-submission">
-          <div class="submission-header" @click="showCodeModal = !showCodeModal">
-            <span class="submission-title">📝 题目描述</span>
-            <span class="expand-icon">{{ showCodeModal ? '▼' : '▶' }}</span>
-          </div>
-          <div v-if="showCodeModal" class="submission-content">
-            <div class="problem-description">
-              <h4>题目:</h4>
-              <!-- 学生提交的内容一律按纯文本显示（教师端也会打开此弹窗） -->
-              <div class="problem-text">{{ initialSubmission.problem_description }}</div>
-            </div>
-            <div class="code-section" v-if="initialSubmission.code">
-              <h4>提交的代码:</h4>
-              <pre class="code-display">{{ initialSubmission.code }}</pre>
-            </div>
+    </section>
+
+    <!-- 调试记录显示 -->
+    <ol v-if="type === 'debug'" class="timeline">
+      <li
+        v-for="(record, index) in records"
+        :key="index"
+        :class="['record-detail', record.role]"
+      >
+        <div class="detail-header">
+          <span class="detail-role">
+            <AppIcon :name="record.role === 'student' ? 'user' : record.role === 'assistant' ? 'sparkles' : 'file'" :size="15" />
+            {{ getRecordRoleLabel(record) }}
+          </span>
+          <AppBadge size="sm">第 {{ record.round_number }} 轮</AppBadge>
+        </div>
+
+        <div class="detail-content">
+          <AIResponseDisplay
+            v-if="record.role === 'assistant'"
+            :ai-response="getRecordAIResponse(record)"
+            :student-response="getRecordStudentResponse(record)"
+          />
+          <div v-else-if="record.role === 'student'" class="student-message plain-text">{{ getStudentContent(record) }}</div>
+
+          <div v-if="record.error" class="detail-error">
+            <h4 class="block-label">错误信息</h4>
+            <pre class="error-text">{{ record.error }}</pre>
           </div>
         </div>
-        
-        <!-- 调试记录显示 -->
-        <template v-if="type === 'debug'">
-          <div
-            v-for="(record, index) in records"
-            :key="index"
-            :class="['record-detail', record.role]"
-          >
-            <div class="detail-header">
-              <span class="detail-role">
-                {{ getRecordRoleLabel(record) }}
-              </span>
-              <span class="detail-round">第 {{ record.round_number }} 轮</span>
-            </div>
-            
-            <div class="detail-content">
-              <template v-if="record.role === 'assistant'">
-                <AIResponseDisplay
-                  :ai-response="getRecordAIResponse(record)"
-                  :student-response="getRecordStudentResponse(record)"
-                />
-              </template>
-              <template v-else-if="record.role === 'student'">
-                <div class="student-message">
-                  {{ getStudentContent(record) }}
-                </div>
-              </template>
-              
-              <div v-if="record.error" class="detail-error">
-                <h4>错误信息:</h4>
-                <pre class="error-text">{{ record.error }}</pre>
-              </div>
-            </div>
-          </div>
+      </li>
+    </ol>
+
+    <!-- 评价记录显示 -->
+    <div v-else-if="type === 'evaluate'" class="evaluate-records">
+      <section
+        v-for="(record, index) in records"
+        :key="index"
+        :class="['evaluate-record', record.role]"
+      >
+        <h3 class="section-heading">
+          <AppIcon :name="record.role === 'student' ? 'user' : 'sparkles'" :size="16" />
+          {{ record.role === 'student' ? '学生提交' : 'AI 评价' }}
+        </h3>
+
+        <!-- 学生提交显示代码 -->
+        <div v-if="record.role === 'student' && getStudentCode(record)">
+          <CodeBlock :code="getStudentCode(record)" max-height="320px" />
+        </div>
+
+        <!-- AI评价显示结构化结果 -->
+        <template v-if="record.role === 'assistant' && getParsedEvaluation(record)">
+          <EvaluationResult
+            v-if="hasScores(getParsedEvaluation(record)) || getParsedEvaluation(record).overall_evaluation"
+            :result="getParsedEvaluation(record)"
+            only-present
+          />
+          <!-- 如果没有结构化数据，回退到原始JSON -->
+          <pre v-else class="payload">{{ formatPayload(record.response_payload) }}</pre>
         </template>
-        
-        <!-- 评价记录显示 -->
-        <template v-else-if="type === 'evaluate'">
-          <div
-            v-for="(record, index) in records"
-            :key="index"
-            :class="['record-detail', record.role]"
-          >
-            <div class="detail-header">
-              <span class="detail-role">
-                {{ record.role === 'student' ? '👤 学生提交' : '🤖 AI评价' }}
-              </span>
-            </div>
-            
-            <div class="detail-content">
-              <!-- 学生提交显示代码 -->
-              <div v-if="record.role === 'student'" class="student-submission">
-                <div v-if="getStudentCode(record)" class="code-section">
-                  <h4>提交的代码:</h4>
-                  <pre class="code-display">{{ getStudentCode(record) }}</pre>
-                </div>
-              </div>
-              
-              <!-- AI评价显示结构化结果 -->
-              <div v-if="record.role === 'assistant'" class="evaluation-result">
-                <div v-if="getParsedEvaluation(record)" class="eval-content">
-                  <!-- 整体评价 -->
-                  <div class="eval-section overall" v-if="getParsedEvaluation(record).overall_evaluation">
-                    <h3>📊 整体评价</h3>
-                    <p>{{ getParsedEvaluation(record).overall_evaluation }}</p>
-                  </div>
-                  
-                  <!-- 各项评分 -->
-                  <div class="eval-grid" v-if="hasScores(getParsedEvaluation(record))">
-                    <div class="eval-item" v-if="getParsedEvaluation(record).functional_correctness">
-                      <div class="eval-label">✅ 功能正确</div>
-                      <div class="eval-score" :class="getScoreClass(getParsedEvaluation(record).functional_correctness?.grade)">
-                        {{ getParsedEvaluation(record).functional_correctness?.grade || 'N/A' }}
-                      </div>
-                      <div class="eval-analysis">{{ getParsedEvaluation(record).functional_correctness?.analysis }}</div>
-                    </div>
-                    
-                    <div class="eval-item" v-if="getParsedEvaluation(record).logical_rigor">
-                      <div class="eval-label">🔍 逻辑严谨</div>
-                      <div class="eval-score" :class="getScoreClass(getParsedEvaluation(record).logical_rigor?.grade)">
-                        {{ getParsedEvaluation(record).logical_rigor?.grade || 'N/A' }}
-                      </div>
-                      <div class="eval-analysis">{{ getParsedEvaluation(record).logical_rigor?.analysis }}</div>
-                    </div>
-                    
-                    <div class="eval-item" v-if="getParsedEvaluation(record).algorithm_quality">
-                      <div class="eval-label">⚡ 算法效率</div>
-                      <div class="eval-score" :class="getScoreClass(getParsedEvaluation(record).algorithm_quality?.grade)">
-                        {{ getParsedEvaluation(record).algorithm_quality?.grade || 'N/A' }}
-                      </div>
-                      <div class="eval-analysis">{{ getParsedEvaluation(record).algorithm_quality?.analysis }}</div>
-                    </div>
-                    
-                    <div class="eval-item" v-if="getParsedEvaluation(record).structural_normativity">
-                      <div class="eval-label">📐 结构规范</div>
-                      <div class="eval-score" :class="getScoreClass(getParsedEvaluation(record).structural_normativity?.grade)">
-                        {{ getParsedEvaluation(record).structural_normativity?.grade || 'N/A' }}
-                      </div>
-                      <div class="eval-analysis">{{ getParsedEvaluation(record).structural_normativity?.analysis }}</div>
-                    </div>
-                  </div>
-                  
-                  <!-- 如果没有结构化数据，回退到原始JSON -->
-                  <div v-else class="detail-payload">
-                    <h4>评价结果:</h4>
-                    <pre>{{ formatPayload(record.response_payload) }}</pre>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </template>
-        
-        <!-- 推荐记录显示 -->
-        <template v-else-if="type === 'recommend'">
-          <div class="record-detail recommend">
-            <div class="detail-header">
-              <span class="detail-role">📚 题目推荐</span>
-            </div>
-            <div class="detail-content" v-if="records[0]">
-              <div class="detail-payload">
-                <h4>响应内容:</h4>
-                <pre>{{ formatPayload(records[0].response_payload) }}</pre>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
+      </section>
     </div>
-  </div>
+
+    <!-- 推荐记录显示 -->
+    <div v-else-if="type === 'recommend' && records[0]" class="recommend-record">
+      <RecommendationList
+        v-if="getParsedRecommendation(records[0])"
+        :analysis="getParsedRecommendation(records[0]).analysis || ''"
+        :recommendations="getParsedRecommendation(records[0]).recommendations"
+      />
+      <template v-else>
+        <h3 class="section-heading">响应内容</h3>
+        <pre class="payload">{{ formatPayload(records[0].response_payload) }}</pre>
+      </template>
+    </div>
+  </AppModal>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useKeyboardShortcut } from '../../composables/useKeyboardShortcut'
+import { ref, computed } from 'vue'
 import AIResponseDisplay from '../AIResponseDisplay.vue'
+import AppModal from '../ui/AppModal.vue'
+import AppIcon from '../ui/AppIcon.vue'
+import AppBadge from '../ui/AppBadge.vue'
+import CodeBlock from '../code/CodeBlock.vue'
+import EvaluationResult from '../results/EvaluationResult.vue'
+import RecommendationList from '../results/RecommendationList.vue'
 
 const props = defineProps({
   records: {
@@ -178,12 +128,14 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['close'])
+defineEmits(['close'])
 
-// ESC 键关闭模态框
-useKeyboardShortcut(['escape'], () => {
-  emit('close')
-})
+// Esc 关闭、焦点陷阱由 AppModal 统一处理
+const modalTitle = computed(() => ({
+  debug: '调试会话详情',
+  evaluate: '代码评价详情',
+  recommend: '题目推荐详情'
+}[props.type] || '会话详情'))
 
 const showCodeModal = ref(false)
 
@@ -233,9 +185,9 @@ const getStudentContent = (record) => {
 
 // 获取记录的 role 标签
 const getRecordRoleLabel = (record) => {
-  if (record.role === 'student') return '👤 你的回复'
-  if (record.role === 'assistant') return '🤖 AI 助手'
-  return '📝 记录'
+  if (record.role === 'student') return '你的回复'
+  if (record.role === 'assistant') return 'AI 助手'
+  return '记录'
 }
 
 // 获取记录的 AI 响应
@@ -306,296 +258,177 @@ const hasScores = (evaluation) => {
             evaluation.structural_normativity)
 }
 
-// 获取分数样式类
-const getScoreClass = (score) => {
-  if (!score) return ''
-  if (score === '优秀') return 'score-excellent'
-  if (score === '合格') return 'score-good'
-  if (score === '待改进') return 'score-poor'
-  return ''
+// 解析推荐结果（结构不符合时返回 null，回退为原始 JSON 展示）
+const getParsedRecommendation = (record) => {
+  const parsed = getParsedEvaluation(record)
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.recommendations)) {
+    return parsed
+  }
+  return null
 }
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+.block-label {
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-secondary);
+}
+
+.section-heading {
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 1000;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--fs-md);
 }
 
-.modal-content {
-  background: white;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 800px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.section-heading .app-icon {
+  color: var(--color-primary-text);
 }
 
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.modal-header h2 {
-  font-size: 18px;
-  color: #303133;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 28px;
-  color: #909399;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.close-btn:hover {
-  color: #303133;
-}
-
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-
+/* 首次提交 */
 .initial-submission {
-  background: #f5f7fa;
-  border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
   overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
-.submission-header {
+.submission-toggle {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 12px 15px;
-  background: #409eff;
-  color: white;
-  cursor: pointer;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-weight: var(--fw-medium);
+  color: var(--color-text);
+  text-align: left;
+  background: var(--color-surface-2);
+}
+
+.submission-toggle:hover {
+  background: var(--color-surface-hover);
+}
+
+.submission-toggle:focus-visible {
+  outline-offset: -2px;
 }
 
 .submission-title {
-  font-weight: 600;
-  font-size: 14px;
+  flex: 1;
 }
 
 .expand-icon {
-  font-size: 12px;
+  color: var(--color-text-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--duration) var(--ease);
+}
+
+.expand-icon.open {
+  transform: rotate(0deg);
 }
 
 .submission-content {
-  padding: 15px;
-}
-
-.problem-description {
-  margin-bottom: 15px;
-}
-
-.problem-description h4,
-.code-section h4 {
-  font-size: 13px;
-  color: #606266;
-  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border);
 }
 
 .problem-text {
-  background: white;
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 13px;
-  color: #303133;
-  max-height: 150px;
+  max-height: 160px;
   overflow-y: auto;
-  white-space: pre-wrap;
-  line-height: 1.5;
+  padding: var(--space-3);
+  font-size: var(--fs-base);
+  line-height: 1.65;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.code-section {
-  margin-top: 15px;
-}
-
-.code-display {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
+/* 调试对话时间线 */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .record-detail {
-  margin-bottom: 20px;
-  padding: 15px;
-  border-radius: 8px;
-  background: #f5f7fa;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
 }
 
 .record-detail.student {
-  background: #f0f9eb;
-  border-left: 4px solid #67c23a;
+  border-left-color: var(--color-text-muted);
+  background: var(--color-surface-2);
 }
 
 .record-detail.assistant {
-  background: #ecf5ff;
-  border-left: 4px solid #409eff;
+  border-left-color: var(--color-primary);
+}
+
+.record-detail.system_error,
+.record-detail.ai_service_error {
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-soft);
 }
 
 .detail-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
-  font-size: 14px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .detail-role {
-  font-weight: 500;
-}
-
-.detail-round {
-  color: #909399;
-}
-
-.detail-content h4 {
-  font-size: 14px;
-  color: #606266;
-  margin-bottom: 10px;
-}
-
-.detail-payload pre {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.error-text {
-  color: #f56c6c;
-  background: #2d2d2d;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-secondary);
 }
 
 .student-message {
-  background: #f0f9eb;
-  padding: 12px;
-  border-radius: 6px;
-  color: #303133;
-  font-size: 14px;
+  font-size: var(--fs-base);
+  line-height: 1.7;
+}
+
+.detail-error {
+  margin-top: var(--space-3);
+}
+
+.error-text,
+.payload {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  font-size: var(--fs-xs);
   line-height: 1.6;
-}
-
-/* 评价结果样式 - 与 Evaluate.vue 保持一致 */
-.student-submission {
-  margin-bottom: 15px;
-}
-
-.evaluation-result {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.eval-content {
-  padding: 0;
-}
-
-.eval-section {
-  margin-bottom: 20px;
-}
-
-.eval-section h3 {
-  margin: 0 0 8px;
-  color: #333;
-}
-
-.eval-section.overall {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-  border-left: 4px solid #667eea;
-}
-
-.eval-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.eval-item {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-}
-
-.eval-label {
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 8px;
-}
-
-.eval-score {
-  font-size: 24px;
-  font-weight: bold;
-  margin-bottom: 8px;
-}
-
-.eval-analysis {
-  font-size: 13px;
-  color: #666;
-  line-height: 1.6;
-  background: #fff;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid #e9ecef;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-md);
 }
 
-.score-excellent {
-  color: #28a745;
+.error-text {
+  color: var(--color-danger);
 }
 
-.score-good {
-  color: #ffc107;
-}
-
-.score-poor {
-  color: #dc3545;
-}
-
-@media (max-width: 768px) {
-  .eval-grid {
-    grid-template-columns: 1fr;
-  }
+/* 评价记录 */
+.evaluate-records {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
 }
 </style>
