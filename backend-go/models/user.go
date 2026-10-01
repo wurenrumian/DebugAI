@@ -18,7 +18,7 @@ type User struct {
 	Username                   string     `gorm:"not null;size:100" json:"username"`         // 用户名
 	Password                   string     `gorm:"not null;size:255" json:"-"`                // 密码脱敏
 	TokenVersion               int        `gorm:"default:0" json:"-"`                        // Token版本号，用于权限变更后使旧token失效
-	Email                      string     `gorm:"size:255;not null" json:"email"`            // 邮箱地址（必填）
+	Email                      string     `gorm:"size:255;not null" json:"email"`            // 邮箱地址（必填）；唯一索引 idx_users_email_unique 在 config/db.go 中创建
 	EmailVerified              bool       `gorm:"default:false" json:"email_verified"`       // 邮箱是否已验证
 	EmailVerificationToken     string     `gorm:"size:64" json:"-"`                          // 邮箱验证token
 	EmailVerificationSentAt    *time.Time `json:"email_verification_sent_at"`                // 验证邮件发送时间

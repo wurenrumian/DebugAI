@@ -10,10 +10,15 @@ import (
 	"backend-go/service/cache"
 	"backend-go/utils"
 
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
-
+	"os/signal"
 	"slices"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -80,7 +85,25 @@ func main() {
 	// Seed default weak point keywords
 	aiService.SeedWeakPointKeywords()
 
-	r := gin.Default()
+	// 生产环境使用 release 模式（关闭 debug 日志与路由打印）
+	if env == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	r := gin.New()
+	// 访问日志跳过健康检查，避免 docker healthcheck 刷屏
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/health"}}), gin.Recovery())
+
+	// 只信任配置的反向代理，c.ClientIP() 才会解析 X-Forwarded-For
+	if err := r.SetTrustedProxies(config.Global.TrustedProxies); err != nil {
+		panic("TRUSTED_PROXIES 配置错误: " + err.Error())
+	}
+
+	// 全局请求体大小限制
+	r.Use(middleware.MaxBodySize(config.Global.MaxBodyBytes))
+
+	// 健康检查（不在 /api 下，供 docker healthcheck 使用）
+	r.GET("/health", healthHandler(pingDB))
 
 	// CORS middleware
 	r.Use(func(c *gin.Context) {
@@ -106,7 +129,8 @@ func main() {
 	// 公开路由
 	r.POST("/auth/register", controller.Register)
 	r.POST("/auth/login", controller.Login)
-	r.POST("/auth/logout", controller.Logout)
+	// 登出需要认证：递增 token_version 使当前 JWT 失效
+	r.POST("/auth/logout", middleware.AuthMiddleware(), controller.Logout)
 	r.GET("/auth/verify-email", controller.VerifyEmail)
 	r.POST("/auth/resend-verification", controller.ResendVerificationEmail)
 	r.POST("/auth/forgot-password", controller.ForgotPassword)
@@ -171,5 +195,77 @@ func main() {
 		api.GET("/classes/:id/records/recommend/export", controller.ExportClassRecommendRecords) // 导出班级recommend历史
 	}
 
-	r.Run(fmt.Sprintf(":%d", config.Global.Port))
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", config.Global.Port),
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		// 不设置 WriteTimeout：SSE 流式接口需要长连接
+	}
+
+	// 监听退出信号，实现优雅关闭
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		logger.Info("HTTP server listening", zap.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+		close(serverErr)
+	}()
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			logger.Error("HTTP server error", zap.Error(err))
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		logger.Info("Shutdown signal received, draining connections...")
+	}
+	stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(config.Global.ShutdownTimeoutSeconds)*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		// 超时仍有请求未结束（如 SSE 长连接），此时不能关闭 dispatcher 队列，否则正在处理的请求会 panic
+		logger.Error("HTTP server shutdown timed out", zap.Error(err))
+	} else {
+		dispatcher.Stop()
+	}
+
+	if sqlDB, err := config.DB.DB(); err == nil {
+		sqlDB.Close()
+	}
+	if config.RedisClient != nil {
+		config.RedisClient.Close()
+	}
+	logger.Info("Server exited")
+}
+
+// pingDB 检查数据库连通性
+func pingDB(ctx context.Context) error {
+	if config.DB == nil {
+		return errors.New("database not initialized")
+	}
+	sqlDB, err := config.DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
+}
+
+// healthHandler 健康检查：数据库可用返回 200 {"status":"ok"}，否则 503
+func healthHandler(ping func(ctx context.Context) error) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := ping(ctx); err != nil {
+			logger.Warn("Health check failed", zap.Error(err))
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unavailable"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	}
 }

@@ -11,34 +11,86 @@
 
 ## 公开接口（无需认证）
 
+### 健康检查
+
+**GET** `/health`（不在 `/api/v1` 下，供 Docker healthcheck 使用）
+
+**响应**：
+- `200 OK`：数据库连通
+  ```json
+  { "status": "ok" }
+  ```
+- `503 Service Unavailable`：数据库不可用
+  ```json
+  { "status": "unavailable" }
+  ```
+
+---
+
 ### 用户注册
 
 **POST** `/auth/register`
 
-注册新用户（仅支持普通学生用户）。
+注册第一步：校验信息并发送验证邮件，**不立即创建用户**。注册信息（仅含 bcrypt 密码哈希，不含明文密码）在 Redis 中暂存 24 小时，用户点击邮件链接后才创建账号。
 
 **请求体**：
 ```json
 {
-  "student_id": "2024001",
+  "student_id": "20240001",
   "username": "张三",
-  "password": "password123"
+  "password": "password123",
+  "email": "zhangsan@example.com"
 }
 ```
 
+**限制**：学号 8-12 位数字；密码 6-72 个字符（bcrypt 上限 72 字节），不能包含空格/中文；同一邮箱再次注册会使旧的验证链接失效。
+
+**限流**：每 IP 每小时 30 次、每邮箱每小时 5 次，超出返回 `429`。
+
 **响应**：
-- `200 OK`：注册成功
+- `200 OK`：验证邮件已发送
   ```json
-  { "message": "注册成功" }
+  { "message": "注册验证邮件已发送，请查收邮件完成验证", "data": { "email": "zhangsan@example.com" } }
   ```
-- `400 Bad Request`：参数缺失
+- `400 Bad Request`：参数缺失或不符合要求
+- `409 Conflict`：学号或邮箱已被注册（统一返回模糊提示，防止账户枚举）
   ```json
-  { "error": "参数不完整" }
+  { "error": "注册失败，请稍后重试或使用其他信息" }
   ```
-- `409 Conflict`：学号已存在
-  ```json
-  { "error": "学号已存在" }
-  ```
+- `429 Too Many Requests`：请求过于频繁（见下方“限流响应”）
+
+---
+
+### 邮箱验证（完成注册）
+
+**GET** `/auth/verify-email?token=<token>`
+
+**响应**：
+- `200 OK`：`{ "message": "邮箱验证成功，账号已创建", "data": { "username": "...", "email": "..." } }`
+- `400 Bad Request`：注册信息无效，需重新注册
+- `404 Not Found`：验证链接无效或已过期
+- `409 Conflict`：学号或邮箱已被占用
+
+---
+
+### 重新发送验证邮件
+
+**POST** `/auth/resend-verification`
+
+只能为**已存在的待验证注册申请**重发，邮件中复用原验证链接（有效期不变）。
+
+**请求体**：
+```json
+{ "email": "zhangsan@example.com" }
+```
+
+**限流**：每邮箱每小时 3 次、每 IP 每小时 10 次。
+
+**响应**：
+- `200 OK`：`{ "message": "验证邮件已发送" }`
+- `400 Bad Request`：邮箱为空 / 邮箱已被注册
+- `404 Not Found`：未找到待验证的注册申请，请重新注册
+- `429 Too Many Requests`：请求过于频繁
 
 ---
 
@@ -46,12 +98,12 @@
 
 **POST** `/auth/login`
 
-用户登录，返回 JWT token。
+用户登录，返回 JWT token（同时设置 HttpOnly Cookie `auth_token`）。
 
 **请求体**：
 ```json
 {
-  "student_id": "2024001",
+  "student_id": "20240001",
   "password": "password123"
 }
 ```
@@ -63,8 +115,8 @@
     "message": "登录成功",
     "data": {
       "username": "张三",
-      "user_type": "student",
-      "student_id": "2024001",
+      "user_type": "user",
+      "student_id": "20240001",
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
     }
   }
@@ -77,14 +129,62 @@
   ```json
   { "error": "学号或密码错误" }
   ```
+- `429 Too Many Requests`：登录失败次数过多
+  ```json
+  { "error": "登录失败次数过多，请稍后再试", "retry_after": 540 }
+  ```
+
+**登录退避规则**：同一 (IP, 学号) 10 分钟内失败 10 次，或同一 IP 15 分钟内失败 100 次后，在窗口剩余时间内返回 `429`。不会按学号全局锁定账号，也不再需要验证码（已移除 `fail_count`、`requires_captcha` 字段）。
 
 ---
+
+### 忘记密码
+
+**POST** `/auth/forgot-password`
+
+**请求体**：`{ "email": "zhangsan@example.com" }`
+
+**限流**：每 IP 每小时 10 次、每邮箱每小时 3 次。无论邮箱是否存在都返回相同提示。
+
+**响应**：
+- `200 OK`：`{ "message": "重置邮件已发送", "data": { "email": "..." } }`
+- `429 Too Many Requests`：请求过于频繁
+
+---
+
+### 重置密码
+
+**POST** `/auth/reset-password`
+
+重置链接 1 小时内有效且只能使用一次；可以在任意设备上打开（不再校验发起请求时的 IP）。重置成功后该用户所有已签发的 Token 失效。
+
+**请求体**：
+```json
+{ "token": "<邮件中的token>", "new_password": "newpass123", "confirm_password": "newpass123" }
+```
+
+**响应**：
+- `200 OK`：`{ "message": "密码重置成功，请重新登录", "data": { "student_id": "20240001" } }`
+- `400 Bad Request`：两次密码不一致 / 密码不符合要求 / 令牌无效或已过期
+
+---
+
+### 限流响应
+
+所有限流接口超出限制时返回 `429`，并带有 `Retry-After` 响应头（秒）：
+```json
+{ "error": "请求频率过高，请稍后再试", "retry_after": 1800 }
+```
+
+---
+
+## 需认证的认证接口
 
 ### 用户登出
 
 **POST** `/auth/logout`
 
-登出用户，清除 Cookie。
+**需要认证**（`Authorization: Bearer <token>` 或 Cookie）。清除 Cookie 并递增用户的 `token_version`，该用户**所有设备上**已签发的 Token 立即失效。
 
 **请求体**：`{}`
 
@@ -93,6 +193,8 @@
   ```json
   { "message": "登出成功" }
   ```
+- `401 Unauthorized`：未登录或 Token 已失效
+- `500 Internal Server Error`：登出失败（Cookie 仍会被清除）
 
 ---
 
@@ -701,6 +803,8 @@
 
 获取指定班级的所有成员列表。
 
+**权限**：仅该班级成员（任意角色）或系统管理员可访问，否则返回 `403 Forbidden`。
+
 **响应**：
 - `200 OK`：
   ```json
@@ -738,6 +842,7 @@
 **权限说明**：
 - 教师/助教：只能添加学生
 - 创建者/系统管理员：可添加教师、助教、学生
+- 修改已有成员角色：创建者角色不可修改；教师的角色只有创建者可以修改；助教不能修改教师/助教的角色（对应条目返回 `status: "error"` 及原因）
 
 **响应**：
 - `200 OK`：
@@ -775,6 +880,7 @@
 
 **权限说明**：
 - 助教只能移除学生
+- 教师只能由创建者移除
 - 创建者不可被移除
 
 **响应**：

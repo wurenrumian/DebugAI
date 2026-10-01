@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"backend-go/models"
-	"backend-go/utils"
 	"fmt"
 	"time"
 
@@ -22,37 +21,36 @@ func AuditMiddleware(db *gorm.DB) gin.HandlerFunc {
 		// 计算耗时
 		duration := time.Since(startTime).Milliseconds()
 
-		// 异步记录审计日志（避免阻塞响应）
-		go func() {
-			userID, _ := c.Get("user_id")
-			studentID, _ := c.Get("student_id")
-			userType, _ := c.Get("user_type")
+		// 在当前 goroutine 中提取所需数据（gin.Context 会被复用，不能在 goroutine 中直接访问）
+		userID, _ := c.Get("user_id")
+		studentID, _ := c.Get("student_id")
+		userType, _ := c.Get("user_type")
+		status := c.Writer.Status()
 
-			log := &models.AuditLog{
-				UserID:    getUint(userID),
-				StudentID: getString(studentID),
-				UserType:  getString(userType),
-				Action:    determineAction(c),
-				IP:        utils.GetIPFromRequest(c.Request),
-				UserAgent: c.Request.UserAgent(),
-				Method:    c.Request.Method,
-				Path:      c.Request.URL.Path,
-				Status:    c.Writer.Status(),
-				Success:   c.Writer.Status() < 400,
-				Duration:  duration,
+		log := &models.AuditLog{
+			UserID:    getUint(userID),
+			StudentID: getString(studentID),
+			UserType:  getString(userType),
+			Action:    determineAction(c),
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Method:    c.Request.Method,
+			Path:      c.Request.URL.Path,
+			Status:    status,
+			Success:   status < 400,
+			Duration:  duration,
+		}
+
+		// 如果是失败，记录失败原因
+		if status >= 400 {
+			log.FailureReason = c.Errors.ByType(gin.ErrorTypePrivate).String()
+			if log.FailureReason == "" {
+				log.FailureReason = fmt.Sprintf("HTTP %d", status)
 			}
+		}
 
-			// 如果是失败，记录失败原因
-			if c.Writer.Status() >= 400 {
-				log.FailureReason = c.Errors.ByType(gin.ErrorTypePrivate).String()
-				if log.FailureReason == "" {
-					log.FailureReason = fmt.Sprintf("HTTP %d", c.Writer.Status())
-				}
-			}
-
-			// 保存到数据库
-			db.Create(log)
-		}()
+		// 异步保存到数据库（避免阻塞响应）
+		go db.Create(log)
 	}
 }
 

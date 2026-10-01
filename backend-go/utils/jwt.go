@@ -3,8 +3,9 @@ package utils
 import (
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"backend-go/config"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // MyClaims 定义 JWT 中存储的信息
@@ -40,7 +41,7 @@ func GenerateToken(id uint, studentID string, userType string, tokenVersion int)
 func ParseToken(tokenString string) (*MyClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &MyClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.Global.JWTSecret), nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()})) // 只接受 HS256，防止算法混淆
 
 	if err != nil {
 		return nil, err

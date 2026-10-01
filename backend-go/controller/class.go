@@ -2,19 +2,38 @@ package controller
 
 import (
 	"backend-go/config"
+	"backend-go/logger"
 	"backend-go/models"
 	"backend-go/service"
 	"backend-go/service/cache"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 // ClassCache 全局班级缓存服务
 var classCache *cache.ClassCache
+
+// currentUserIDFromCtx 从上下文获取当前登录用户ID（由 AuthMiddleware 设置）
+func currentUserIDFromCtx(c *gin.Context) (uint, bool) {
+	v, exists := c.Get("user_id")
+	if !exists {
+		return 0, false
+	}
+	id, ok := v.(uint)
+	return id, ok && id != 0
+}
+
+// isSystemAdminCtx 当前用户是否为系统管理员
+func isSystemAdminCtx(c *gin.Context) bool {
+	v, _ := c.Get("user_type")
+	return getString(v) == models.TypeAdmin
+}
 
 // InitClassCache 初始化班级缓存服务
 func InitClassCache(redisCache *cache.RedisCache, db *gorm.DB) {
@@ -38,7 +57,7 @@ func CreateClass(c *gin.Context) {
 	}
 
 	var input struct {
-		ClassName string `json:"class_name" binding:"required"`
+		ClassName string `json:"class_name" binding:"required,max=255"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -46,25 +65,31 @@ func CreateClass(c *gin.Context) {
 		return
 	}
 
-	// 创建班级
+	creatorID := userID.(uint)
 	class := models.Class{
 		ClassName: input.ClassName,
-		CreatedBy: userID.(uint),
+		CreatedBy: creatorID,
 	}
 
-	if err := config.DB.Create(&class).Error; err != nil {
+	// 在同一事务中创建班级与创建者成员记录，避免出现没有创建者的班级
+	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&class).Error; err != nil {
+			return err
+		}
+		// 创建者自动成为班级老师，并标记为创建者
+		member := models.ClassMember{
+			ClassID:    class.ID,
+			UserID:     creatorID,
+			MemberRole: models.MemberRoleTeacher,
+			IsCreator:  true, // 标记为班级创建者
+		}
+		return tx.Create(&member).Error
+	})
+	if err != nil {
+		logger.Logger.Error("创建班级失败", zap.Error(err), zap.Uint("user_id", creatorID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建班级失败"})
 		return
 	}
-
-	// 创建者自动成为班级老师，并标记为创建者
-	member := models.ClassMember{
-		ClassID:    class.ID,
-		UserID:     userID.(uint),
-		MemberRole: models.MemberRoleTeacher,
-		IsCreator:  true, // 标记为班级创建者
-	}
-	config.DB.Create(&member)
 
 	// 失效班级列表缓存
 	if classCache != nil {
@@ -233,6 +258,17 @@ func GetClassMembers(c *gin.Context) {
 		return
 	}
 
+	// 权限检查：只有班级成员（或系统管理员）可以查看成员列表
+	currentUserID, ok := currentUserIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户未登录"})
+		return
+	}
+	if !isSystemAdminCtx(c) && !service.IsClassMember(currentUserID, uint(classID)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权查看该班级成员"})
+		return
+	}
+
 	// 尝试从缓存获取
 	if classCache != nil {
 		membersInfo, err := classCache.GetClassMembers(c.Request.Context(), uint(classID))
@@ -386,18 +422,15 @@ func AddMembers(c *gin.Context) {
 		return
 	}
 
-	// 限制角色分配权限：只有创建者或admin可分配teacher/ta角色，其他管理员只能分配student
-	if input.MemberRole != models.MemberRoleStudent {
-		// 检查当前用户是否为班级创建者（使用已转换的 currentUserID）
-		isCreator := service.IsClassCreator(currentUserID, uint(classID))
-		// 检查当前用户是否为系统admin
-		userType, _ := c.Get("user_type")
-		isAdmin := userType.(string) == models.TypeAdmin
+	// 操作者信息（只查询一次）
+	operatorRole := service.GetUserRoleInClass(currentUserID, uint(classID))
+	operatorIsCreator := service.IsClassCreator(currentUserID, uint(classID))
+	operatorIsSysAdmin := isSystemAdminCtx(c)
 
-		if !isCreator && !isAdmin {
-			c.JSON(http.StatusForbidden, gin.H{"error": "只有班级创建者或管理员可以分配教师/助教角色"})
-			return
-		}
+	// 限制角色分配权限：只有创建者或admin可分配teacher/ta角色，其他管理员只能分配student
+	if input.MemberRole != models.MemberRoleStudent && !operatorIsCreator && !operatorIsSysAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "只有班级创建者或管理员可以分配教师/助教角色"})
+		return
 	}
 
 	// 查询所有student_id对应的用户
@@ -428,7 +461,17 @@ func AddMembers(c *gin.Context) {
 		if userID, ok := existUsersMap[studentID]; ok {
 			// 检查是否已是成员
 			var existing models.ClassMember
-			if err := config.DB.Where("class_id = ? AND user_id = ?", classID, userID).First(&existing).Error; err == nil {
+			err := config.DB.Where("class_id = ? AND user_id = ?", classID, userID).First(&existing).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				logger.Logger.Error("查询班级成员失败", zap.Error(err), zap.Uint64("class_id", classID))
+				results = append(results, Result{
+					StudentID: studentID,
+					Status:    "error",
+					Message:   "查询成员失败",
+				})
+				continue
+			}
+			if err == nil {
 				// 如果是已存在的成员，检查是否尝试修改创建者角色
 				if existing.IsCreator {
 					// 创建者角色不可修改
@@ -448,22 +491,15 @@ func AddMembers(c *gin.Context) {
 					})
 					continue
 				}
-				// 角色有变化：如果要提升为 teacher/ta，需要额外权限检查
-				if input.MemberRole != models.MemberRoleStudent {
-					// 使用函数开头保存的 currentUserID
-					isCreator := service.IsClassCreator(currentUserID, uint(classID))
-					// 检查当前用户是否为系统admin
-					userType, _ := c.Get("user_type")
-					isAdmin := userType.(string) == models.TypeAdmin
-
-					if !isCreator && !isAdmin {
-						results = append(results, Result{
-							StudentID: studentID,
-							Status:    "error",
-							Message:   "只有班级创建者或管理员可以提升成员角色",
-						})
-						continue
-					}
+				// 角色有变化：检查操作者是否有权修改该成员的角色
+				// （助教不能修改教师/助教；教师角色只有创建者可以修改）
+				if ok, reason := service.CanChangeMemberRole(operatorRole, operatorIsCreator, operatorIsSysAdmin, existing, input.MemberRole); !ok {
+					results = append(results, Result{
+						StudentID: studentID,
+						Status:    "error",
+						Message:   reason,
+					})
+					continue
 				}
 				// 更新现有成员的角色
 				existing.MemberRole = input.MemberRole
@@ -565,6 +601,7 @@ func RemoveMembers(c *gin.Context) {
 
 	// 获取当前用户在班级中的角色
 	currentUserRole := service.GetUserRoleInClass(currentUserID, uint(classID))
+	operatorIsCreator := service.IsClassCreator(currentUserID, uint(classID))
 
 	var input struct {
 		StudentIDs []string `json:"student_ids" binding:"required"`
@@ -585,7 +622,7 @@ func RemoveMembers(c *gin.Context) {
 			}
 			// 查询该学生在班级中的角色
 			targetUserRole := service.GetUserRoleInClass(targetUser.ID, uint(classID))
-			if targetUserRole != models.MemberRoleStudent {
+			if targetUserRole != "" && targetUserRole != models.MemberRoleStudent {
 				c.JSON(http.StatusForbidden, gin.H{"error": "助教只能移除学生，不能移除教师或助教"})
 				return
 			}
@@ -639,12 +676,12 @@ func RemoveMembers(c *gin.Context) {
 				continue
 			}
 
-			// 创建者保护：禁止移除班级创建者（即使角色被降级）
-			if member.IsCreator {
+			// 创建者保护（即使角色被降级）；教师只能由创建者移除；助教只能移除学生
+			if ok, reason := service.CanRemoveMember(currentUserRole, operatorIsCreator, member); !ok {
 				results = append(results, Result{
 					StudentID: studentID,
 					Status:    "error",
-					Message:   "班级创建者不可移除",
+					Message:   reason,
 				})
 				continue
 			}
