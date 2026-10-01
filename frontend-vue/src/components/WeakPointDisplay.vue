@@ -1,67 +1,82 @@
 <template>
   <div class="weak-point-display">
-    <!-- 图表区域 -->
-    <div v-if="showCharts && chartPosition === 'top'" class="charts-section">
-      <div class="chart-item">
+    <!-- 图表区域（顶部） -->
+    <div v-if="showCharts && chartPosition === 'top' && hasData" class="charts-section">
+      <figure class="chart-item">
+        <figcaption class="chart-title">薄弱点分类分布</figcaption>
         <v-chart class="chart" :option="pieOption" autoresize />
-      </div>
-      <div class="chart-item">
+      </figure>
+      <figure class="chart-item">
+        <figcaption class="chart-title">Top {{ topN }} 薄弱点关键词</figcaption>
         <v-chart class="chart" :option="barOption" autoresize />
-      </div>
+      </figure>
     </div>
 
     <!-- 按 category 分组展示 -->
-    <div v-for="(points, category) in groupedWeakPoints" :key="category" class="category-group">
-      <h4 class="category-title">{{ category }}</h4>
-      <div class="weak-points-container">
-        <div
-          v-for="(wp, index) in getDisplayPoints(points)"
-          :key="index"
-          :class="['weak-point-item', {
-            selected: isSelected(wp.keyword),
-            selectable: selectable
-          }]"
-          @click="selectable && toggleSelect(wp.keyword)"
-        >
-          <span class="keyword">{{ wp.keyword }}</span>
-          <span class="count">({{ wp.count }}次)</span>
-          
-          <!-- 描述 tooltip -->
-          <span
-            v-if="showDescription && wp.description"
-            class="description-tooltip"
-            :title="wp.description"
-          >?</span>
+    <div v-if="hasData" class="category-list">
+      <section v-for="(points, category) in groupedWeakPoints" :key="category" class="category-group">
+        <h4 class="category-title">
+          {{ category }}
+          <span class="category-count">{{ points.length }}</span>
+        </h4>
+        <div class="weak-points-container" :role="selectable ? 'group' : undefined" :aria-label="selectable ? `${category}：选择薄弱点` : undefined">
+          <component
+            :is="selectable ? 'button' : 'span'"
+            v-for="(wp, index) in getDisplayPoints(points)"
+            :key="index"
+            :type="selectable ? 'button' : undefined"
+            :aria-pressed="selectable ? (isSelected(wp.keyword) ? 'true' : 'false') : undefined"
+            :class="['weak-point-item', {
+              selected: isSelected(wp.keyword),
+              selectable: selectable
+            }]"
+            :title="showDescription && wp.description ? wp.description : undefined"
+            @click="selectable && toggleSelect(wp.keyword)"
+          >
+            <AppIcon v-if="selectable && isSelected(wp.keyword)" name="check" :size="13" :stroke-width="2.6" />
+            <span class="keyword">{{ wp.keyword }}</span>
+            <span class="count">{{ wp.count }}次</span>
+            <span
+              v-if="showDescription && wp.description"
+              class="description-tooltip"
+              aria-hidden="true"
+            >?</span>
+            <span v-if="showDescription && wp.description" class="sr-only">：{{ wp.description }}</span>
+          </component>
+
+          <!-- 查看更多 -->
+          <button
+            v-if="maxDisplay > 0 && points.length > maxDisplay"
+            type="button"
+            class="view-more"
+            :aria-expanded="showAll[category] ? 'true' : 'false'"
+            @click="showAll[category] = !showAll[category]"
+          >
+            {{ showAll[category] ? '收起' : `查看更多 (${points.length - maxDisplay})` }}
+          </button>
         </div>
-        
-        <!-- 查看更多 -->
-        <span
-          v-if="maxDisplay > 0 && points.length > maxDisplay"
-          class="view-more"
-          @click="showAll[category] = !showAll[category]"
-        >
-          {{ showAll[category] ? '收起' : `查看更多 (${points.length - maxDisplay})` }}
-        </span>
-      </div>
+      </section>
     </div>
-    
+
     <!-- 图表区域（底部） -->
-    <div v-if="showCharts && chartPosition === 'bottom'" class="charts-section">
-      <div class="chart-item">
+    <div v-if="showCharts && chartPosition === 'bottom' && hasData" class="charts-section">
+      <figure class="chart-item">
+        <figcaption class="chart-title">薄弱点分类分布</figcaption>
         <v-chart class="chart" :option="pieOption" autoresize />
-      </div>
-      <div class="chart-item">
+      </figure>
+      <figure class="chart-item">
+        <figcaption class="chart-title">Top {{ topN }} 薄弱点关键词</figcaption>
         <v-chart class="chart" :option="barOption" autoresize />
-      </div>
+      </figure>
     </div>
 
     <!-- 导出按钮 -->
-    <div v-if="showCharts" class="export-section">
-      <button class="export-btn" @click="exportToCSV">导出 CSV</button>
+    <div v-if="showCharts && hasData" class="export-section">
+      <AppButton size="sm" icon="download" @click="exportToCSV">导出 CSV</AppButton>
     </div>
-    
+
     <!-- 空状态 -->
-    <div v-if="Object.keys(groupedWeakPoints).length === 0" class="empty-state">
+    <div v-if="!hasData" class="empty-state">
       <slot name="empty">
         <p>暂无薄弱点数据</p>
       </slot>
@@ -76,19 +91,20 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart } from 'echarts/charts'
 import {
-  TitleComponent,
   TooltipComponent,
   LegendComponent,
   GridComponent
 } from 'echarts/components'
 import { escapeHtml } from '../utils/html'
+import { themeState, readCssVar } from '../utils/theme'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 // 注册 ECharts 组件
 use([
   CanvasRenderer,
   PieChart,
   BarChart,
-  TitleComponent,
   TooltipComponent,
   LegendComponent,
   GridComponent
@@ -120,17 +136,17 @@ const props = defineProps({
     type: Number,
     default: 0
   },
-  // 新增：是否显示图表
+  // 是否显示图表
   showCharts: {
     type: Boolean,
     default: false
   },
-  // 新增：图表位置
+  // 图表位置
   chartPosition: {
     type: String,
     default: 'top'
   },
-  // 新增：柱状图显示前 N 个
+  // 柱状图显示前 N 个
   topN: {
     type: Number,
     default: 15
@@ -158,6 +174,8 @@ const groupedWeakPoints = computed(() => {
   }
   return groups
 })
+
+const hasData = computed(() => Object.keys(groupedWeakPoints.value).length > 0)
 
 // 获取实际显示的 points
 const getDisplayPoints = (points) => {
@@ -191,14 +209,45 @@ watch(() => props.maxDisplay, () => {
 
 // ========== 图表相关逻辑 ==========
 
+// 分类色最多 8 个，按固定顺序使用；超出的分类合并为“其他”（不循环复用颜色）
+const MAX_CATEGORIES = 8
+
+// 当前主题下的图表配色（依赖 themeState.resolved，切换主题时重新计算并重绘）
+const chartTheme = computed(() => {
+  // 读取 resolved 以建立响应式依赖；CSS 变量已随 data-theme 同步更新
+  const resolved = themeState.resolved
+  return {
+    resolved,
+    palette: Array.from({ length: MAX_CATEGORIES }, (_, i) => readCssVar(`--chart-${i + 1}`, '#2a78d6')),
+    text: readCssVar('--color-text', '#1d2433'),
+    label: readCssVar('--chart-label', '#485263'),
+    axis: readCssVar('--chart-axis', '#667085'),
+    grid: readCssVar('--chart-grid', '#e8ebf0'),
+    surface: readCssVar('--color-surface', '#ffffff'),
+    border: readCssVar('--color-border', '#e3e6eb'),
+    font: readCssVar('--font-sans', 'sans-serif')
+  }
+})
+
+const tooltipStyle = (theme) => ({
+  backgroundColor: theme.surface,
+  borderColor: theme.border,
+  borderWidth: 1,
+  padding: [8, 12],
+  textStyle: { color: theme.text, fontSize: 13, fontFamily: theme.font },
+  extraCssText: 'box-shadow: 0 6px 20px rgba(0,0,0,0.12); border-radius: 8px;'
+})
+
 // 饼图数据
 const pieChartData = computed(() => {
   const groups = groupedWeakPoints.value
-  const categories = Object.keys(groups)
-  return {
-    categories,
-    values: categories.map(cat => groups[cat].length)
-  }
+  const entries = Object.keys(groups)
+    .map(cat => ({ name: cat, value: groups[cat].length }))
+    .sort((a, b) => b.value - a.value)
+  if (entries.length <= MAX_CATEGORIES) return entries
+  const head = entries.slice(0, MAX_CATEGORIES - 1)
+  const rest = entries.slice(MAX_CATEGORIES - 1).reduce((sum, e) => sum + e.value, 0)
+  return [...head, { name: '其他', value: rest }]
 })
 
 // 柱状图数据
@@ -214,64 +263,67 @@ const barChartData = computed(() => {
 
 // 饼图配置
 const pieOption = computed(() => {
+  const theme = chartTheme.value
   const data = pieChartData.value
-  if (data.categories.length === 0) {
-    return {
-      title: { text: '薄弱点分类分布', left: 'center', textStyle: { fontSize: 14, color: '#333' } },
-      series: [{ type: 'pie', data: [] }]
-    }
-  }
   return {
-    title: {
-      text: '薄弱点分类分布',
-      left: 'center',
-      textStyle: { fontSize: 14, color: '#333' }
-    },
+    color: theme.palette,
+    textStyle: { fontFamily: theme.font },
     tooltip: {
       trigger: 'item',
-      formatter: '{b}: {c} 个关键词 ({d}%)'
+      formatter: '{b}: {c} 个关键词 ({d}%)',
+      ...tooltipStyle(theme)
     },
+    // 最多 8 项，平铺自动换行（不分页）
     legend: {
-      orient: 'vertical',
-      left: 'left',
-      top: 'middle'
+      type: 'plain',
+      bottom: 0,
+      left: 4,
+      right: 4,
+      icon: 'circle',
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 12,
+      textStyle: { color: theme.label, fontSize: 12 }
     },
     series: [{
       type: 'pie',
-      radius: ['40%', '70%'],
-      data: data.categories.map((cat, idx) => ({
-        value: data.values[idx],
-        name: cat
-      })),
+      radius: ['40%', '62%'],
+      center: ['50%', '40%'],
+      avoidLabelOverlap: true,
+      label: { show: false },
+      labelLine: { show: false },
+      itemStyle: {
+        borderColor: theme.surface,
+        borderWidth: 2,
+        borderRadius: 4
+      },
       emphasis: {
-        itemStyle: {
-          shadowBlur: 10,
-          shadowOffsetX: 0,
-          shadowColor: 'rgba(0, 0, 0, 0.5)'
+        scale: true,
+        scaleSize: 4,
+        label: {
+          show: true,
+          formatter: '{b}\n{c}',
+          fontSize: 13,
+          fontWeight: 600,
+          color: theme.text,
+          lineHeight: 18
         }
-      }
+      },
+      data
     }]
   }
 })
 
 // 柱状图配置
 const barOption = computed(() => {
+  const theme = chartTheme.value
   const data = barChartData.value
-  if (data.keywords.length === 0) {
-    return {
-      title: { text: `Top ${props.topN} 薄弱点关键词`, left: 'center', textStyle: { fontSize: 14, color: '#333' } },
-      series: [{ type: 'bar', data: [] }]
-    }
-  }
   return {
-    title: {
-      text: `Top ${props.topN} 薄弱点关键词`,
-      left: 'center',
-      textStyle: { fontSize: 14, color: '#333' }
-    },
+    textStyle: { fontFamily: theme.font },
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'shadow' },
+      axisPointer: { type: 'shadow', shadowStyle: { color: theme.grid, opacity: 0.6 } },
+      ...tooltipStyle(theme),
       formatter: (params) => {
         const item = params[0]
         // 名称 / 分类来自 AI 输出，拼接 HTML 前必须转义
@@ -279,30 +331,43 @@ const barOption = computed(() => {
       }
     },
     grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      top: 60,
+      left: 8,
+      right: 36,
+      bottom: 8,
+      top: 8,
       containLabel: true
     },
     xAxis: {
       type: 'value',
-      name: '出现次数'
+      minInterval: 1,
+      axisLabel: { color: theme.axis, fontSize: 11 },
+      splitLine: { lineStyle: { color: theme.grid } }
     },
     yAxis: {
       type: 'category',
       data: data.keywords.slice().reverse(),
-      name: '关键词'
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: theme.grid } },
+      axisLabel: {
+        color: theme.label,
+        fontSize: 12,
+        width: 110,
+        overflow: 'truncate'
+      }
     },
     series: [{
       type: 'bar',
       data: data.counts.slice().reverse(),
+      barMaxWidth: 16,
       itemStyle: {
-        color: '#409eff'
+        color: theme.palette[0],
+        borderRadius: [0, 4, 4, 0]
       },
       label: {
         show: true,
-        position: 'right'
+        position: 'right',
+        color: theme.label,
+        fontSize: 11
       }
     }]
   }
@@ -319,7 +384,7 @@ const exportToCSV = () => {
   ])
 
   // 添加 BOM 以支持 Excel 中文
-  const BOM = '\uFEFF'
+  const BOM = '﻿'
   const csvContent = [
     headers.join(','),
     ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -337,84 +402,99 @@ const exportToCSV = () => {
 <style scoped>
 .weak-point-display {
   width: 100%;
+  min-width: 0;
 }
 
-/* 图表区域样式 */
+/* 图表区域 */
 .charts-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: 24px;
-  margin: 16px 0;
-  padding: 16px;
-  background: #fafafa;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
 .chart-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   height: 320px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  padding: 12px;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.chart-title {
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-secondary);
 }
 
 .chart {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
 }
 
 .export-section {
-  margin-top: 16px;
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
 }
 
-.export-btn {
-  padding: 8px 16px;
-  background-color: #409eff;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s;
-}
-
-.export-btn:hover {
-  background-color: #66b1ff;
-}
-
-.category-group {
-  margin-bottom: 16px;
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .category-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #666;
-  margin-bottom: 8px;
-  padding-left: 4px;
-  border-left: 3px solid #409eff;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-secondary);
+}
+
+.category-count {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  line-height: 18px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-3);
+  border-radius: var(--radius-full);
 }
 
 .weak-points-container {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
 .weak-point-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background-color: #f5f7fa;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  font-size: 14px;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: var(--fs-base);
+  line-height: 1.4;
+  color: var(--color-text);
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
   cursor: default;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
 }
 
 .weak-point-item.selectable {
@@ -422,27 +502,26 @@ const exportToCSV = () => {
 }
 
 .weak-point-item.selectable:hover {
-  border-color: #409eff;
-  background-color: #ecf5ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .weak-point-item.selected {
-  background-color: #409eff;
-  border-color: #409eff;
-  color: white;
-}
-
-.weak-point-item.selected .count {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
 .keyword {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
+  word-break: break-word;
 }
 
 .count {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .description-tooltip {
@@ -451,28 +530,36 @@ const exportToCSV = () => {
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin-left: 4px;
-  background-color: #909399;
-  color: white;
-  border-radius: 50%;
   font-size: 10px;
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 50%;
   cursor: help;
 }
 
 .view-more {
-  color: #409eff;
-  font-size: 13px;
-  cursor: pointer;
   padding: 4px 8px;
+  font-size: var(--fs-sm);
+  color: var(--color-primary-text);
+  border-radius: var(--radius-sm);
 }
 
 .view-more:hover {
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .empty-state {
+  padding: var(--space-6);
   text-align: center;
-  padding: 24px;
-  color: #909399;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 640px) {
+  .chart-item {
+    height: 280px;
+    padding: var(--space-3);
+  }
 }
 </style>

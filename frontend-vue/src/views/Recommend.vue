@@ -1,47 +1,50 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
-      <h1>📚 AI 题目推荐</h1>
-    </div>
-    
-    <div class="content-wrapper ai-debug-content">
+  <div class="recommend-page">
+    <PageHeader
+      title="AI 题目推荐"
+      description="根据你在 AI 调试中暴露的薄弱知识点，推荐有针对性的练习方向。"
+    />
+
+    <div class="workspace">
       <!-- 左侧：薄弱点选择 -->
-      <div class="left-panel">
-        <div class="card">
-          <h2 class="subtitle">📊 您的薄弱点</h2>
-          <p class="description">基于您的历史调试记录自动统计的薄弱知识点</p>
-          
+      <div class="left-column">
+        <AppCard
+          title="你的薄弱点"
+          icon="chart"
+          description="基于历史调试记录自动统计，点击选择要练习的知识点"
+        >
           <!-- 筛选控件 -->
-          <div class="filter-controls">
-            <div class="filter-row">
-              <div class="filter-item">
-                <label>开始日期：</label>
-                <input type="date" v-model="startDate" />
-              </div>
-              <div class="filter-item">
-                <label>结束日期：</label>
-                <input type="date" v-model="endDate" />
-              </div>
+          <div class="filter-bar">
+            <div class="field">
+              <label class="field-label" for="rec-start">开始日期</label>
+              <input id="rec-start" v-model="startDate" type="date" />
             </div>
-            <div class="filter-row">
-              <div class="filter-item">
-                <label>显示前：</label>
-                <input type="number" v-model.number="topK" min="0" max="20" style="width: 50px" />
-                <span class="filter-hint">（0 = 全部）</span>
-              </div>
+            <div class="field">
+              <label class="field-label" for="rec-end">结束日期</label>
+              <input id="rec-end" v-model="endDate" type="date" />
             </div>
+            <div class="field field-topk">
+              <label class="field-label" for="rec-topk">显示前</label>
+              <input id="rec-topk" v-model.number="topK" type="number" min="0" max="20" aria-describedby="rec-topk-hint" />
+              <span id="rec-topk-hint" class="sr-only">0 表示显示全部</span>
+            </div>
+            <p class="filter-hint field-hint">“显示前”为 0 时显示全部薄弱点</p>
           </div>
-          
-          <div v-if="loadingWeakPoints" class="loading-small">
-            加载中...
-          </div>
-          
-          <div v-else-if="userWeakPoints.length === 0" class="empty-state">
-            <p>暂无薄弱点记录</p>
-            <p class="hint">完成更多 AI 调试后，系统会自动统计您的薄弱点</p>
-          </div>
-          
+
+          <AppSpinner v-if="loadingWeakPoints" block label="正在加载薄弱点..." />
+
+          <AppEmpty
+            v-else-if="userWeakPoints.length === 0"
+            icon="chart"
+            title="暂无薄弱点记录"
+            description="完成更多 AI 调试后，系统会自动统计你的薄弱点。也可以调整上方的日期范围。"
+            compact
+          >
+            <template #actions>
+              <AppButton to="/ai-debug" size="sm" icon="chat">去 AI 调试</AppButton>
+            </template>
+          </AppEmpty>
+
           <div v-else class="weak-points-container">
             <WeakPointDisplay
               :weakPoints="userWeakPoints"
@@ -54,91 +57,82 @@
               :topN="10"
             />
           </div>
-        </div>
-        
-        <div class="card">
-          <h2 class="subtitle">🎯 推荐设置</h2>
-          <div class="setting-item">
-            <label>推荐数量：</label>
-            <select v-model="maxRecommendations">
-              <option :value="3">3 个</option>
-              <option :value="5">5 个</option>
-              <option :value="8">8 个</option>
-              <option :value="10">10 个</option>
-            </select>
-          </div>
-        </div>
-        
-        <button 
-          @click="submitRecommend" 
-          class="btn btn-primary start-btn" 
-          :disabled="loading || !canSubmit"
-        >
-          {{ loading ? '推荐中...' : '获取推荐' }}
-        </button>
-        
-        <button 
-          v-if="hasResult" 
-          @click="resetForm" 
-          class="btn btn-secondary reset-btn"
-        >
-          重新推荐
-        </button>
+        </AppCard>
       </div>
-      
-      <!-- 右侧：推荐结果 -->
-      <div class="right-panel">
-        <div class="card dialogue-card">
-          <div class="dialogue-header">
-            <h2 class="subtitle">推荐结果</h2>
-          </div>
-          
-          <div v-if="!hasResult" class="empty-dialogue">
-            <p>暂无推荐结果</p>
-            <p class="hint">请在左侧选择薄弱点，点击"获取推荐"</p>
-          </div>
-          
-          <div v-else class="recommendation-result">
-            <!-- 分析 -->
-            <div class="analysis-section">
-              <h3>📝 分析总结</h3>
-              <p>{{ result.analysis }}</p>
+
+      <!-- 右侧：设置 + 推荐结果 -->
+      <div class="right-column">
+        <AppCard title="推荐设置" icon="target">
+          <div class="settings">
+            <p class="selected-summary" aria-live="polite">
+              <template v-if="selectedWeakPoints.length > 0">
+                已选择 <strong>{{ selectedWeakPoints.length }}</strong> 个薄弱点
+              </template>
+              <template v-else>请先在左侧选择至少一个薄弱点</template>
+            </p>
+            <div class="field setting-field">
+              <label class="field-label" for="rec-count">推荐数量</label>
+              <select id="rec-count" v-model="maxRecommendations">
+                <option :value="3">3 个</option>
+                <option :value="5">5 个</option>
+                <option :value="8">8 个</option>
+                <option :value="10">10 个</option>
+              </select>
             </div>
-            
-            <!-- 推荐列表 -->
-            <div class="recommendations-list">
-              <h3>🎯 推荐题目标签</h3>
-              <div 
-                v-for="(rec, index) in result.recommendations" 
-                :key="index"
-                class="recommendation-item"
+            <div class="setting-actions">
+              <AppButton
+                variant="primary"
+                size="lg"
+                icon="sparkles"
+                block
+                :loading="loading"
+                :disabled="!canSubmit"
+                @click="submitRecommend"
               >
-                <div class="rec-header">
-                  <span class="rec-tag">{{ rec.tag }}</span>
-                  <span class="rec-relevance" :class="getRelevanceClass(rec.relevance)">
-                    相关度: {{ (rec.relevance * 100).toFixed(0) }}%
-                  </span>
-                </div>
-                <div class="rec-reason">{{ rec.reason }}</div>
-              </div>
+                {{ loading ? '推荐中...' : '获取推荐' }}
+              </AppButton>
+              <AppButton
+                v-if="hasResult"
+                size="lg"
+                icon="refresh"
+                block
+                @click="resetForm"
+              >
+                重新推荐
+              </AppButton>
             </div>
           </div>
-          
-          <div v-if="loading" class="loading-item">
-            <div class="dialogue-avatar">🤖</div>
-            <div class="dialogue-bubble">
-              <div class="dialogue-label">AI 助手</div>
-              <div class="dialogue-text loading">
-                <span>正在思考</span>
-                <span class="dots">...</span>
-              </div>
-            </div>
+        </AppCard>
+
+        <AppCard title="推荐结果" icon="book" class="result-card">
+          <template v-if="loading" #actions>
+            <span class="status-pill" role="status">
+              <AppSpinner size="sm" />
+              AI 正在生成
+            </span>
+          </template>
+
+          <AppAlert v-if="errorMessage" tone="danger" class="result-error">{{ errorMessage }}</AppAlert>
+
+          <RecommendationList
+            v-if="hasResult"
+            :analysis="result.analysis"
+            :recommendations="result.recommendations"
+          />
+
+          <div v-else-if="loading" class="result-loading" aria-busy="true">
+            <AppSkeleton :lines="3" />
+            <AppSkeleton :lines="2" />
           </div>
-        </div>
-        
-        <div v-if="errorMessage" class="error-message">
-          {{ errorMessage }}
-        </div>
+
+          <AppEmpty
+            v-else
+            icon="book"
+            title="暂无推荐结果"
+            description="选择薄弱点后点击“获取推荐”，AI 会给出练习方向与理由。"
+            compact
+          />
+        </AppCard>
       </div>
     </div>
   </div>
@@ -152,6 +146,14 @@ import { aiAPI } from '@/api'
 import { useAbortableRequest } from '@/composables/useAbortableRequest'
 import { getErrorMessage, isAbortError } from '@/utils/errors'
 import WeakPointDisplay from '@/components/WeakPointDisplay.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import AppCard from '@/components/ui/AppCard.vue'
+import AppButton from '@/components/ui/AppButton.vue'
+import AppAlert from '@/components/ui/AppAlert.vue'
+import AppEmpty from '@/components/ui/AppEmpty.vue'
+import AppSpinner from '@/components/ui/AppSpinner.vue'
+import AppSkeleton from '@/components/ui/AppSkeleton.vue'
+import RecommendationList from '@/components/results/RecommendationList.vue'
 
 const authStore = useAuthStore()
 
@@ -325,13 +327,6 @@ useKeyboardShortcut(['ctrl+enter'], () => {
   }
 })
 
-// 获取相关度样式类
-const getRelevanceClass = (relevance) => {
-  if (relevance >= 0.8) return 'relevance-high'
-  if (relevance >= 0.5) return 'relevance-medium'
-  return 'relevance-low'
-}
-
 // 页面加载时获取薄弱点
 onMounted(() => {
   fetchUserWeakPoints()
@@ -339,196 +334,107 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-debug-content {
+.workspace {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--space-6);
+  align-items: start;
 }
 
-.left-panel,
-.right-panel {
+.left-column,
+.right-column {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-6);
+  min-width: 0;
 }
 
-.description {
-  margin: 0 0 16px;
-  color: #666;
-  font-size: 14px;
+.filter-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 96px;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.filter-controls {
-  margin-bottom: 16px;
-  padding: 12px;
-  background-color: #f5f7fa;
-  border-radius: 8px;
+.filter-bar .field + .field {
+  margin-top: 0;
 }
 
-.filter-row {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 12px;
+.filter-hint {
+  grid-column: 1 / -1;
 }
 
-.filter-row:last-child {
-  margin-bottom: 0;
-}
-
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.filter-item label {
-  color: #666;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.filter-item input[type="date"],
-.filter-item input[type="number"] {
-  padding: 6px 10px;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.filter-item input[type="date"]:focus,
-.filter-item input[type="number"]:focus {
-  outline: none;
-  border-color: #409eff;
-}
-
-.filter-item input[type="number"] {
-  width: 60px;
-}
-
-.weak-points-container {
-  min-height: 100px;
-}
-
-.setting-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.setting-item label {
-  color: #666;
-}
-
-.setting-item select {
-  padding: 8px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 14px;
-}
-
-.setting-item select:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.start-btn,
-.reset-btn {
-  width: 100%;
-}
-
-.dialogue-card {
-  flex: 1;
-  min-height: 500px;
+.settings {
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
 }
 
-.dialogue-header {
+.selected-summary {
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.selected-summary strong {
+  color: var(--color-primary-text);
+}
+
+.setting-field + .setting-actions {
+  margin-top: 0;
+}
+
+.setting-actions {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.status-pill {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  padding: 2px 10px;
+  font-size: var(--fs-sm);
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-full);
 }
 
-.recommendation-result {
-  flex: 1;
-  overflow-y: auto;
+.result-error {
+  margin-bottom: var(--space-4);
 }
 
-.analysis-section {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-  border-left: 4px solid #667eea;
-  margin-bottom: 20px;
-}
-
-.analysis-section h3 {
-  margin: 0 0 8px;
-  color: #333;
-}
-
-.analysis-section p {
-  margin: 0;
-  color: #666;
-  line-height: 1.6;
-}
-
-.recommendations-list h3 {
-  margin: 0 0 12px;
-  color: #333;
-}
-
-.recommendation-item {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 12px;
-}
-
-.rec-header {
+.result-loading {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
-.rec-tag {
-  font-weight: 600;
-  color: #333;
-  font-size: 16px;
+@media (min-width: 1025px) {
+  .right-column {
+    position: sticky;
+    top: calc(var(--nav-height) + var(--space-6));
+  }
 }
 
-.rec-relevance {
-  font-size: 13px;
-  padding: 4px 8px;
-  border-radius: 4px;
+@media (max-width: 1024px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-.relevance-high {
-  background: #d4edda;
-  color: #155724;
-}
+@media (max-width: 640px) {
+  .filter-bar {
+    grid-template-columns: 1fr 1fr;
+    padding: var(--space-3);
+  }
 
-.relevance-medium {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.relevance-low {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.rec-reason {
-  color: #666;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-@media (max-width: 900px) {
-  .ai-debug-content {
-    grid-template-columns: 1fr;
+  .field-topk {
+    grid-column: 1 / -1;
   }
 }
 </style>

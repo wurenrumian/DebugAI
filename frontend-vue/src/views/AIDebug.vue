@@ -1,242 +1,238 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
-      <h1>🤖 AI 代码调试</h1>
-    </div>
-    
-    <div class="content-wrapper ai-debug-content">
+  <div class="debug-page">
+    <PageHeader
+      title="AI 代码调试"
+      description="描述问题并提交代码，AI 会通过最多 4 轮对话引导你自己定位并修正错误。"
+    />
+
+    <div class="workspace">
       <!-- 左侧：问题描述和代码输入 -->
-      <div class="left-panel">
-        <div class="card">
-          <h2 class="subtitle">问题描述</h2>
-          <textarea 
-            v-model="formData.problem_description" 
-            placeholder="请描述你遇到的问题..."
-            rows="4"
-            :disabled="currentRound > 1"
-          ></textarea>
-        </div>
-        
-        <div class="card">
-          <h2 class="subtitle">代码</h2>
-          <textarea 
-            v-model="formData.code" 
-            placeholder="请输入需要调试的代码..."
-            rows="12"
-            class="code-input"
-            :disabled="currentRound > 1"
-          ></textarea>
-        </div>
-        
-        <div class="card">
-          <h2 class="subtitle">测试点 (可选)</h2>
-          <textarea 
-            v-model="testPointsText" 
-            placeholder="请输入测试点，每行一个，例如：&#10;输入: [1, 2, 3]&#10;输出: [6]"
-            rows="4"
-            :disabled="currentRound > 1"
-          ></textarea>
-        </div>
-        
-        <button
-          @click="startDebug"
-          class="btn btn-primary start-btn"
-          :disabled="loading || !canStart || isConversationClosed || currentRound > 4"
-        >
-          {{ loading ? '处理中...' : isConversationClosed|currentRound>4 ? '对话已关闭' : currentRound > 1 ? '继续调试' : '开始调试' }}
-        </button>
-        
-        <button 
-          v-if="currentRound > 1" 
-          @click="resetConversation" 
-          class="btn btn-secondary reset-btn"
-        >
-          新建对话
-        </button>
-      </div>
-      
-      <!-- 右侧：对话历史 -->
-      <div class="right-panel">
-        <div class="card dialogue-card">
-          <div class="dialogue-header">
-            <h2 class="subtitle">对话记录</h2>
-            <div class="round-info">
-              <span v-if="currentRound<=4" class="round-badge">第 {{ currentRound }} / 4 轮</span>
-              <span v-else class="round-badge">已完成</span>
-              <span v-if="roundInfo" class="round-title">{{ roundInfo.round_title }}</span>
-            </div>
+      <AppCard title="调试信息" icon="code" class="input-panel">
+        <AppAlert v-if="currentRound > 1" tone="info" class="locked-hint">
+          对话进行中，题目与代码已锁定。如需修改，请点击“新建对话”。
+        </AppAlert>
+
+        <form class="input-form" @submit.prevent="startDebug">
+          <div class="field">
+            <label class="field-label" for="debug-problem">问题描述</label>
+            <textarea
+              id="debug-problem"
+              v-model="formData.problem_description"
+              placeholder="请描述你遇到的问题..."
+              rows="4"
+              :disabled="currentRound > 1"
+            ></textarea>
           </div>
-          
-          <!-- 轮次说明 -->
-          <div v-if="roundInfo" class="round-description">
-            <p>{{ roundInfo.round_description }}</p>
-            <p class="hint" v-if="roundInfo.next_round_hint">💡 {{ roundInfo.next_round_hint }}</p>
+
+          <div class="field">
+            <span id="debug-code-label" class="field-label" @click="codeEditor?.focus()">代码（C/C++）</span>
+            <CodeEditor
+              ref="codeEditor"
+              id="debug-code"
+              v-model="formData.code"
+              labelledby="debug-code-label"
+              describedby="debug-code-hint"
+              placeholder="请输入需要调试的代码..."
+              :disabled="currentRound > 1"
+              min-height="260px"
+            />
+            <p id="debug-code-hint" class="field-hint">Tab 缩进；按 Esc 后再按 Tab 可离开编辑器</p>
           </div>
-          
-          <div class="dialogue-content" ref="dialogueContent">
-            <div v-if="dialogueHistory.length === 0" class="empty-dialogue">
-              <p>暂无对话记录</p>
-              <p class="hint">请在左侧输入问题和代码，点击"开始调试"</p>
-            </div>
-            
-            <div
-              v-for="(item, index) in dialogueHistory"
-              :key="index"
-              :class="['dialogue-item', item.role]"
+
+          <div class="field">
+            <label class="field-label" for="debug-tests">测试点<span class="optional">（可选）</span></label>
+            <textarea
+              id="debug-tests"
+              v-model="testPointsText"
+              class="mono-input"
+              placeholder="请输入测试点，每行一个，例如：&#10;输入: [1, 2, 3]&#10;输出: [6]"
+              rows="4"
+              :disabled="currentRound > 1"
+            ></textarea>
+          </div>
+
+          <div class="form-actions">
+            <AppButton
+              type="submit"
+              :variant="currentRound > 1 ? 'secondary' : 'primary'"
+              size="lg"
+              :icon="currentRound > 1 ? 'send' : 'sparkles'"
+              :loading="loading"
+              :disabled="!canStart || isConversationClosed || currentRound > 4"
             >
-              <div class="dialogue-avatar">
-                {{ item.role === 'student' ? '👤' : '🤖' }}
+              {{ loading ? '处理中...' : isConversationClosed || currentRound > 4 ? '对话已关闭' : currentRound > 1 ? '继续调试' : '开始调试' }}
+            </AppButton>
+            <AppButton v-if="currentRound > 1" size="lg" icon="plus" @click="resetConversation">
+              新建对话
+            </AppButton>
+            <span class="shortcut-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 提交</span>
+          </div>
+        </form>
+      </AppCard>
+
+      <!-- 右侧：对话 -->
+      <section class="chat-panel" aria-labelledby="chat-title">
+        <header class="chat-header">
+          <div class="chat-heading">
+            <h2 id="chat-title" class="chat-title">
+              <AppIcon name="chat" :size="18" />
+              调试对话
+            </h2>
+            <p class="chat-subtitle">
+              <template v-if="currentRound <= 4">第 {{ currentRound }} / 4 轮</template>
+              <template v-else>已完成</template>
+              <template v-if="roundInfo && roundInfo.round_title"> · {{ roundInfo.round_title }}</template>
+            </p>
+          </div>
+          <ol class="round-steps" aria-label="调试轮次进度">
+            <li
+              v-for="n in 4"
+              :key="n"
+              :class="['round-step', {
+                done: n < currentRound,
+                current: n === currentRound
+              }]"
+              :aria-current="n === currentRound ? 'step' : undefined"
+            >
+              <span class="step-dot">
+                <AppIcon v-if="n < currentRound" name="check" :size="12" :stroke-width="3" />
+                <template v-else>{{ n }}</template>
+              </span>
+              <span class="sr-only">第 {{ n }} 轮{{ n < currentRound ? '（已完成）' : n === currentRound ? '（当前）' : '' }}</span>
+            </li>
+          </ol>
+        </header>
+
+        <!-- 轮次说明 -->
+        <div v-if="roundInfo && (roundInfo.round_description || roundInfo.next_round_hint)" class="round-description">
+          <p v-if="roundInfo.round_description">{{ roundInfo.round_description }}</p>
+          <p v-if="roundInfo.next_round_hint" class="round-hint">
+            <AppIcon name="lightbulb" :size="14" />
+            {{ roundInfo.next_round_hint }}
+          </p>
+        </div>
+
+        <div ref="dialogueContent" class="dialogue-content" aria-live="polite">
+          <AppEmpty
+            v-if="dialogueHistory.length === 0"
+            icon="chat"
+            title="还没有对话"
+            description="在左侧填写问题描述和代码，点击“开始调试”，AI 会先复述它对你思路的理解。"
+          />
+
+          <div
+            v-for="(item, index) in dialogueHistory"
+            :key="index"
+            :class="['message', item.role]"
+          >
+            <div class="message-avatar" aria-hidden="true">
+              <AppIcon :name="item.role === 'student' ? 'user' : 'sparkles'" :size="16" />
+            </div>
+            <div class="message-body">
+              <div class="message-meta">
+                <span class="message-author">{{ item.role === 'student' ? '你' : 'AI 助手' }}</span>
+                <span v-if="item.round_number" class="message-round">第 {{ item.round_number }} 轮</span>
               </div>
-              <div class="dialogue-bubble">
-                <div class="dialogue-label">{{ item.role === 'student' ? '你' : 'AI 助手' }}</div>
+              <div class="message-bubble">
                 <!-- 学生消息：纯文本显示（不解析 HTML / Markdown） -->
-                <div v-if="item.role === 'student'" class="dialogue-text plain-text">{{ item.content }}</div>
+                <div v-if="item.role === 'student'" class="plain-text">{{ item.content }}</div>
                 <!-- AI 消息：流式时显示纯文本，完成后显示结构化组件 -->
-                <div v-else-if="item.role === 'assistant' && item.isStreaming" class="dialogue-text streaming-text">{{ item.content }}</div>
+                <div v-else-if="item.role === 'assistant' && item.isStreaming" class="streaming">
+                  <span class="typing" role="status">
+                    <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                    AI 正在分析
+                  </span>
+                  <div v-if="item.content" class="streaming-text">{{ item.content }}</div>
+                </div>
                 <AIResponseDisplay
                   v-else-if="item.role === 'assistant' && !item.isStreaming"
                   :ai-response="item.ai_response || parseAIResponse(item.content)"
                   :student-response="item.student_response || ''"
                 />
-                <div v-else class="dialogue-text markdown-body" v-html="renderMarkdown(item.content)"></div>
+                <div v-else class="markdown-body" v-html="renderMarkdown(item.content)"></div>
               </div>
             </div>
-            
-
           </div>
-          
-          <!-- 学生回复输入 -->
+        </div>
+
+        <!-- 底部输入区（固定在对话面板底部） -->
+        <footer v-if="showStudentInput || errorMessage || (currentRound > 4 && roundInfo && roundInfo.is_completed)" class="chat-footer">
+          <AppAlert
+            v-if="errorMessage"
+            tone="danger"
+            dismissible
+            class="chat-error"
+            @dismiss="errorMessage = ''"
+          >
+            {{ errorMessage }}
+          </AppAlert>
+
+          <!-- 对话完成提示 -->
+          <AppAlert v-if="currentRound > 4 && (roundInfo && roundInfo.is_completed)" tone="success">
+            对话已完成！如需继续调试，请新建对话。
+          </AppAlert>
+
           <div v-if="showStudentInput" class="student-input-area">
-            <!-- 第2轮：按钮选择 -->
-            <div v-if="currentRound === 2" class="round-2-input">
-              <div class="input-hint">
-                <span>请确认 AI 对你思路的理解是否正确：</span>
-              </div>
-              <!-- 按钮选择模式 -->
+            <!-- 第2轮：确认思路 -->
+            <template v-if="currentRound === 2">
+              <p id="reply-prompt" class="input-hint">请确认 AI 对你思路的理解是否正确：</p>
               <div v-if="buttonSelection === ''" class="button-choice">
-                <button
-                  @click="handleRound2Choice('correct')"
-                  class="btn btn-primary"
-                  :disabled="loading"
-                >
+                <AppButton variant="primary" :disabled="loading" @click="handleRound2Choice('correct')">
                   理解正确
-                </button>
-                <button
-                  @click="handleRound2Choice('need_correction')"
-                  class="btn btn-secondary"
-                  :disabled="loading"
-                >
+                </AppButton>
+                <AppButton :disabled="loading" @click="handleRound2Choice('need_correction')">
                   需要修正思路
-                </button>
+                </AppButton>
               </div>
-              <!-- 输入框模式（选择需要修正思路后显示） -->
-              <div v-else class="text-input-mode">
+              <div v-else class="composer">
                 <textarea
                   v-model="studentResponse"
+                  aria-labelledby="reply-prompt"
                   placeholder="请输入你对思路的修正说明..."
                   rows="3"
                 ></textarea>
-                <button
-                  @click="submitStudentResponse"
-                  class="btn btn-primary"
+                <AppButton
+                  variant="primary"
+                  icon="send"
                   :disabled="!studentResponse.trim() || loading"
+                  @click="submitStudentResponse"
                 >
                   发送
-                </button>
+                </AppButton>
               </div>
-            </div>
+            </template>
 
-            <!-- 第3轮：按钮选择 -->
-            <div v-else-if="currentRound === 3" class="round-3-input">
-              <div class="input-hint">
-                <span>请选择是否需要进一步帮助：</span>
-              </div>
-              <!-- 按钮选择模式 -->
+            <!-- 第3、4轮：是否需要进一步帮助 -->
+            <template v-else-if="currentRound === 3 || currentRound === 4">
+              <p id="reply-prompt" class="input-hint">请选择是否需要进一步帮助：</p>
               <div v-if="buttonSelection === ''" class="button-choice">
-                <button
-                  @click="handleRound3Choice('need')"
-                  class="btn btn-primary"
-                  :disabled="loading"
-                >
+                <AppButton variant="primary" :disabled="loading" @click="handleRound3Choice('need')">
                   需要
-                </button>
-                <button
-                  @click="handleRound3Choice('not_need')"
-                  class="btn btn-secondary"
-                  :disabled="loading"
-                >
+                </AppButton>
+                <AppButton :disabled="loading" @click="handleRound3Choice('not_need')">
                   不需要
-                </button>
+                </AppButton>
               </div>
-              <!-- 输入框模式（选择需要后显示） -->
-              <div v-else class="text-input-mode">
+              <div v-else class="composer">
                 <textarea
                   v-model="studentResponse"
+                  aria-labelledby="reply-prompt"
                   placeholder="请告诉 AI 你需要什么帮助..."
                   rows="3"
                 ></textarea>
-                <button
-                  @click="submitStudentResponse"
-                  class="btn btn-primary"
+                <AppButton
+                  variant="primary"
+                  icon="send"
                   :disabled="!studentResponse.trim() || loading"
+                  @click="submitStudentResponse"
                 >
                   发送
-                </button>
+                </AppButton>
               </div>
-            </div>
-
-            <!-- 第4轮：按钮选择 -->
-            <div v-else-if="currentRound === 4" class="round-4-input">
-              <div class="input-hint">
-                <span>请选择是否需要进一步帮助：</span>
-              </div>
-              <!-- 按钮选择模式 -->
-              <div v-if="buttonSelection === ''" class="button-choice">
-                <button
-                  @click="handleRound3Choice('need')"
-                  class="btn btn-primary"
-                  :disabled="loading"
-                >
-                  需要
-                </button>
-                <button
-                  @click="handleRound3Choice('not_need')"
-                  class="btn btn-secondary"
-                  :disabled="loading"
-                >
-                  不需要
-                </button>
-              </div>
-              <!-- 输入框模式（选择需要后显示） -->
-              <div v-else class="text-input-mode">
-                <textarea
-                  v-model="studentResponse"
-                  placeholder="请告诉 AI 你需要什么帮助..."
-                  rows="3"
-                ></textarea>
-                <button
-                  @click="submitStudentResponse"
-                  class="btn btn-primary"
-                  :disabled="!studentResponse.trim() || loading"
-                >
-                  发送
-                </button>
-              </div>
-            </div>
+            </template>
           </div>
-          
-          <!-- 对话完成提示 -->
-          <div v-if="currentRound > 4 && (roundInfo && roundInfo.is_completed)" class="completion-notice">
-            <p>🎉 对话已完成！如需继续调试，请新建对话。</p>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- 错误提示 -->
-    <div v-if="errorMessage" class="error-toast" @click="errorMessage = ''">
-      {{ errorMessage }}
+        </footer>
+      </section>
     </div>
   </div>
 </template>
@@ -250,8 +246,18 @@ import { aiAPI } from '../api'
 import { renderMarkdown } from '../utils/markdown'
 import { getErrorMessage, isAbortError } from '../utils/errors'
 import AIResponseDisplay from '../components/AIResponseDisplay.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import AppCard from '../components/ui/AppCard.vue'
+import AppButton from '../components/ui/AppButton.vue'
+import AppAlert from '../components/ui/AppAlert.vue'
+import AppEmpty from '../components/ui/AppEmpty.vue'
+import AppIcon from '../components/ui/AppIcon.vue'
+import CodeEditor from '../components/code/CodeEditor.vue'
 
 const authStore = useAuthStore()
+
+// 代码编辑器实例（点击标签时聚焦）
+const codeEditor = ref(null)
 
 // 流式请求控制（组件卸载 / 新建对话时自动取消）
 const streamRequest = useAbortableRequest()
@@ -498,7 +504,7 @@ const resetConversation = () => {
 // 滚动到底部
 const scrollToBottom = async () => {
   await nextTick()
-  const content = document.querySelector('.dialogue-content')
+  const content = dialogueContent.value
   if (content) {
     content.scrollTop = content.scrollHeight
   }
@@ -556,187 +562,394 @@ useKeyboardShortcut(['ctrl+enter'], () => {
 </script>
 
 <style scoped>
-.ai-debug-content {
+.workspace {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-6);
+  align-items: start;
 }
 
-.left-panel .card {
-  margin-bottom: 15px;
+.locked-hint {
+  margin-bottom: var(--space-4);
 }
 
-.start-btn {
-  width: 100%;
-  padding: 14px;
-  font-size: 16px;
-  margin-bottom: 10px;
-}
-
-.reset-btn {
-  width: 100%;
-  padding: 12px;
-  font-size: 14px;
-}
-
-.right-panel {
-  position: sticky;
-  top: 20px;
-  height: calc(100vh - 120px);
-}
-
-.dialogue-card {
-  height: 100%;
+.input-form {
   display: flex;
   flex-direction: column;
 }
 
-.dialogue-header {
+.mono-input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.form-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
 }
 
-.round-info {
+.shortcut-hint {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---------- 对话面板 ---------- */
+.chat-panel {
+  position: sticky;
+  top: calc(var(--nav-height) + var(--space-6));
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  height: calc(100vh - var(--nav-height) - var(--space-12));
+  min-height: 520px;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
 }
 
-.round-badge {
-  background: #409eff;
-  color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 12px;
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.round-title {
-  font-size: 12px;
-  color: #67c23a;
-  font-weight: 500;
+.chat-heading {
+  min-width: 0;
+}
+
+.chat-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-lg);
+}
+
+.chat-title .app-icon {
+  color: var(--color-primary-text);
+}
+
+.chat-subtitle {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.round-steps {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.round-step {
+  display: flex;
+  align-items: center;
+}
+
+.round-step + .round-step::before {
+  content: '';
+  width: 18px;
+  height: 2px;
+  margin: 0 4px;
+  background: var(--color-border-strong);
+  border-radius: 2px;
+}
+
+.round-step.done + .round-step::before,
+.round-step.done + .round-step.current::before {
+  background: var(--color-primary);
+}
+
+.step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
+
+.round-step.done .step-dot {
+  color: var(--color-on-primary);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.round-step.current .step-dot {
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .round-description {
-  background: #f0f9eb;
-  border: 1px solid #e1f3d8;
-  border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 15px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.round-description p {
-  font-size: 14px;
-  color: #303133;
-  line-height: 1.6;
+.round-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--color-text-muted);
 }
 
-.round-description .hint {
-  color: #67c23a;
-  font-size: 13px;
-  margin-top: 8px;
+.round-hint .app-icon {
+  margin-top: 3px;
+  color: var(--color-warning);
 }
 
 .dialogue-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 10px 0;
-  max-height: 400px;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  scroll-behavior: smooth;
 }
 
-.streaming-text {
-  font-family: 'Courier New', monospace;
-  line-height: 1.6;
-  white-space: pre-wrap;
+/* 消息 */
+.message {
+  display: flex;
+  gap: var(--space-3);
+  max-width: 100%;
+}
+
+.message.student {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-primary-soft-border);
+}
+
+.message.student .message-avatar {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-3);
+  border-color: var(--color-border);
+}
+
+.message-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: min(100%, 680px);
+}
+
+.message.assistant .message-body {
+  flex: 1;
+}
+
+.message.student .message-body {
+  align-items: flex-end;
+  max-width: 80%;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.message-author {
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
+}
+
+.message-bubble {
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 4px var(--radius-lg) var(--radius-lg) var(--radius-lg);
   word-break: break-word;
 }
 
-.loading-dots .dots {
-  animation: blink 1.5s infinite;
+.message.student .message-bubble {
+  color: var(--color-text);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft-border);
+  border-radius: var(--radius-lg) 4px var(--radius-lg) var(--radius-lg);
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+.streaming {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-.student-input-area {
-  border-top: 1px solid #f0f0f0;
-  padding-top: 15px;
-  margin-top: 15px;
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.typing-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-primary-text);
+  animation: typing 1.2s infinite ease-in-out;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing {
+  0%, 80%, 100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.streaming-text {
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-muted);
+}
+
+/* 底部输入区 */
+.chat-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
 }
 
 .input-hint {
-  font-size: 13px;
-  color: #606266;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
 }
 
-.student-input-area textarea {
-  resize: none;
-  margin-bottom: 10px;
-}
-
-.student-input-area .btn {
-  width: 100%;
-}
-
-/* 按钮选择样式 */
 .button-choice {
   display: flex;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--space-3);
 }
 
-.button-choice .btn {
+.button-choice > .btn {
   flex: 1;
-  padding: 12px;
-  font-size: 14px;
 }
 
-.text-input-mode textarea {
-  width: 100%;
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 72px;
   resize: none;
-  margin-bottom: 10px;
 }
 
-.text-input-mode .btn {
-  width: 100%;
-}
-
-/* 辅助按钮样式 */
-.btn-secondary {
-  background-color: #909399;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.btn-secondary:hover {
-  background-color: #82848a;
-}
-
-.btn-secondary:disabled {
-  background-color: #c0c4cc;
-  cursor: not-allowed;
-}
-
-@media (max-width: 900px) {
-  .ai-debug-content {
-    grid-template-columns: 1fr;
+@media (max-width: 1024px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
-  
-  .right-panel {
+
+  .chat-panel {
     position: static;
-    height: auto;
+    height: min(80vh, 760px);
+    min-height: 480px;
   }
-  
+}
+
+@media (max-width: 640px) {
+  .shortcut-hint {
+    display: none;
+  }
+
+  .form-actions > .btn {
+    flex: 1 1 auto;
+  }
+
+  .chat-header {
+    flex-wrap: wrap;
+    padding: var(--space-4);
+  }
+
+  .round-description,
+  .chat-footer {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
   .dialogue-content {
-    max-height: 400px;
+    padding: var(--space-4);
+  }
+
+  .message-avatar {
+    display: none;
+  }
+
+  .message.student .message-body {
+    max-width: 90%;
+  }
+
+  .composer {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

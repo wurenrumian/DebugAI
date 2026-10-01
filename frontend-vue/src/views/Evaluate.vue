@@ -1,141 +1,114 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <router-link to="/profile" class="back-link">← 返回个人主页</router-link>
-      <h1>📝 AI 代码评价</h1>
-    </div>
-    
-    <div class="content-wrapper ai-debug-content">
+  <div class="evaluate-page">
+    <PageHeader
+      title="AI 代码评价"
+      description="提交题目与代码，AI 将从功能、逻辑、效率、规范四个维度给出评价与改进建议。"
+    />
+
+    <div class="workspace">
       <!-- 左侧：输入区域 -->
-      <div class="left-panel">
-        <div class="card">
-          <h2 class="subtitle">题目描述</h2>
-          <textarea 
-            v-model="formData.problem_description" 
-            placeholder="请输入题目描述..."
-            rows="4"
-          ></textarea>
-        </div>
-        
-        <div class="card">
-          <h2 class="subtitle">代码</h2>
-          <textarea 
-            v-model="formData.code" 
-            placeholder="请输入需要评价的代码（C/C++）..."
-            rows="12"
-            class="code-input"
-          ></textarea>
-        </div>
-        
-        <div class="card">
-          <h2 class="subtitle">测试点 (可选)</h2>
-          <textarea 
-            v-model="testPointsText" 
-            placeholder="请输入测试点，每行一个，例如：&#10;输入: 1 2 3&#10;输出: 6&#10;状态: Accepted"
-            rows="4"
-          ></textarea>
-        </div>
-        
-        <button 
-          @click="submitEvaluate" 
-          class="btn btn-primary start-btn" 
-          :disabled="loading || !canSubmit"
-        >
-          {{ loading ? '评价中...' : '提交评价' }}
-        </button>
-        
-        <button 
-          v-if="hasResult" 
-          @click="resetForm" 
-          class="btn btn-secondary reset-btn"
-        >
-          重新评价
-        </button>
-      </div>
-      
+      <AppCard title="提交代码" icon="code" class="input-panel">
+        <form class="input-form" @submit.prevent="submitEvaluate">
+          <div class="field">
+            <label class="field-label" for="eval-problem">题目描述</label>
+            <textarea
+              id="eval-problem"
+              v-model="formData.problem_description"
+              placeholder="请输入题目描述..."
+              rows="4"
+            ></textarea>
+          </div>
+
+          <div class="field">
+            <span id="eval-code-label" class="field-label" @click="codeEditor?.focus()">代码（C/C++）</span>
+            <CodeEditor
+              ref="codeEditor"
+              id="eval-code"
+              v-model="formData.code"
+              labelledby="eval-code-label"
+              describedby="eval-code-hint"
+              placeholder="请输入需要评价的代码（C/C++）..."
+              min-height="280px"
+            />
+            <p id="eval-code-hint" class="field-hint">Tab 缩进；按 Esc 后再按 Tab 可离开编辑器</p>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="eval-tests">测试点<span class="optional">（可选）</span></label>
+            <textarea
+              id="eval-tests"
+              v-model="testPointsText"
+              class="mono-input"
+              placeholder="请输入测试点，每行一个，例如：&#10;输入: 1 2 3&#10;输出: 6&#10;状态: Accepted"
+              rows="4"
+            ></textarea>
+          </div>
+
+          <div class="form-actions">
+            <AppButton
+              type="submit"
+              variant="primary"
+              size="lg"
+              icon="sparkles"
+              :loading="loading"
+              :disabled="!canSubmit"
+            >
+              {{ loading ? '评价中...' : '提交评价' }}
+            </AppButton>
+            <AppButton
+              v-if="hasResult"
+              size="lg"
+              icon="refresh"
+              @click="resetForm"
+            >
+              重新评价
+            </AppButton>
+            <span class="shortcut-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 提交</span>
+          </div>
+        </form>
+      </AppCard>
+
       <!-- 右侧：评价结果 -->
-      <div class="right-panel">
-        <div class="card dialogue-card">
-          <div class="dialogue-header">
-            <h2 class="subtitle">评价结果</h2>
+      <AppCard title="评价结果" icon="evaluate" class="result-panel">
+        <template v-if="isStreaming" #actions>
+          <span class="status-pill" role="status">
+            <AppSpinner size="sm" />
+            AI 正在评价
+          </span>
+        </template>
+
+        <AppAlert v-if="errorMessage" tone="danger" class="result-error">{{ errorMessage }}</AppAlert>
+
+        <AppEmpty
+          v-if="!hasResult"
+          icon="evaluate"
+          title="暂无评价结果"
+          description="在左侧输入题目描述与代码，点击“提交评价”即可获得 AI 评价。"
+        />
+
+        <!-- 流式输出中：骨架屏 + 可展开的实时输出 -->
+        <div v-else-if="isStreaming" class="streaming" aria-busy="true">
+          <div class="skeleton-overall">
+            <AppSkeleton :lines="3" />
           </div>
-          
-          <div v-if="!hasResult" class="empty-dialogue">
-            <p>暂无评价结果</p>
-            <p class="hint">请在左侧输入代码和题目描述，点击"提交评价"</p>
-          </div>
-          
-          <div v-else class="evaluation-result">
-            <!-- 流式输出显示 -->
-            <div v-if="isStreaming" class="streaming-output">
-              <div class="streaming-header">
-                <span class="streaming-label">🤖 AI 正在思考</span>
-                <span class="streaming-dots">...</span>
-              </div>
-              <div class="streaming-content">{{ streamingText }}</div>
-            </div>
-            
-            <!-- 结构化结果显示 -->
-            <div v-else class="structured-result">
-              <!-- 整体评价 -->
-              <div class="eval-section overall">
-                <h3>📊 整体评价</h3>
-                <p>{{ result.overall_evaluation }}</p>
-              </div>
-              
-              <!-- 各项评分 -->
-              <div class="eval-grid">
-                <div class="eval-item">
-                  <div class="eval-label">✅ 功能正确</div>
-                  <div class="eval-score" :class="getScoreClass(result.functional_correctness?.grade)">
-                    {{ result.functional_correctness?.grade || 'N/A' }}
-                  </div>
-                  <div class="eval-analysis">{{ result.functional_correctness?.analysis }}</div>
-                </div>
-                
-                <div class="eval-item">
-                  <div class="eval-label">🔍 逻辑严谨</div>
-                  <div class="eval-score" :class="getScoreClass(result.logical_rigor?.grade)">
-                    {{ result.logical_rigor?.grade || 'N/A' }}
-                  </div>
-                  <div class="eval-analysis">{{ result.logical_rigor?.analysis }}</div>
-                </div>
-                
-                <div class="eval-item">
-                  <div class="eval-label">⚡ 算法效率</div>
-                  <div class="eval-score" :class="getScoreClass(result.algorithm_quality?.grade)">
-                    {{ result.algorithm_quality?.grade || 'N/A' }}
-                  </div>
-                  <div class="eval-analysis">{{ result.algorithm_quality?.analysis }}</div>
-                </div>
-                
-                <div class="eval-item">
-                  <div class="eval-label">📐 结构规范</div>
-                  <div class="eval-score" :class="getScoreClass(result.structural_normativity?.grade)">
-                    {{ result.structural_normativity?.grade || 'N/A' }}
-                  </div>
-                  <div class="eval-analysis">{{ result.structural_normativity?.analysis }}</div>
-                </div>
-              </div>
+          <div class="skeleton-grid">
+            <div v-for="name in ['功能正确', '逻辑严谨', '算法效率', '结构规范']" :key="name" class="skeleton-card">
+              <span class="skeleton-title">{{ name }}</span>
+              <AppSkeleton :lines="2" line-height="10px" />
             </div>
           </div>
-          
-          <div v-if="loading && !hasResult" class="loading-item">
-            <div class="dialogue-avatar">🤖</div>
-            <div class="dialogue-bubble">
-              <div class="dialogue-label">AI 助手</div>
-              <div class="dialogue-text loading-dots">
-                <span>正在思考</span>
-                <span class="dots">...</span>
-              </div>
-            </div>
-          </div>
+          <details class="live-output">
+            <summary>
+              查看实时输出
+              <span class="live-count">{{ streamingText.length }} 字符</span>
+            </summary>
+            <pre class="live-text">{{ streamingText }}</pre>
+          </details>
         </div>
-        
-        <div v-if="errorMessage" class="error-message">
-          {{ errorMessage }}
-        </div>
-      </div>
+
+        <!-- 结构化结果 -->
+        <EvaluationResult v-else :result="result" />
+      </AppCard>
     </div>
   </div>
 </template>
@@ -147,8 +120,20 @@ import { useAuthStore } from '@/stores/auth'
 import { aiAPI } from '@/api'
 import { useAbortableRequest } from '@/composables/useAbortableRequest'
 import { getErrorMessage, isAbortError } from '@/utils/errors'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import AppCard from '@/components/ui/AppCard.vue'
+import AppButton from '@/components/ui/AppButton.vue'
+import AppAlert from '@/components/ui/AppAlert.vue'
+import AppEmpty from '@/components/ui/AppEmpty.vue'
+import AppSpinner from '@/components/ui/AppSpinner.vue'
+import AppSkeleton from '@/components/ui/AppSkeleton.vue'
+import CodeEditor from '@/components/code/CodeEditor.vue'
+import EvaluationResult from '@/components/results/EvaluationResult.vue'
 
 const authStore = useAuthStore()
+
+// 代码编辑器实例（点击标签时聚焦）
+const codeEditor = ref(null)
 
 // 流式请求控制（组件卸载 / 重新评价时自动取消）
 const streamRequest = useAbortableRequest()
@@ -309,226 +294,157 @@ useKeyboardShortcut(['ctrl+enter'], () => {
     submitEvaluate()
   }
 })
-
-// 获取分数样式类
-const getScoreClass = (score) => {
-  if (!score) return ''
-  if (score === '优秀') return 'score-excellent'
-  if (score === '合格') return 'score-good'
-  if (score === '待改进') return 'score-poor'
-  return ''
-}
 </script>
 
 <style scoped>
-.ai-debug-content {
+.workspace {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: var(--space-6);
+  align-items: start;
 }
 
-.left-panel,
-.right-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.start-btn,
-.reset-btn {
-  width: 100%;
-}
-
-.dialogue-card {
-  flex: 1;
-  min-height: 500px;
+.input-form {
   display: flex;
   flex-direction: column;
 }
 
-.dialogue-header {
-  margin-bottom: 16px;
+.mono-input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
 }
 
-.evaluation-result {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.streaming-output {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.streaming-header {
+.form-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: #f0f9eb;
-  border-radius: 8px;
-  border-left: 4px solid #67c23a;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
 }
 
-.streaming-label {
-  font-weight: 600;
-  color: #303133;
+.shortcut-hint {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
-.streaming-dots {
-  color: #67c23a;
-  animation: blink 1.5s infinite;
+.result-panel {
+  position: sticky;
+  top: calc(var(--nav-height) + var(--space-6));
+  min-height: 480px;
 }
 
-.streaming-content {
-  flex: 1;
-  font-family: 'Courier New', monospace;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  padding: 16px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #e9ecef;
+.result-error {
+  margin-bottom: var(--space-4);
 }
 
-.streaming-content :deep(pre) {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 10px 0;
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 10px;
+  font-size: var(--fs-sm);
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-full);
 }
 
-.streaming-content :deep(code) {
-  background: #f4f4f4;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
-}
-
-.eval-section {
-  margin-bottom: 20px;
-}
-
-.eval-section h3 {
-  margin: 0 0 8px;
-  color: #333;
-}
-
-.eval-section.overall {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-  border-left: 4px solid #667eea;
-}
-
-.eval-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.eval-item {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-}
-
-.eval-label {
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 8px;
-}
-
-.eval-score {
-  font-size: 24px;
-  font-weight: bold;
-  margin-bottom: 8px;
-}
-
-.eval-analysis {
-  font-size: 13px;
-  color: #666;
-  line-height: 1.6;
-  background: #fff;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid #e9ecef;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.score-excellent {
-  color: #28a745;
-}
-
-.score-good {
-  color: #ffc107;
-}
-
-.score-poor {
-  color: #dc3545;
-}
-
-.loading-item {
+.streaming {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
-  background: #f8f9fa;
-  border-radius: 8px;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.dialogue-avatar {
-  font-size: 24px;
-  flex-shrink: 0;
+.skeleton-overall {
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
-.dialogue-bubble {
-  flex: 1;
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
 }
 
-.dialogue-label {
-  font-weight: 600;
-  color: #303133;
-  margin-bottom: 8px;
-  font-size: 14px;
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
-.dialogue-text {
-  color: #606266;
+.skeleton-title {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-muted);
+}
+
+.live-output {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.live-output summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.live-count {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-text {
+  max-height: 240px;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  font-size: var(--fs-xs);
   line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-secondary);
+  background: var(--code-bg);
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
-.loading-dots .dots {
-  animation: blink 1.5s infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.error-message {
-  background: #fef0f0;
-  color: #f56c6c;
-  padding: 12px 16px;
-  border-radius: 8px;
-  border-left: 4px solid #f56c6c;
-  margin-top: 16px;
-}
-
-@media (max-width: 900px) {
-  .ai-debug-content {
-    grid-template-columns: 1fr;
+@media (max-width: 1024px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .eval-grid {
-    grid-template-columns: 1fr;
+  .result-panel {
+    position: static;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .form-actions > .btn {
+    flex: 1 1 auto;
+  }
+
+  .shortcut-hint {
+    display: none;
+  }
+
+  .skeleton-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
