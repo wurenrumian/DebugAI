@@ -53,6 +53,15 @@ HTTP → Dispatcher → [Debug(5W/100Q)] [Eval(3W/50Q)] [Rec(2W/30Q)]
 - **Worker Pool**：固定线程、队列缓冲、超时控制
 - **配置**：见 [`service/dispatcher.go`](service/dispatcher.go:56)
 
+### 认证安全
+
+- **登录退避**：同一 (IP, 学号) 10 分钟内失败 10 次、同一 IP 15 分钟内失败 100 次后返回 `429`（带 `Retry-After`），窗口结束后自动恢复。不会按学号全局锁定账号，他人无法恶意锁死任意学号
+- **防枚举**：学号不存在时同样执行一次 bcrypt 比对，响应时间一致
+- **接口限流**（Redis 固定窗口计数，INCR + 过期原子执行）：注册每 IP 30 次/小时、每邮箱 5 次/小时；忘记密码每 IP 10 次/小时、每邮箱 3 次/小时
+- **登出即失效**：`POST /auth/logout` 需要认证，会递增 `token_version`，该用户已签发的所有 JWT 立即失效
+- **密码重置**：重置链接 1 小时有效、一次性使用（原子 GETDEL），不再绑定发起请求的 IP
+- **客户端 IP**：统一使用 `c.ClientIP()`，仅信任 `TRUSTED_PROXIES` 中的代理传入的 `X-Forwarded-For`
+
 ### 多层限流机制
 
 1. **用户并发**：Debug(2)、Eval/Recommend(1) 同时运行
@@ -84,7 +93,8 @@ HTTP → Dispatcher → [Debug(5W/100Q)] [Eval(3W/50Q)] [Rec(2W/30Q)]
 - **注册必填邮箱**：注册时必须提供有效邮箱地址
 - **验证邮件发送**：提交注册信息后，系统发送验证邮件（24小时内有效）
 - **注册完成**：用户点击邮件中的验证链接后，账号才正式创建
-- **重新发送**：用户可以重新发送验证邮件（每小时最多5次）
+- **密码安全**：待验证期间 Redis 中只暂存 bcrypt 哈希，不保存明文密码
+- **重新发送**：只能为已存在的待验证注册申请重发（复用原链接）；每个邮箱每小时最多 3 次、每个 IP 每小时最多 10 次
 - **测试模式**：通过 `SKIP_EMAIL_VERIFICATION=true` 可跳过验证（仅开发测试环境）
 
 **配置要求**：
@@ -98,8 +108,9 @@ HTTP → Dispatcher → [Debug(5W/100Q)] [Eval(3W/50Q)] [Rec(2W/30Q)]
 ### 前置条件
 
 - Go 1.25+
+- PostgreSQL（唯一支持的数据库）
+- Redis（必需，启动时会检查连接；用于限流、注册暂存和缓存）
 - Python AI 服务：`http://localhost:8000`
-- Redis（可选，用于限流和缓存）
 
 ### 运行
 
@@ -120,31 +131,54 @@ go build -o ai-backend && ./ai-backend
 
 通过环境变量配置（[`config/config.go`](config/config.go:10)）：
 
-| 变量                      | 默认                    | 说明                           |
-| ------------------------- | ----------------------- | ------------------------------ |
-| `ENV`                     | `development`           | 运行环境                       |
-| `JWT_SECRET`              | 空                      | JWT 密钥（≥32字符）            |
-| `AI_SERVICE_URL`          | `http://localhost:8000` | Python 服务地址                |
-| `DATABASE_URL`            | `data.db`               | SQLite 或 PostgreSQL           |
-| `REDIS_ADDR`              | `localhost:6379`        | Redis 地址                     |
-| `PORT`                    | `8080`                  | 服务端口                       |
-| `CORS_ALLOW_ORIGINS`      | `http://localhost:5173` | 允许的 CORS 源                 |
-| `SKIP_EMAIL_VERIFICATION` | `false`                 | 是否跳过邮箱验证（仅开发测试） |
-| `SMTP_HOST`               | 空                      | SMTP 服务器地址                |
-| `SMTP_PORT`               | `587`                   | SMTP 服务器端口                |
-| `SMTP_USERNAME`           | 空                      | SMTP 用户名（通常是邮箱地址）  |
-| `SMTP_PASSWORD`           | 空                      | SMTP 密码/应用专用密码         |
-| `SMTP_FROM`               | 空                      | 发件人邮箱地址                 |
-| `FRONTEND_URL`            | 空                      | 前端URL（用于生成验证链接）    |
+| 变量                            | 默认                                                  | 说明                                                                 |
+| ------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `ENV`                           | `development`                                         | 运行环境；`production` 时启用 gin release 模式与额外安全检查         |
+| `BACKEND_PORT`                  | `8080`                                                | 服务端口                                                             |
+| `JWT_SECRET`                    | 空（必填）                                            | JWT 密钥，≥32 字符（生产 ≥64）；含 `your-` 的示例值在任何环境都会被拒绝 |
+| `JWT_EXPIRY_HOURS`              | `24`                                                  | JWT 有效期（小时）                                                   |
+| `BCRYPT_COST`                   | `10`                                                  | bcrypt 成本（10-31）                                                 |
+| `AI_SERVICE_URL`                | `http://localhost:8000`                               | Python 服务地址                                                      |
+| `DB_HOST`                       | `localhost`                                           | PostgreSQL 主机                                                      |
+| `DB_PORT`                       | `5432`                                                | PostgreSQL 端口                                                      |
+| `DB_USER`                       | `postgres`                                            | 数据库用户                                                           |
+| `DB_PASSWORD`                   | 空                                                    | 数据库密码（无默认值；生产环境必填）                                 |
+| `DB_NAME`                       | `debugai`                                             | 数据库名                                                             |
+| `DB_SSLMODE`                    | `disable`                                             | `disable`/`allow`/`prefer`/`require`/`verify-ca`/`verify-full`       |
+| `DB_MAX_OPEN_CONNS`             | `20`                                                  | 连接池最大连接数（注意 PostgreSQL `max_connections=50`）             |
+| `DB_MAX_IDLE_CONNS`             | `10`                                                  | 连接池最大空闲连接数（不能大于最大连接数）                           |
+| `DB_CONN_MAX_LIFETIME_MINUTES`  | `30`                                                  | 连接最大存活时间（分钟）                                             |
+| `DB_CONN_MAX_IDLE_TIME_MINUTES` | `5`                                                   | 空闲连接最大存活时间（分钟）                                         |
+| `REDIS_ADDR`                    | `localhost:6379`                                      | Redis 地址                                                           |
+| `REDIS_PASSWORD`                | 空                                                    | Redis 密码（生产环境必填）                                           |
+| `REDIS_DB` / `REDIS_POOL_SIZE`  | `0` / `10`                                            | Redis 库编号 / 连接池大小                                            |
+| `TRUSTED_PROXIES`               | `127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`   | 受信任的反向代理（逗号分隔的 IP/CIDR），用于解析真实客户端 IP        |
+| `MAX_BODY_BYTES`                | `1048576`                                             | 全局请求体大小上限（字节），超出返回 `413`                           |
+| `SHUTDOWN_TIMEOUT_SECONDS`      | `10`                                                  | 收到 SIGTERM/SIGINT 后等待请求结束的时间                             |
+| `CORS_ALLOW_ORIGINS`            | `http://localhost:5173`                               | 允许的 CORS 源（逗号分隔）                                           |
+| `SKIP_EMAIL_VERIFICATION`       | `false`                                               | 是否跳过邮箱验证（仅开发测试）                                       |
+| `SMTP_HOST`                     | 空                                                    | SMTP 服务器地址                                                      |
+| `SMTP_PORT`                     | `587`                                                 | SMTP 服务器端口                                                      |
+| `SMTP_USERNAME`                 | 空                                                    | SMTP 用户名（通常是邮箱地址）                                        |
+| `SMTP_PASSWORD`                 | 空                                                    | SMTP 密码/应用专用密码                                               |
+| `SMTP_FROM`                     | 空                                                    | 发件人邮箱地址                                                       |
+| `FRONTEND_URL`                  | 空                                                    | 前端URL（用于生成验证/重置链接）                                     |
+
+> 生成 JWT 密钥：`openssl rand -hex 64`
 
 **生产环境示例**：
 ```bash
 export ENV="production"
-export JWT_SECRET="your-64-char-secret"
+export JWT_SECRET="$(openssl rand -hex 64)"
 export AI_SERVICE_URL="http://ai-service:8000"
-export DATABASE_URL="postgresql://user:pass@postgres:5432/debugai"
+export DB_HOST="postgres"
+export DB_USER="debugai"
+export DB_PASSWORD="<数据库密码>"
+export DB_NAME="debugai"
+export DB_SSLMODE="disable"          # 跨主机访问数据库时建议 require / verify-full
 export REDIS_ADDR="redis:6379"
-export REDIS_PASSWORD="your-password"
+export REDIS_PASSWORD="<Redis 密码>"
+export TRUSTED_PROXIES="172.16.0.0/12"  # 前置 nginx 所在网段
 
 # 邮箱验证配置（必填）
 export SKIP_EMAIL_VERIFICATION=false
@@ -168,9 +202,14 @@ export FRONTEND_URL="https://your-frontend-domain.com"
 **公开接口**：
 - `POST /auth/register` - 注册（发送验证邮件）
 - `POST /auth/login` - 登录
-- `POST /auth/logout` - 登出
 - `GET /auth/verify-email?token=<token>` - 邮箱验证并完成注册
-- `POST /auth/resend-verification` - 重新发送验证邮件
+- `POST /auth/resend-verification` - 重新发送验证邮件（请求体 `{"email": "..."}`）
+- `POST /auth/forgot-password` - 申请重置密码
+- `POST /auth/reset-password` - 重置密码
+- `GET /health` - 健康检查（数据库可用返回 `200 {"status":"ok"}`，否则 `503`）
+
+**需认证的认证接口**：
+- `POST /auth/logout` - 登出（递增 `token_version`，使该用户所有已签发 Token 失效）
 
 **注册流程**：
 1. 用户提交注册信息（学号、用户名、密码、邮箱）
@@ -204,17 +243,17 @@ export FRONTEND_URL="https://your-frontend-domain.com"
 | 方法 | 路径                             | 描述         | 权限            |
 | ---- | -------------------------------- | ------------ | --------------- |
 | POST | `/classes`                       | 创建班级     | admin           |
-| GET  | `/classes`                       | 班级列表     | 公开            |
+| GET  | `/classes`                       | 班级列表     | 登录用户        |
 | GET  | `/classes/my`                    | 我的班级     | 登录用户        |
 | POST | `/classes/:id/join`              | 加入班级     | 登录用户        |
-| GET  | `/classes/:id/members`           | 班级成员     | 班级成员        |
-| POST | `/classes/:id/members/add`       | 批量添加成员 | teacher/creator |
-| POST | `/classes/:id/members/remove`    | 批量移除成员 | teacher/creator |
+| GET  | `/classes/:id/members`           | 班级成员     | 班级成员/admin  |
+| POST | `/classes/:id/members/add`       | 批量添加成员 | teacher/ta      |
+| POST | `/classes/:id/members/remove`    | 批量移除成员 | teacher/ta      |
 | GET  | `/classes/:id/records/debug`     | 班级调试历史 | 班级管理员      |
 | GET  | `/classes/:id/records/evaluate`  | 班级评价历史 | 班级管理员      |
 | GET  | `/classes/:id/records/recommend` | 班级推荐历史 | 班级管理员      |
 
-**注意**：创建者（`is_creator=true`）不可被移除；助教仅可管理学生。
+**注意**：创建者（`is_creator=true`）不可被移除、角色不可修改；教师的角色修改与移除仅限创建者；助教仅可管理学生；分配 teacher/ta 角色需要创建者或系统管理员。
 
 ---
 
@@ -245,9 +284,9 @@ docker build -t ai-backend .
 docker run -d \
   -p 8080:8080 \
   -e ENV="production" \
-  -e JWT_SECRET="your-secret" \
-  -e DATABASE_URL="postgresql://..." \
-  -e REDIS_ADDR="redis:6379" \
+  -e JWT_SECRET="$(openssl rand -hex 64)" \
+  -e DB_HOST="postgres" -e DB_PASSWORD="<数据库密码>" \
+  -e REDIS_ADDR="redis:6379" -e REDIS_PASSWORD="<Redis 密码>" \
   ai-backend
 ```
 
@@ -256,8 +295,8 @@ docker run -d \
 ### Docker Compose
 
 ```bash
-# 完整堆栈（后端 + PostgreSQL）
-docker-compose -f backend-go/docker-compose.yml up -d
+# 完整堆栈（在仓库根目录执行）
+docker compose up -d
 ```
 
 ### 生产建议
@@ -267,14 +306,19 @@ docker-compose -f backend-go/docker-compose.yml up -d
 - **监控**：Prometheus 指标（队列长度、并发数、响应时间）
 - **日志**：Zap JSON 格式，ELK/Loki 收集
 - **限流**：反向代理层全局限流（Nginx `limit_req_zone`）
+- **反向代理**：nginx 需以 `$remote_addr` 覆盖 `X-Forwarded-For`，并将其网段配置到 `TRUSTED_PROXIES`
+- **优雅关闭**：收到 SIGTERM 后停止接收新请求，最多等待 `SHUTDOWN_TIMEOUT_SECONDS` 秒
 
 ---
 
 ## 测试
 
 ```bash
-# 单元测试
-go test ./...
+# 单元测试（限流相关测试使用 miniredis，无需真实 Redis）
+go test -race ./...
+
+# 本地未安装 Go 时可使用 Docker
+docker run --rm -v "$PWD":/src -w /src golang:1.25 go test -race ./...
 
 # 覆盖率
 go test ./... -coverprofile=coverage.out
