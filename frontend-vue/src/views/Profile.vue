@@ -172,7 +172,7 @@ const handleResendVerification = async () => {
   resendLoading.value = true
   resendMessage.value = ''
   try {
-    const result = await authStore.resendVerificationEmail()
+    const result = await authStore.resendVerificationEmail(authStore.email)
     if (result.success) {
       resendMessage.value = '验证邮件已发送，请查收'
     } else {

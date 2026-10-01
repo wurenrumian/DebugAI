@@ -55,6 +55,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useKeyboardShortcut } from '../../composables/useKeyboardShortcut'
 import { useClassStore } from '../../stores/class'
 import { useAuthStore } from '../../stores/auth'
+import { toast } from '../../utils/toast'
 
 const emit = defineEmits(['class-selected'])
 
@@ -67,10 +68,8 @@ const loading = ref(false)
 
 const classes = computed(() => classStore.classes)
 const currentClassId = computed(() => classStore.currentClass?.id)
-const isAdmin = computed(() => {
-  const user = authStore.user
-  return user && user.user_type === 'admin'
-})
+// 仅系统管理员可创建班级（后端同样校验）
+const isAdmin = computed(() => authStore.isAdmin)
 
 // ESC 键关闭创建对话框
 useKeyboardShortcut(['escape'], () => {
@@ -109,7 +108,7 @@ const createClass = async () => {
       emit('class-selected', classStore.currentClass.id)
     }
   } else {
-    alert(result.error || '创建班级失败')
+    toast.error(result.error || '创建班级失败')
   }
 }
 </script>
