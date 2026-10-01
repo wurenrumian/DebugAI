@@ -97,6 +97,7 @@ services:
       LLM_BASE_URL:
       LLM_TIMEOUT:
       LLM_MAX_RETRIES:
+      LLM_TOTAL_TIMEOUT:
       LLM_MAX_CONCURRENCY:
       # uvicorn CLI 原生支持 UVICORN_* 环境变量（UVICORN_WORKERS 即 --workers）
       UVICORN_WORKERS:
@@ -145,7 +146,9 @@ services:
       DB_SSLMODE: ${DB_SSLMODE:-disable}
       DB_MAX_OPEN_CONNS:
       DB_MAX_IDLE_CONNS:
-      DB_CONN_MAX_LIFETIME:
+      DB_CONN_MAX_LIFETIME_MINUTES:
+      DB_CONN_MAX_IDLE_TIME_MINUTES:
+      SHUTDOWN_TIMEOUT_SECONDS:
       # Redis
       REDIS_ADDR: redis:6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}

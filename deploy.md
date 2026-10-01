@@ -130,9 +130,9 @@ required variable JWT_SECRET is missing a value: 请在 .env 中设置 JWT_SECRE
 | `SMTP_*`                   | 空            | 邮箱验证所需 |
 | `DB_SSLMODE`               | `disable`     | 自带 postgres 不启用 SSL 且仅内网可达；换云数据库时改为 `require`/`verify-full` |
 | `UVICORN_WORKERS`          | 代码默认      | AI 服务进程数，每个约 100MB+ 内存 |
-| `LLM_MODEL` / `LLM_BASE_URL` / `LLM_TIMEOUT` / `LLM_MAX_RETRIES` / `LLM_MAX_CONCURRENCY` | 代码默认 | LLM 调用参数 |
+| `LLM_MODEL` / `LLM_BASE_URL` / `LLM_TIMEOUT` / `LLM_MAX_RETRIES` / `LLM_TOTAL_TIMEOUT` / `LLM_MAX_CONCURRENCY` | 代码默认 | LLM 调用参数 |
 | `AI_STREAM_MAX_CONCURRENT` / `AI_STREAM_TIMEOUT` | 代码默认 | 后端流式接口并发与超时（超时不要超过 Nginx 的 600s） |
-| `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_LIFETIME` | 代码默认 | 连接池；`max_connections=50`，保持明显小于它 |
+| `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_LIFETIME_MINUTES` | 代码默认 | 连接池；`max_connections=50`，保持明显小于它 |
 | `MAX_BODY_BYTES`           | 代码默认      | 后端请求体上限（Nginx 另有 2MB 上限） |
 | `TRUSTED_PROXIES`          | 私有网段      | 后端信任的代理网段，一般无需修改 |
 | `ALPINE_MIRROR` / `GOPROXY` / `NPM_REGISTRY` | 国内镜像 | 构建时的软件源，海外服务器可设为空 |
