@@ -72,7 +72,7 @@
                 <span class="streaming-label">🤖 AI 正在思考</span>
                 <span class="streaming-dots">...</span>
               </div>
-              <div class="streaming-content" v-html="formatStreamingContent(streamingText)"></div>
+              <div class="streaming-content">{{ streamingText }}</div>
             </div>
             
             <!-- 结构化结果显示 -->
@@ -145,8 +145,14 @@ import { ref, computed } from 'vue'
 import { useKeyboardShortcut } from '@/composables/useKeyboardShortcut'
 import { useAuthStore } from '@/stores/auth'
 import { aiAPI } from '@/api'
+import { useAbortableRequest } from '@/composables/useAbortableRequest'
+import { getErrorMessage, isAbortError } from '@/utils/errors'
 
 const authStore = useAuthStore()
+
+// 流式请求控制（组件卸载 / 重新评价时自动取消）
+const streamRequest = useAbortableRequest()
+let requestSeq = 0
 
 // 表单数据
 const formData = ref({
@@ -213,29 +219,12 @@ const parseTestPoints = () => {
   return testPoints
 }
 
-// 格式化流式内容（简单的 Markdown 转换）
-const formatStreamingContent = (content) => {
-  if (!content) return ''
-  // 转义 HTML
-  let formatted = content
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-  
-  // 简单的代码块转换
-  formatted = formatted.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-  formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>')
-  
-  // 换行转换
-  formatted = formatted.replace(/\n/g, '<br>')
-  
-  return formatted
-}
-
 // 提交评价
 const submitEvaluate = async () => {
   if (!canSubmit.value || loading.value) return
   
+  const requestId = ++requestSeq
+  const signal = streamRequest.start()
   loading.value = true
   errorMessage.value = ''
   isStreaming.value = true
@@ -262,8 +251,6 @@ const submitEvaluate = async () => {
       if (chunk.type === 'text') {
         // 流式过程中只累积文本，不解析
         streamingText.value += chunk.content
-      } else if (chunk.type === 'error') {
-        errorMessage.value = chunk.message
       } else if (chunk.type === 'done') {
         // 流式完成，尝试解析最终结果
         isStreaming.value = false
@@ -275,18 +262,25 @@ const submitEvaluate = async () => {
           errorMessage.value = '解析评价结果失败'
         }
       }
-    })
+    }, { signal })
   } catch (error) {
-    errorMessage.value = error.message || '评价请求失败，请稍后重试'
-    console.error('Evaluate error:', error)
+    if (requestId !== requestSeq) return
     isStreaming.value = false
+    // 失败时回到空状态，避免展示空的评分卡片
+    result.value = null
+    if (isAbortError(error)) return
+    errorMessage.value = getErrorMessage(error, '评价请求失败，请稍后重试')
+    console.error('Evaluate error:', error)
   } finally {
-    loading.value = false
+    if (requestId === requestSeq) loading.value = false
   }
 }
 
 // 重置表单
 const resetForm = () => {
+  streamRequest.cancel()
+  requestSeq++
+  loading.value = false
   formData.value = {
     problem_description: '',
     code: ''

@@ -149,9 +149,15 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useKeyboardShortcut } from '@/composables/useKeyboardShortcut'
 import { useAuthStore } from '@/stores/auth'
 import { aiAPI } from '@/api'
+import { useAbortableRequest } from '@/composables/useAbortableRequest'
+import { getErrorMessage, isAbortError } from '@/utils/errors'
 import WeakPointDisplay from '@/components/WeakPointDisplay.vue'
 
 const authStore = useAuthStore()
+
+// 流式请求控制（组件卸载 / 重置时自动取消）
+const streamRequest = useAbortableRequest()
+let requestSeq = 0
 
 // 获取今日日期字符串
 const getTodayDate = () => {
@@ -242,6 +248,8 @@ watch([startDate, endDate, topK], () => {
 const submitRecommend = async () => {
   if (!canSubmit.value || loading.value) return
   
+  const requestId = ++requestSeq
+  const signal = streamRequest.start()
   loading.value = true
   errorMessage.value = ''
   result.value = {
@@ -272,8 +280,6 @@ const submitRecommend = async () => {
         } catch (e) {
           // 忽略解析错误
         }
-      } else if (chunk.type === 'error') {
-        errorMessage.value = chunk.message
       } else if (chunk.type === 'done') {
         try {
           const parsed = JSON.parse(fullContent)
@@ -282,17 +288,21 @@ const submitRecommend = async () => {
           console.error('Final parse error:', e)
         }
       }
-    })
+    }, { signal })
   } catch (error) {
-    errorMessage.value = error.message || '推荐请求失败，请稍后重试'
+    if (requestId !== requestSeq || isAbortError(error)) return
+    errorMessage.value = getErrorMessage(error, '推荐请求失败，请稍后重试')
     console.error('Recommend error:', error)
   } finally {
-    loading.value = false
+    if (requestId === requestSeq) loading.value = false
   }
 }
 
 // 重置表单
 const resetForm = () => {
+  streamRequest.cancel()
+  requestSeq++
+  loading.value = false
   result.value = null
   errorMessage.value = ''
 }
