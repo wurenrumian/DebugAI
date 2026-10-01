@@ -1,0 +1,30 @@
+# 本地开发用的 compose 覆盖示例（不要在生产服务器上使用）
+# 使用方法：cp docker-compose.override.example.yml docker-compose.override.yml
+#           docker compose up -d   # 会自动合并 docker-compose.override.yml
+#
+# 作用：把内部服务端口绑定到 127.0.0.1，方便本机调试（psql、redis-cli、直接调用后端/AI 服务）。
+# 只绑定回环地址，不会暴露到公网。docker-compose.override.yml 已在 .gitignore 中。
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+    # debugai-data 是 internal 网络，无法发布端口，需要同时加入普通网络
+    networks:
+      - debugai-data
+      - debugai-network
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - debugai-data
+      - debugai-network
+
+  backend:
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  ai-service:
+    ports:
+      - "127.0.0.1:8000:8000"

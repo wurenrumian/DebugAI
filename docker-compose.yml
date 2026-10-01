@@ -1,6 +1,20 @@
 # DebugAI 项目 Docker Compose 编排配置
-# 用途：一键启动所有服务（PostgreSQL、Redis、Go后端、Python AI服务、Vue前端）
-# 使用方法：docker-compose up -d
+# 用途：一键启动所有服务（PostgreSQL、Redis、Go 后端、Python AI 服务、Vue 前端/Nginx）
+# 使用方法：cp .env.production.example .env && 编辑 .env && docker compose up -d --build
+# 详细说明见 deploy.md
+#
+# 安全约定：
+# - 只有 frontend（Nginx）向宿主机发布端口；postgres / redis / backend / ai-service 仅在 Docker 内部网络可达。
+#   本地开发如需直连，复制 docker-compose.override.example.yml 为 docker-compose.override.yml（只绑定 127.0.0.1）。
+# - 密钥类变量使用 ${VAR:?msg}，未设置时 docker compose 会直接报错退出，不再有不安全的默认值。
+# - 环境变量列表中只写变量名（值为空）的条目表示“透传”：.env 或 shell 中设置了才传入容器，
+#   未设置则不传入，由应用代码使用自己的默认值。
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   # PostgreSQL 16 数据库
@@ -9,68 +23,168 @@ services:
     container_name: debugai-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD（可用 openssl rand -hex 24 生成）}
       POSTGRES_DB: ${POSTGRES_DB:-debugai}
-    ports:
-      - "${DB_PORT:-5432}:5432"
+      TZ: ${TZ:-Asia/Shanghai}
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend-go/config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./backend-go/config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    # postgresql.conf 中 shared_buffers=384MB，并行查询会用到 /dev/shm（默认仅 64MB）
+    shm_size: 256m
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}" ]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEM_LIMIT:-1g}
+          cpus: "${POSTGRES_CPUS:-1.0}"
     restart: unless-stopped
     networks:
-      - debugai-network
+      - debugai-data
+    logging: *default-logging
 
-  # Redis 7 缓存服务
+  # Redis 7 缓存服务（限流、缓存、JWT 黑名单）
   redis:
     image: redis:7-alpine
     container_name: debugai-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD（可用 openssl rand -hex 24 生成）}
+      TZ: ${TZ:-Asia/Shanghai}
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    # 通过容器内环境变量传入密码，避免密码出现在 docker inspect 的 Cmd 中
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli ping" ]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEM_LIMIT:-512m}
+          cpus: "${REDIS_CPUS:-0.5}"
+    restart: unless-stopped
+    networks:
+      - debugai-data
+    logging: *default-logging
+
+  # Python AI 服务（FastAPI，仅供 backend 内部调用）
+  ai-service:
+    build:
+      context: ./ai-python
+      dockerfile: Dockerfile
+    image: debugai-ai-service:latest
+    container_name: debugai-ai-service
+    environment:
+      ENV: ${ENV:-production}
+      TZ: ${TZ:-Asia/Shanghai}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?请在 .env 中设置 DEEPSEEK_API_KEY}
+      # backend -> ai-service 的内部调用共享密钥（请求头 X-Internal-Token）
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?请在 .env 中设置 AI_SERVICE_TOKEN（可用 openssl rand -hex 32 生成）}
+      # 以下为可选调优项（透传，未设置时使用代码默认值）
+      LLM_MODEL:
+      LLM_BASE_URL:
+      LLM_TIMEOUT:
+      LLM_MAX_RETRIES:
+      LLM_MAX_CONCURRENCY:
+      # uvicorn CLI 原生支持 UVICORN_* 环境变量（UVICORN_WORKERS 即 --workers）
+      UVICORN_WORKERS:
+      LOG_LEVEL:
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: ${AI_MEM_LIMIT:-1g}
+          cpus: "${AI_CPUS:-1.0}"
     restart: unless-stopped
     networks:
       - debugai-network
+    logging: *default-logging
 
   # Go 后端 API 服务
   backend:
     build:
       context: ./backend-go
       dockerfile: Dockerfile
+      args:
+        # 国内服务器默认使用镜像源；海外/CI 可在 .env 中覆盖
+        ALPINE_MIRROR: ${ALPINE_MIRROR-mirrors.aliyun.com}
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+    image: debugai-backend:latest
     container_name: debugai-backend
     environment:
+      ENV: ${ENV:-production}
+      TZ: ${TZ:-Asia/Shanghai}
+      # 容器内监听端口固定为 8080（frontend 的 Nginx 也按此转发）
+      BACKEND_PORT: "8080"
+      # 数据库
       DB_HOST: postgres
+      DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-debugai}
-      DB_PORT: 5432
+      # 自带的 postgres 容器未启用 SSL，且只在内部网络可达；使用外部托管数据库时改为 require/verify-full
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      DB_MAX_OPEN_CONNS:
+      DB_MAX_IDLE_CONNS:
+      DB_CONN_MAX_LIFETIME:
+      # Redis
       REDIS_ADDR: redis:6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      JWT_SECRET: ${JWT_SECRET:-your-strong-secret-key-min-32-chars}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
+      REDIS_DB:
+      REDIS_POOL_SIZE:
+      CACHE_ENABLED:
+      # 认证
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（生产环境至少 64 字符，可用 openssl rand -hex 32 生成）}
+      JWT_EXPIRY_HOURS:
+      BCRYPT_COST:
+      # AI 服务
       AI_SERVICE_URL: http://ai-service:8000
-      ENV: ${ENV:-development}
-      # 邮箱验证配置
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?请在 .env 中设置 AI_SERVICE_TOKEN}
+      AI_STREAM_MAX_CONCURRENT:
+      AI_STREAM_TIMEOUT:
+      # HTTP / 代理
+      # 信任的反向代理网段（逗号分隔，代码默认私有网段，覆盖 Docker 网络中的 Nginx）
+      TRUSTED_PROXIES:
+      MAX_BODY_BYTES:
+      CORS_ALLOW_ORIGINS:
+      DEBUG:
+      LOG_LEVEL:
+      # 邮箱验证
       SKIP_EMAIL_VERIFICATION: ${SKIP_EMAIL_VERIFICATION:-false}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_USERNAME: ${SMTP_USERNAME}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM}
-      FRONTEND_URL: ${FRONTEND_URL}
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      SMTP_HOST:
+      SMTP_PORT:
+      SMTP_USERNAME:
+      SMTP_PASSWORD:
+      SMTP_FROM:
+      FRONTEND_URL:
+    expose:
+      - "8080"
+    healthcheck:
+      # GET /health：数据库正常返回 200，否则 503（alpine 自带 busybox wget）
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,62 +192,69 @@ services:
         condition: service_healthy
       ai-service:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEM_LIMIT:-512m}
+          cpus: "${BACKEND_CPUS:-1.0}"
     restart: unless-stopped
     networks:
       - debugai-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      - debugai-data
+    logging: *default-logging
 
-  # Python AI 服务
-  ai-service:
-    build:
-      context: ./ai-python
-      dockerfile: Dockerfile
-    container_name: debugai-ai-service
-    environment:
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      ENV: ${ENV:-development}
-    ports:
-      - "${AI_PORT:-8000}:8000"
-    healthcheck:
-      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\"" ]
-      interval: 30s
-      timeout: 3s
-      start_period: 10s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - debugai-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # Vue 前端服务
+  # Vue 前端 + Nginx 反向代理（唯一对外发布端口的服务）
   frontend:
     build:
       context: ./frontend-vue
       dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY-https://registry.npmmirror.com}
+    image: debugai-frontend:latest
     container_name: debugai-frontend
     environment:
-      BACKEND_PORT: ${BACKEND_PORT:-8080}
+      TZ: ${TZ:-Asia/Shanghai}
+      BACKEND_HOST: backend
+      BACKEND_PORT: "8080"
+      SERVER_NAME: ${SERVER_NAME:-_}
+      # HTTPS：证书/私钥文件存在时自动启用 443 + 80->443 跳转 + HSTS，否则仅 HTTP（启动日志会告警）
+      TLS_CERT_PATH: ${TLS_CERT_PATH:-/etc/nginx/certs/fullchain.pem}
+      TLS_KEY_PATH: ${TLS_KEY_PATH:-/etc/nginx/certs/privkey.pem}
+      HSTS_MAX_AGE:
+    volumes:
+      - ${TLS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
     ports:
+      # 可写成 127.0.0.1:8081 之类，以便宿主机上的 Caddy/Nginx 终止 TLS 后再转发进来
       - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_HTTPS_PORT:-443}:443"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - backend
-      - ai-service
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEM_LIMIT:-128m}
+          cpus: "${FRONTEND_CPUS:-0.5}"
     restart: unless-stopped
     networks:
       - debugai-network
+    logging: *default-logging
 
 volumes:
   postgres_data:
   redis_data:
 
 networks:
+  # frontend / backend / ai-service（ai-service 需要访问外网 LLM API）
   debugai-network:
     driver: bridge
+  # 数据层内部网络：postgres / redis 只与 backend 互通，且不能访问外网
+  debugai-data:
+    driver: bridge
+    internal: true
