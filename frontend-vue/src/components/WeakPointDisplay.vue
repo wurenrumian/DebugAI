@@ -81,6 +81,7 @@ import {
   LegendComponent,
   GridComponent
 } from 'echarts/components'
+import { escapeHtml } from '../utils/html'
 
 // 注册 ECharts 组件
 use([
@@ -273,7 +274,8 @@ const barOption = computed(() => {
       axisPointer: { type: 'shadow' },
       formatter: (params) => {
         const item = params[0]
-        return `${item.name}<br/>分类：${data.categories[item.dataIndex]}<br/>出现次数：${item.value}`
+        // 名称 / 分类来自 AI 输出，拼接 HTML 前必须转义
+        return `${escapeHtml(item.name)}<br/>分类：${escapeHtml(data.categories[item.dataIndex])}<br/>出现次数：${escapeHtml(item.value)}`
       }
     },
     grid: {
