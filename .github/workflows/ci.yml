@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-go:
+    name: Go backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.sum
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+
+  ai-python:
+    name: Python AI service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai-python/requirements*.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+      - name: Byte-compile
+        run: python -m compileall -q .
+      - name: Test
+        env:
+          ENV: development
+        run: |
+          if [ -d tests ]; then
+            pytest -q
+          else
+            echo "ai-python/tests 不存在，跳过 pytest"
+          fi
+
+  frontend-vue:
+    name: Vue frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-vue
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-vue/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test --if-present
+
+  deploy-config:
+    name: Deploy config (compose / nginx / scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        env:
+          POSTGRES_PASSWORD: ci-dummy
+          REDIS_PASSWORD: ci-dummy
+          JWT_SECRET: ci-dummy-0000000000000000000000000000000000000000000000000000000000
+          AI_SERVICE_TOKEN: ci-dummy
+          DEEPSEEK_API_KEY: ci-dummy
+        run: |
+          docker compose config -q
+          docker compose -f docker-compose.yml -f docker-compose.override.example.yml config -q
+
+      - name: Compose must refuse to start without required secrets
+        run: |
+          if docker compose config -q 2>/dev/null; then
+            echo "docker compose config 在缺少必需密钥时应当失败" >&2
+            exit 1
+          fi
+
+      - name: Shellcheck
+        run: shellcheck scripts/*.sh frontend-vue/entrypoint.sh
+
+      - name: Build frontend image
+        run: docker build --build-arg NPM_REGISTRY= -t debugai-frontend:ci frontend-vue
+
+      - name: nginx -t (HTTP mode)
+        run: docker run --rm --entrypoint sh debugai-frontend:ci -c '/entrypoint.sh nginx -t'
+
+      - name: nginx -t (TLS mode)
+        run: |
+          mkdir -p "$RUNNER_TEMP/certs"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
+            -keyout "$RUNNER_TEMP/certs/privkey.pem" -out "$RUNNER_TEMP/certs/fullchain.pem"
+          chmod 644 "$RUNNER_TEMP"/certs/*.pem
+          docker run --rm -v "$RUNNER_TEMP/certs:/etc/nginx/certs:ro" \
+            --entrypoint sh debugai-frontend:ci -c '/entrypoint.sh nginx -t'

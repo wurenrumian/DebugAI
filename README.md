@@ -8,8 +8,13 @@
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Vue 3 前端     │◄──►│   Go 后端网关    │◄──►│  Python AI 服务  │
 │  (localhost:5173)│    │  (localhost:8080)│    │  (localhost:8000)│
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+└─────────────────┘    └────────┬────────┘    └─────────────────┘
+                                │
+                     PostgreSQL 16 + Redis 7
 ```
+
+生产环境（Docker Compose）下，前端构建产物由 Nginx 容器提供，并由它反向代理 `/api`、`/auth` 到 Go 后端；
+只有 Nginx 对外发布 80/443 端口，后端、AI 服务、数据库、Redis 仅在 Docker 内部网络可达。详见 [`deploy.md`](deploy.md)。
 
 ### 技术栈与版本
 
@@ -17,8 +22,10 @@
 | ------- | --------------------------- | ------------------ | -------------------- |
 | 前端    | Vue 3 + Vite + Pinia        | 3.4.21 / 5.2.8 / 2.1.7 | 现代化 SPA 框架      |
 | 后端    | Go + Gin + GORM             | 1.25.5             | 高性能并发处理       |
-| AI 服务 | Python + FastAPI            | 3.9+ / >=0.135.0   | 基于大模型的智能分析 |
-| 数据库  | SQLite / PostgreSQL         | -                  | 开发/生产环境        |
+| AI 服务 | Python + FastAPI            | 3.11 / >=0.135.0   | 基于大模型的智能分析 |
+| 数据库  | PostgreSQL                  | 16                 | 业务数据（仅支持 PostgreSQL） |
+| 缓存    | Redis                       | 7                  | 限流、缓存、JWT 黑名单 |
+| 部署    | Docker Compose + Nginx      | -                  | 见 [`deploy.md`](deploy.md) |
 
 **核心依赖版本**：
 - Go: 1.25.5（见 [`backend-go/go.mod`](backend-go/go.mod:3)）
@@ -34,16 +41,21 @@
 
 ### 前置条件
 
+本地开发：
+
 - Go 1.25+
-- Python 3.9+
-- Node.js 18.0+（推荐 20.x LTS）
+- Python 3.11（与 Docker 镜像一致）
+- Node.js 20.x LTS
+- PostgreSQL 16 与 Redis 7（可用 `docker compose up -d postgres redis` 配合 `docker-compose.override.example.yml` 在本机启动）
+
+生产部署只需要 Docker 与 Docker Compose v2，见 [`deploy.md`](deploy.md)。
 
 ### 部署准备
 
 请先阅读 [`deploy.md`](deploy.md) 完成所有必需配置项，包括：
-- 创建 `.env` 文件并填写配置
+- 由 `.env.example`（开发）或 `.env.production.example`（生产）创建 `.env` 并填写配置
 - 申请 DeepSeek API Key
-- 生成 JWT_SECRET
+- 生成 `JWT_SECRET`、`AI_SERVICE_TOKEN`、数据库与 Redis 密码（`openssl rand -hex 32`）
 
 ### 启动顺序
 
@@ -78,20 +90,22 @@
    ```
 
    访问 `http://localhost:5173` 查看应用。
-   
-   #### 生产环境（Docker）
-   
-   ```bash
-   # 1. 确保 .env 文件已配置
-   # 2. 一键启动所有服务
-   docker-compose up -d --build
-   
-   # 3. 验证服务
-   docker-compose ps
-   curl http://localhost:8000/health
-   ```
-   
-   详细部署说明见 [`deploy.md`](deploy.md)。
+
+#### 生产环境（Docker）
+
+```bash
+# 1. 配置 .env（必需：POSTGRES_PASSWORD、REDIS_PASSWORD、JWT_SECRET、AI_SERVICE_TOKEN、DEEPSEEK_API_KEY）
+cp .env.production.example .env && chmod 600 .env
+
+# 2. 一键构建并启动所有服务
+docker compose up -d --build
+
+# 3. 验证服务（所有服务应为 healthy）
+docker compose ps
+curl http://localhost/healthz
+```
+
+HTTPS、备份恢复、升级、故障排查等详细说明见 [`deploy.md`](deploy.md)。
 
 ## 核心功能
 

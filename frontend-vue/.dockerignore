@@ -1,0 +1,29 @@
+# 依赖与构建产物（镜像内会重新 npm ci / build）
+node_modules
+dist
+.vite
+coverage
+
+# 环境变量与密钥
+.env
+.env.*
+*.pem
+*.key
+certs
+
+# 版本控制 / IDE / 系统文件
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+npm-debug.log*
+
+# Docker 自身
+Dockerfile
+.dockerignore

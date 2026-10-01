@@ -1,0 +1,30 @@
+# 版本控制 / IDE / 系统文件
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# 构建产物与调试文件
+bin/
+/main
+*.exe
+*.test
+*.prof
+coverage.out
+
+# 环境变量与密钥（绝不能打进镜像）
+.env
+.env.*
+*.pem
+*.key
+
+# 日志 / 文档
+logs/
+*.log
+*.md
+
+# Docker 自身
+Dockerfile
+.dockerignore

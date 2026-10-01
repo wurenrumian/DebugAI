@@ -1,31 +1,116 @@
+# DebugAI 前端 Nginx 配置模板
+# 由 entrypoint.sh 在容器启动时渲染到 /etc/nginx/conf.d/default.conf：
+#   envsubst 只替换 ${BACKEND_HOST} ${BACKEND_PORT} ${SERVER_NAME}，其余 $xxx 均为 Nginx 自身变量，保持原样。
+# 监听/TLS/HTTP->HTTPS 跳转/HSTS 由 entrypoint.sh 根据证书是否存在生成到 /etc/nginx/snippets/ 下：
+#   - listen.conf    : HTTP 模式为 listen 80；TLS 模式为 listen 443 ssl + 证书 + HSTS
+#   - redirect.conf  : TLS 模式下的 80 端口 server（/healthz + 301 跳转 https），HTTP 模式为空
+#
+# 注意（客户端 IP）：X-Forwarded-For 被直接覆盖为 $remote_addr，客户端无法伪造 IP（后端用 c.ClientIP() 做限流/审计）。
+# 如果在本容器前面还有一层反向代理 / CDN / 负载均衡（如宿主机 Caddy、腾讯云 CLB），$remote_addr 将是那层代理的地址，
+# 需要配合 set_real_ip_from + real_ip_header 还原真实 IP，详见 deploy.md「客户端真实 IP」。
+
+server_tokens off;
+
+# Docker 内置 DNS：后端容器重建后 IP 会变，用变量 + resolver 让 Nginx 动态解析
+resolver 127.0.0.11 valid=30s ipv6=off;
+resolver_timeout 5s;
+
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 5;
+gzip_min_length 1024;
+# 不包含 application/x-ndjson：流式响应不能被 gzip 缓冲
+gzip_types text/plain text/css text/javascript application/javascript application/json application/xml image/svg+xml;
+
+include /etc/nginx/snippets/redirect.conf;
+
 server {
-    listen       80;
-    server_name  localhost;
+    include /etc/nginx/snippets/listen.conf;
+    server_name ${SERVER_NAME};
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    error_log /var/log/nginx/error.log warn;
+
+    # 请求体上限（代码提交等 JSON 请求足够；后端另有 MAX_BODY_BYTES 限制）
+    client_max_body_size 2m;
+
+    # ---------- 安全响应头 ----------
+    # 注意：location 内不要使用 add_header，否则会丢失这里继承下来的所有头（缓存用 expires 指令设置）
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    # Vite 构建产物只有同源模块脚本；Vue/ECharts 运行时会设置内联 style，故 style-src 需要 'unsafe-inline'
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+
+    # 容器健康检查
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Vite 构建的带 hash 静态资源：长期缓存；不存在时返回 404，不回落到 index.html
+    location /assets/ {
+        expires 1y;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # 入口 HTML 不缓存，保证发版后立即生效
+    location = /index.html {
+        expires -1;
+    }
 
     # 前端静态文件 + Vue Router history 模式 fallback
     location / {
-        root   /usr/share/nginx/html;
         try_files $uri $uri/ /index.html;
     }
 
-    # 精确匹配 /auth 开头的所有路径（/auth/login, /auth/register 等）
-    location ^~ /auth {
-        proxy_pass http://backend:${BACKEND_PORT};
+    # ---------- 反向代理到 Go 后端 ----------
+    # 认证接口：/auth/login、/auth/register 等
+    location ^~ /auth/ {
+        set $backend_upstream http://${BACKEND_HOST}:${BACKEND_PORT};
+        proxy_pass $backend_upstream;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # 覆盖而不是追加（$proxy_add_x_forwarded_for），防止客户端伪造 IP
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 
-    # 项目其他 API 使用 /api 前缀（如 /api/v1/ai/evaluate）
-    location ^~ /api {
-        proxy_pass http://backend:${BACKEND_PORT};
+    # 业务 API：/api/v1/...（含 /stream 结尾的 NDJSON 流式接口，AI 请求可能持续数分钟）
+    location ^~ /api/ {
+        set $backend_upstream http://${BACKEND_HOST}:${BACKEND_PORT};
+        proxy_pass $backend_upstream;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
+        proxy_set_header X-Forwarded-Host $host;
 
-    # 可选：错误日志更详细（调试用，后面可删）
-    error_log /var/log/nginx/error.log debug;
+        # 流式响应：关闭缓冲，逐块转发给浏览器
+        proxy_buffering off;
+        proxy_cache off;
+
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
 }
