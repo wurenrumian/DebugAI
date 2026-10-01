@@ -4,11 +4,16 @@ import (
 	"context"
 	"time"
 
+	"backend-go/logger"
 	"backend-go/models"
 	"backend-go/utils"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+// DefaultRecordLimit 个人历史记录（未分页）最多返回/缓存的最近记录条数
+const DefaultRecordLimit = 200
 
 // RecordCache AI记录缓存服务
 type RecordCache struct {
@@ -48,7 +53,7 @@ func (s *RecordCache) fetchUserDebugRecordsFromDB(studentID string) ([]models.AI
 	var records []models.AIRecord
 	query := s.db.Where("student_id = ? AND round_number > 0", studentID)
 
-	if err := query.Order("created_at DESC").Find(&records).Error; err != nil {
+	if err := query.Order("created_at DESC").Order("id DESC").Limit(DefaultRecordLimit).Find(&records).Error; err != nil {
 		return nil, err
 	}
 
@@ -81,7 +86,7 @@ func (s *RecordCache) fetchUserEvaluateRecordsFromDB(studentID string) ([]models
 	var records []models.AIRecord
 	query := s.db.Where("student_id = ? AND conversation_id LIKE ?", studentID, "eval_%")
 
-	if err := query.Order("created_at DESC").Find(&records).Error; err != nil {
+	if err := query.Order("created_at DESC").Order("id DESC").Limit(DefaultRecordLimit).Find(&records).Error; err != nil {
 		return nil, err
 	}
 
@@ -113,7 +118,7 @@ func (s *RecordCache) fetchUserRecommendRecordsFromDB(studentID string) ([]model
 	var records []models.AIRecord
 	query := s.db.Where("student_id = ? AND conversation_id LIKE ?", studentID, "rec_%")
 
-	if err := query.Order("created_at DESC").Find(&records).Error; err != nil {
+	if err := query.Order("created_at DESC").Order("id DESC").Limit(DefaultRecordLimit).Find(&records).Error; err != nil {
 		return nil, err
 	}
 
@@ -130,8 +135,15 @@ func (s *RecordCache) InvalidateUserRecords(studentID string) {
 		return
 	}
 
-	go func() {
-		ctx := context.Background()
-		s.cache.InvalidatePattern(ctx, utils.AIRecordUserPattern(studentID))
-	}()
+	// 个人记录缓存键是确定的，直接同步 DEL（无需 SCAN），保证调用方返回后不会读到旧缓存
+	keys := []string{
+		utils.AIRecordUserDebugKey(studentID),
+		utils.AIRecordUserEvaluateKey(studentID),
+		utils.AIRecordUserRecommendKey(studentID),
+	}
+	if err := s.cache.DeleteKeys(context.Background(), keys...); err != nil {
+		logger.Error("Failed to invalidate user records cache",
+			zap.String("student_id", studentID),
+			zap.Error(err))
+	}
 }

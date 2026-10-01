@@ -1,6 +1,12 @@
 package utils
 
-import "fmt"
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // ==================== 轮次配置缓存键 ====================
 
@@ -49,8 +55,28 @@ func WeakPointsUserTopKey(studentID string, limit int, startDate, endDate string
 }
 
 // WeakPointsClassKey 班级薄弱点缓存键
-func WeakPointsClassKey(classID uint, startDate, endDate string) string {
-	return fmt.Sprintf("weak_points:class:%d:%s:%s", classID, startDate, endDate)
+// 键中包含日期范围与学生筛选条件的哈希，避免不同筛选条件的查询结果相互污染
+func WeakPointsClassKey(classID uint, startDate, endDate string, studentIDs []string) string {
+	return fmt.Sprintf("weak_points:class:%d:%s:%s:%s", classID, startDate, endDate, StudentFilterHash(studentIDs))
+}
+
+// StudentFilterHash 对学生ID列表生成稳定哈希（排序、去重后计算）；空列表返回 "all"
+func StudentFilterHash(studentIDs []string) string {
+	if len(studentIDs) == 0 {
+		return "all"
+	}
+	seen := make(map[string]struct{}, len(studentIDs))
+	ids := make([]string, 0, len(studentIDs))
+	for _, id := range studentIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	sum := sha1.Sum([]byte(strings.Join(ids, "\n")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // WeakPointsUserPattern 用户薄弱点缓存键模式（用于批量删除）
@@ -85,19 +111,20 @@ func AIRecordUserRecommendKey(studentID string) string {
 	return fmt.Sprintf("ai_records:user:%s:recommend", studentID)
 }
 
-// AIRecordClassDebugKey 班级调试记录缓存键（含分页）
-func AIRecordClassDebugKey(classID uint, page, pageSize int) string {
-	return fmt.Sprintf("ai_records:class:%d:debug:p%d:s%d", classID, page, pageSize)
+// AIRecordClassDebugKey 班级调试记录缓存键（含分页与筛选条件）
+// filter 应包含学生筛选与日期范围，例如 StudentFilterHash(ids)+":"+start+":"+end
+func AIRecordClassDebugKey(classID uint, page, pageSize int, filter string) string {
+	return fmt.Sprintf("ai_records:class:%d:debug:%s:p%d:s%d", classID, filter, page, pageSize)
 }
 
-// AIRecordClassEvaluateKey 班级评估记录缓存键
-func AIRecordClassEvaluateKey(classID uint, page, pageSize int) string {
-	return fmt.Sprintf("ai_records:class:%d:evaluate:p%d:s%d", classID, page, pageSize)
+// AIRecordClassEvaluateKey 班级评估记录缓存键（含分页与筛选条件）
+func AIRecordClassEvaluateKey(classID uint, page, pageSize int, filter string) string {
+	return fmt.Sprintf("ai_records:class:%d:evaluate:%s:p%d:s%d", classID, filter, page, pageSize)
 }
 
-// AIRecordClassRecommendKey 班级推荐记录缓存键
-func AIRecordClassRecommendKey(classID uint, page, pageSize int) string {
-	return fmt.Sprintf("ai_records:class:%d:recommend:p%d:s%d", classID, page, pageSize)
+// AIRecordClassRecommendKey 班级推荐记录缓存键（含分页与筛选条件）
+func AIRecordClassRecommendKey(classID uint, page, pageSize int, filter string) string {
+	return fmt.Sprintf("ai_records:class:%d:recommend:%s:p%d:s%d", classID, filter, page, pageSize)
 }
 
 // ==================== 缓存键模式（用于批量删除） ====================
