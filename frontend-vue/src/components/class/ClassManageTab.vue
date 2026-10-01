@@ -114,6 +114,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useClassStore } from '../../stores/class'
+import { toast } from '../../utils/toast'
 
 const classStore = useClassStore()
 
@@ -170,7 +171,7 @@ const addMembers = async () => {
   if (result.success) {
     newMemberIds.value = ''
   } else {
-    alert(result.error || '添加成员失败')
+    toast.error(result.error || '添加成员失败')
   }
 }
 
@@ -189,7 +190,7 @@ const removeSelectedMembers = async () => {
   if (result.success) {
     selectedMembers.value = []
   } else {
-    alert(result.error || '移除成员失败')
+    toast.error(result.error || '移除成员失败')
   }
 }
 
@@ -206,7 +207,7 @@ const removeMember = async (member) => {
   )
   
   if (!result.success) {
-    alert(result.error || '移除成员失败')
+    toast.error(result.error || '移除成员失败')
   }
 }
 

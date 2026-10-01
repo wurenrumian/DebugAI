@@ -59,11 +59,14 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
+import { toast } from '../utils/toast'
+import { safeRedirectPath } from '../utils/session'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const formData = ref({
@@ -73,7 +76,8 @@ const formData = ref({
 
 const loading = ref(false)
 const resendLoading = ref(false)
-const errorMessage = ref('')
+// 登录过期被重定向过来时给出提示
+const errorMessage = ref(route.query.expired ? '登录已过期，请重新登录' : '')
 const emailVerificationRequired = ref(false)
 const email = ref('')
 
@@ -93,7 +97,8 @@ const handleLogin = async () => {
     const result = await authStore.login(formData.value)
     
     if (result.success) {
-      router.push('/profile')
+      // 登录后回到原本要访问的页面（仅允许站内路径）
+      router.push(safeRedirectPath(route.query.redirect))
     } else {
       // 检查是否需要邮箱验证
       if (result.error && result.error.includes('请先验证邮箱')) {
@@ -114,14 +119,14 @@ const handleLogin = async () => {
 const handleResendVerification = async () => {
   resendLoading.value = true
   try {
-    const result = await authStore.resendVerificationEmail()
+    const result = await authStore.resendVerificationEmail(email.value || authStore.email)
     if (result.success) {
-      alert('验证邮件已发送，请查收')
+      toast.success('验证邮件已发送，请查收')
     } else {
-      alert('发送失败：' + (result.error || '请稍后重试'))
+      toast.error('发送失败：' + (result.error || '请稍后重试'))
     }
   } catch (error) {
-    alert('发送失败，请检查网络连接')
+    toast.error('发送失败，请检查网络连接')
   } finally {
     resendLoading.value = false
   }

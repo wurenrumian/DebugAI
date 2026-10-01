@@ -19,7 +19,7 @@
           <span class="section-icon">🤖</span>
           <span class="section-title">AI 助手</span>
         </div>
-        <div class="section-content" v-html="formatContent(aiResponse.content)"></div>
+        <div class="section-content markdown-body" v-html="renderMarkdown(aiResponse.content)"></div>
       </div>
 
       <!-- 学生思路 -->
@@ -101,7 +101,7 @@
           <span class="section-icon">🔧</span>
           <span class="section-title">调试指导</span>
         </div>
-        <div class="section-content guidance-content" v-html="formatContent(aiResponse.debug_guidance)"></div>
+        <div class="section-content guidance-content markdown-body" v-html="renderMarkdown(aiResponse.debug_guidance)"></div>
       </div>
 
       <!-- 详细请求 -->
@@ -135,7 +135,7 @@
         <div class="section-content">
           <ul class="suggestions-list">
             <li v-for="(suggestion, index) in aiResponse.suggestions" :key="index">
-              <div v-html="formatContent(suggestion)"></div>
+              <div class="markdown-body" v-html="renderMarkdown(suggestion)"></div>
             </li>
           </ul>
         </div>
@@ -151,6 +151,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps({
   aiResponse: {
@@ -185,30 +186,6 @@ const normalizedWeakpoints = computed(() => {
   if (!props.aiResponse) return []
   return props.aiResponse.weakpoints || props.aiResponse.weak_points || []
 })
-
-// 格式化内容（支持简单的 Markdown）
-const formatContent = (content) => {
-  if (!content) return ''
-  
-  let formatted = content
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-  
-  // 代码块
-  formatted = formatted.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-  formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>')
-  
-  // 换行
-  formatted = formatted.replace(/\n/g, '<br>')
-  
-  // 列表项标记
-  formatted = formatted.replace(/^- (.+)$/gm, '<li>$1</li>')
-  formatted = formatted.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-  formatted = formatted.replace(/<\/ul>\s*<ul>/g, '')
-  
-  return formatted
-}
 </script>
 
 <style scoped>

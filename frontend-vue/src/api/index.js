@@ -1,14 +1,21 @@
 import axios from 'axios'
+import { API_BASE_URL, AI_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, LOGOUT_TIMEOUT_MS } from './config'
+import { streamNdjson } from './stream'
+import { getStoredToken, notifyUnauthorized } from '../utils/session'
+import { ApiError, ERROR_MESSAGES, errorFromResponse } from '../utils/errors'
 
 const api = axios.create({
-	baseURL: '',
-	timeout: 60000
+	baseURL: API_BASE_URL,
+	timeout: DEFAULT_TIMEOUT_MS
 })
 
-// 请求拦截器 - 添加 Token
+// AI 接口（非流式）使用更长的超时
+const aiConfig = { timeout: AI_TIMEOUT_MS }
+
+// 请求拦截器 - 添加 Token（过期 token 不再发送）
 api.interceptors.request.use(
 	config => {
-		const token = localStorage.getItem('token')
+		const token = getStoredToken()
 		if (token) {
 			config.headers.Authorization = `Bearer ${token}`
 		}
@@ -19,23 +26,34 @@ api.interceptors.request.use(
 	}
 )
 
+// /auth/* 接口的 401 属于业务错误（如密码错误、邮箱未验证），不应触发跳转
+const isAuthEndpoint = (url = '') => /^\/auth\//.test(url.replace(API_BASE_URL, ''))
+
 // 响应拦截器 - 处理错误
+// 失败时统一 reject 一个 ApiError：error 字段为可展示的文案（服务端 error/message 或已知状态的中文提示）
 api.interceptors.response.use(
 	response => {
 		return response.data
 	},
 	error => {
+		const config = error.config || {}
 		if (error.response) {
 			const { status, data } = error.response
-			if (status === 401) {
-				// Token 过期或无效，清除本地存储并跳转登录
-				localStorage.removeItem('token')
-				localStorage.removeItem('user')
-				window.location.href = '/login'
+			if (status === 401 && !config.skipAuthRedirect && !isAuthEndpoint(config.url)) {
+				// Token 过期或无效，清除登录态并跳转登录
+				notifyUnauthorized()
 			}
-			return Promise.reject(data)
+			const headers = error.response.headers || {}
+			const retryAfter = typeof headers.get === 'function' ? headers.get('retry-after') : headers['retry-after']
+			return Promise.reject(errorFromResponse(status, data, { retryAfter }))
 		}
-		return Promise.reject(error)
+		if (axios.isCancel(error)) {
+			return Promise.reject(new ApiError(ERROR_MESSAGES.aborted, { code: 'aborted', error: ERROR_MESSAGES.aborted }))
+		}
+		if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+			return Promise.reject(new ApiError(ERROR_MESSAGES.timeout, { code: 'timeout', error: ERROR_MESSAGES.timeout }))
+		}
+		return Promise.reject(new ApiError(ERROR_MESSAGES.network, { code: 'network', error: ERROR_MESSAGES.network }))
 	}
 )
 
@@ -47,16 +65,18 @@ export const authAPI = {
 	login(data) {
 		return api.post('/auth/login', data)
 	},
+	// 退出登录（需要 Authorization 头，由拦截器添加；失败不跳转，调用方负责清理本地状态）
 	logout() {
-		return api.post('/auth/logout')
+		return api.post('/auth/logout', null, { timeout: LOGOUT_TIMEOUT_MS, skipAuthRedirect: true })
 	},
 	// 邮箱验证
 	verifyEmail(token) {
 		return api.get('/auth/verify-email', { params: { token } })
 	},
 	// 重新发送验证邮件
-	resendVerificationEmail() {
-		return api.post('/auth/resend-verification')
+	// 后端要求请求体 { email }，用于查找待验证的注册信息（不存在时返回 404）
+	resendVerificationEmail(email) {
+		return api.post('/auth/resend-verification', { email })
 	},
 	// 忘记密码
 	forgotPassword(data) {
@@ -79,48 +99,11 @@ export const userAPI = {
 export const aiAPI = {
 	// 发送调试请求
 	debugV2(data) {
-		return api.post('/api/v1/ai/debug_v2', data)
+		return api.post('/api/v1/ai/debug_v2', data, aiConfig)
 	},
-	// 流式调试请求
-	async debugV2Stream(data, onChunk) {
-		const token = localStorage.getItem('token')
-		const response = await fetch('/api/v1/ai/debug_v2/stream', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': token ? `Bearer ${token}` : ''
-			},
-			body: JSON.stringify(data)
-		})
-
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => ({}))
-			throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
-		}
-
-		const reader = response.body.getReader()
-		const decoder = new TextDecoder()
-		let buffer = ''
-
-		while (true) {
-			const { done, value } = await reader.read()
-			if (done) break
-
-			buffer += decoder.decode(value, { stream: true })
-			const lines = buffer.split('\n')
-			buffer = lines.pop()
-
-			for (const line of lines) {
-				if (line.trim()) {
-					try {
-						const chunk = JSON.parse(line)
-						onChunk(chunk)
-					} catch (e) {
-						console.error('Failed to parse chunk:', line, e)
-					}
-				}
-			}
-		}
+	// 流式调试请求（options.signal 可用于取消）
+	async debugV2Stream(data, onChunk, options = {}) {
+		return streamNdjson('/api/v1/ai/debug_v2/stream', data, onChunk, options)
 	},
 	// 获取AI交互历史（所有类型）
 	getRecords() {
@@ -144,97 +127,23 @@ export const aiAPI = {
 	},
 	// 开始新对话
 	startConversation(data) {
-		return api.post('/api/v1/ai/start', data)
+		return api.post('/api/v1/ai/start', data, aiConfig)
 	},
 	// 代码评价
 	evaluate(data) {
-		return api.post('/api/v1/ai/evaluate', data)
+		return api.post('/api/v1/ai/evaluate', data, aiConfig)
 	},
 	// 流式代码评价
-	async evaluateStream(data, onChunk) {
-		const token = localStorage.getItem('token')
-		const response = await fetch('/api/v1/ai/evaluate/stream', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': token ? `Bearer ${token}` : ''
-			},
-			body: JSON.stringify(data)
-		})
-
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => ({}))
-			throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
-		}
-
-		const reader = response.body.getReader()
-		const decoder = new TextDecoder()
-		let buffer = ''
-
-		while (true) {
-			const { done, value } = await reader.read()
-			if (done) break
-
-			buffer += decoder.decode(value, { stream: true })
-			const lines = buffer.split('\n')
-			buffer = lines.pop()
-
-			for (const line of lines) {
-				if (line.trim()) {
-					try {
-						const chunk = JSON.parse(line)
-						onChunk(chunk)
-					} catch (e) {
-						console.error('Failed to parse chunk:', line, e)
-					}
-				}
-			}
-		}
+	async evaluateStream(data, onChunk, options = {}) {
+		return streamNdjson('/api/v1/ai/evaluate/stream', data, onChunk, options)
 	},
 	// 题目推荐
 	recommend(data) {
-		return api.post('/api/v1/ai/recommend', data)
+		return api.post('/api/v1/ai/recommend', data, aiConfig)
 	},
 	// 流式题目推荐
-	async recommendStream(data, onChunk) {
-		const token = localStorage.getItem('token')
-		const response = await fetch('/api/v1/ai/recommend/stream', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': token ? `Bearer ${token}` : ''
-			},
-			body: JSON.stringify(data)
-		})
-
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => ({}))
-			throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
-		}
-
-		const reader = response.body.getReader()
-		const decoder = new TextDecoder()
-		let buffer = ''
-
-		while (true) {
-			const { done, value } = await reader.read()
-			if (done) break
-
-			buffer += decoder.decode(value, { stream: true })
-			const lines = buffer.split('\n')
-			buffer = lines.pop()
-
-			for (const line of lines) {
-				if (line.trim()) {
-					try {
-						const chunk = JSON.parse(line)
-						onChunk(chunk)
-					} catch (e) {
-						console.error('Failed to parse chunk:', line, e)
-					}
-				}
-			}
-		}
+	async recommendStream(data, onChunk, options = {}) {
+		return streamNdjson('/api/v1/ai/recommend/stream', data, onChunk, options)
 	},
 	// 获取用户薄弱点（支持日期筛选）
 	getWeakPoints(params = {}) {

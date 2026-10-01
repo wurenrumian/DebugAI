@@ -105,6 +105,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 import { useClassStore } from '../stores/class'
 import { useAuthStore } from '../stores/auth'
+import { toast } from '../utils/toast'
 import ClassSelector from '../components/class/ClassSelector.vue'
 import ClassInfoTab from '../components/class/ClassInfoTab.vue'
 import ClassManageTab from '../components/class/ClassManageTab.vue'
@@ -120,16 +121,13 @@ const newClassName = ref('')
 const loading = ref(false)
 
 // 检查是否是系统管理员
-const isSystemAdmin = computed(() => {
-  const user = authStore.user
-  return user && user.user_type === 'admin'
-})
+const isSystemAdmin = computed(() => authStore.isAdmin)
 
 // 检查当前用户是否是班级管理员
 const isClassAdmin = computed(() => {
   const user = authStore.user
   // 系统管理员可以管理任何班级
-  if (user?.user_type === 'admin') return true
+  if (authStore.isAdmin) return true
   
   const currentUserStudentId = user?.student_id
   if (!currentUserStudentId) return false
@@ -191,7 +189,7 @@ const createClass = async () => {
       await classStore.fetchMembers(classStore.currentClass.id)
     }
   } else {
-    alert(result.error || '创建班级失败')
+    toast.error(result.error || '创建班级失败')
   }
 }
 </script>

@@ -104,6 +104,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
+import { toast } from '../utils/toast'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -182,12 +183,12 @@ const resendVerification = async () => {
       email: formData.value.email
     })
     if (result.success) {
-      alert('验证邮件已重新发送，请查收')
+      toast.success('验证邮件已重新发送，请查收')
     } else {
-      alert('发送失败：' + (result.error || '请稍后重试'))
+      toast.error('发送失败：' + (result.error || '请稍后重试'))
     }
   } catch (error) {
-    alert('发送失败，请检查网络连接')
+    toast.error('发送失败，请检查网络连接')
   } finally {
     resendLoading.value = false
   }

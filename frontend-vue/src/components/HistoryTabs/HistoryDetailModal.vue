@@ -16,7 +16,8 @@
           <div v-if="showCodeModal" class="submission-content">
             <div class="problem-description">
               <h4>题目:</h4>
-              <div class="problem-text" v-html="initialSubmission.problem_description"></div>
+              <!-- 学生提交的内容一律按纯文本显示（教师端也会打开此弹窗） -->
+              <div class="problem-text">{{ initialSubmission.problem_description }}</div>
             </div>
             <div class="code-section" v-if="initialSubmission.code">
               <h4>提交的代码:</h4>

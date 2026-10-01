@@ -74,7 +74,21 @@ VITE_APP_TITLE=AI 教学辅助平台
 
 **注意**：
 - 使用代理时，API 调用使用相对路径（如 `/api/v1/ai/evaluate`）
-- 不使用代理时，需设置 `VITE_API_BASE_URL` 并配置 `src/api/index.js` 中的 `baseURL`
+- 不使用代理时，设置 `VITE_API_BASE_URL` 即可（[`src/api/config.js`](src/api/config.js) 读取，axios 与流式 fetch 共用，默认空字符串即同源）
+
+### 测试
+
+```bash
+npm test   # vitest run：Markdown 安全渲染、JWT 过期判断、NDJSON 流解析、路由守卫等单元测试
+```
+
+### 安全约定
+
+- **禁止**直接把用户 / AI 内容绑定到 `v-html`。需要渲染 Markdown 时使用 [`src/utils/markdown.js`](src/utils/markdown.js) 的 `renderMarkdown()`（markdown-it `html: false` + DOMPurify + highlight.js 按需加载语言）；学生提交的代码、题目描述、对话输入一律使用 `{{ }}` 纯文本插值。
+- 必须拼接 HTML 字符串的地方（如 ECharts tooltip formatter）使用 `src/utils/html.js` 的 `escapeHtml()`。
+- Token 暂存于 localStorage（迁移 httpOnly Cookie 需后端配合），前端会解析 JWT `exp`，过期即视为未登录并跳转 `/login?redirect=...`。
+- AI 流式接口统一走 [`src/api/stream.js`](src/api/stream.js)：支持 `AbortSignal` 取消（页面卸载时自动取消）、180s 整体超时、401 自动登出、429 友好提示、`{"type":"error"}` 事件抛错。
+- 用户提示统一使用 `src/utils/toast.js`（不要使用 `alert()`）。
 
 ## 核心功能模块
 

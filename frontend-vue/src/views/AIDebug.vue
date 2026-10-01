@@ -90,16 +90,16 @@
               </div>
               <div class="dialogue-bubble">
                 <div class="dialogue-label">{{ item.role === 'student' ? '你' : 'AI 助手' }}</div>
-                <!-- 学生消息直接显示 -->
-                <div v-if="item.role === 'student'" class="dialogue-text" v-html="formatContent(item.content)"></div>
+                <!-- 学生消息：纯文本显示（不解析 HTML / Markdown） -->
+                <div v-if="item.role === 'student'" class="dialogue-text plain-text">{{ item.content }}</div>
                 <!-- AI 消息：流式时显示纯文本，完成后显示结构化组件 -->
-                <div v-else-if="item.role === 'assistant' && item.isStreaming" class="dialogue-text streaming-text" v-html="formatContent(item.content)"></div>
+                <div v-else-if="item.role === 'assistant' && item.isStreaming" class="dialogue-text streaming-text">{{ item.content }}</div>
                 <AIResponseDisplay
                   v-else-if="item.role === 'assistant' && !item.isStreaming"
                   :ai-response="item.ai_response || parseAIResponse(item.content)"
                   :student-response="item.student_response || ''"
                 />
-                <div v-else class="dialogue-text" v-html="formatContent(item.content)"></div>
+                <div v-else class="dialogue-text markdown-body" v-html="renderMarkdown(item.content)"></div>
               </div>
             </div>
             
@@ -244,11 +244,18 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
+import { useAbortableRequest } from '../composables/useAbortableRequest'
 import { useAuthStore } from '../stores/auth'
 import { aiAPI } from '../api'
+import { renderMarkdown } from '../utils/markdown'
+import { getErrorMessage, isAbortError } from '../utils/errors'
 import AIResponseDisplay from '../components/AIResponseDisplay.vue'
 
 const authStore = useAuthStore()
+
+// 流式请求控制（组件卸载 / 新建对话时自动取消）
+const streamRequest = useAbortableRequest()
+let requestSeq = 0
 
 // 表单数据
 const formData = ref({
@@ -358,6 +365,8 @@ const startDebug = async () => {
     dialogueHistory.value = []
   }
   
+  const requestId = ++requestSeq
+  const signal = streamRequest.start()
   loading.value = true
   errorMessage.value = ''
   
@@ -382,7 +391,8 @@ const startDebug = async () => {
   }
   
   // 预先添加一个空的 AI 消息占位（标记为流式状态）
-  const aiMessageIndex = dialogueHistory.value.length
+  const history = dialogueHistory.value
+  const aiMessageIndex = history.length
   dialogueHistory.value.push({
     round_number: currentRound.value,
     role: 'assistant',
@@ -409,8 +419,6 @@ const startDebug = async () => {
       } else if (chunk.type === 'round_info') {
         // 处理流中可能包含的轮次信息更新
         roundInfo.value = chunk.data
-      } else if (chunk.type === 'error') {
-        errorMessage.value = chunk.message
       } else if (chunk.type === 'done') {
         // 流式完成，标记结束
         dialogueHistory.value[aiMessageIndex].isStreaming = false
@@ -441,15 +449,22 @@ const startDebug = async () => {
           fetchRoundInfo(currentRound.value)
         }
       }
-    })
+    }, { signal })
   } catch (error) {
-    errorMessage.value = error.message || '请求失败，请稍后重试'
+    // 对话已被重置（新建对话）时，旧请求的结果直接丢弃
+    if (dialogueHistory.value !== history) return
+    // 如果出错 / 被取消，移除占位消息
+    if (history[aiMessageIndex] && history[aiMessageIndex].isStreaming) {
+      history.splice(aiMessageIndex, 1)
+    }
+    if (isAbortError(error)) return
+    errorMessage.value = getErrorMessage(error, '请求失败，请稍后重试')
     console.error('Debug error:', error)
-    // 如果出错，移除占位消息
-    dialogueHistory.value.splice(aiMessageIndex, 1)
   } finally {
-    loading.value = false
-    scrollToBottom()
+    if (requestId === requestSeq) {
+      loading.value = false
+      scrollToBottom()
+    }
   }
 }
 
@@ -461,6 +476,9 @@ const submitStudentResponse = async () => {
 
 // 重置对话
 const resetConversation = () => {
+  streamRequest.cancel()
+  requestSeq++
+  loading.value = false
   currentRound.value = 1
   conversationId.value = ''
   dialogueHistory.value = []
@@ -484,25 +502,6 @@ const scrollToBottom = async () => {
   if (content) {
     content.scrollTop = content.scrollHeight
   }
-}
-
-// 格式化内容（简单的 Markdown 转换）
-const formatContent = (content) => {
-  if (!content) return ''
-  // 转义 HTML
-  let formatted = content
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-  
-  // 简单的代码块转换
-  formatted = formatted.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-  formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>')
-  
-  // 换行转换
-  formatted = formatted.replace(/\n/g, '<br>')
-  
-  return formatted
 }
 
 // 解析 AI 响应 JSON
@@ -532,9 +531,7 @@ watch(currentRound, (newRound) => {
 const dialogueContent = ref(null)
 
 onMounted(() => {
-  if (!authStore.isAuthenticated) {
-    window.location.href = '/login'
-  }
+  // 登录态由路由守卫保证
   // 获取第一轮的初始信息
   fetchRoundInfo(1)
 })
