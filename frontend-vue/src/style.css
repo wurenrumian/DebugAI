@@ -18,12 +18,23 @@ a {
 button {
 	cursor: pointer;
 	border: none;
+}
+
+/* 键盘导航可见的焦点样式（鼠标点击不显示焦点框） */
+:focus:not(:focus-visible) {
 	outline: none;
 }
 
-input,
-textarea {
-	outline: none;
+:focus-visible {
+	outline: 2px solid #409eff;
+	outline-offset: 2px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+	outline: 2px solid rgba(64, 158, 255, 0.45);
+	outline-offset: 0;
 }
 
 /* 通用容器 */

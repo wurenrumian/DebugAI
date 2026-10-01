@@ -115,7 +115,6 @@ input:not([type="checkbox"]):not([type="radio"]) {
 textarea:focus,
 input:focus:not([type="checkbox"]):not([type="radio"]) {
 	border-color: #409eff;
-	outline: none;
 }
 
 textarea:disabled {
