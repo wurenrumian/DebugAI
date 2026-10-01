@@ -51,12 +51,19 @@ RUN addgroup --system --gid 1001 appgroup && \
 	adduser --system --uid 1001 --gid 1001 appuser
 USER appuser
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-	CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+# 运行参数（可在 docker run / docker-compose 中覆盖）
+# 注意：LLM 并发上限 LLM_MAX_CONCURRENCY 按 worker 进程生效，总并发 ≈ UVICORN_WORKERS × LLM_MAX_CONCURRENCY
+ENV AI_PORT=8000 \
+	UVICORN_WORKERS=2 \
+	PYTHONUNBUFFERED=1 \
+	PYTHONDONTWRITEBYTECODE=1
 
-# 暴露端口
+# 健康检查（/health 无需鉴权）
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+	CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/health' % os.environ.get('AI_PORT', '8000'))"
+
+# 暴露端口（与 AI_PORT 默认值一致）
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动命令：使用 exec 让 uvicorn 成为 PID 1，正确接收停止信号
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port \"${AI_PORT}\" --workers \"${UVICORN_WORKERS}\" --no-server-header"]
