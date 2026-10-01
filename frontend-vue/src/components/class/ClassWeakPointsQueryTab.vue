@@ -68,6 +68,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useClassStore } from '../../stores/class'
 import { classAPI } from '../../api'
 import WeakPointDisplay from '../WeakPointDisplay.vue'
+import { toast } from '../../utils/toast'
+import { getErrorMessage } from '../../utils/errors'
 
 const classStore = useClassStore()
 
@@ -190,7 +192,7 @@ async function handleExport() {
     window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('导出失败:', error)
-    alert('导出失败，请重试')
+    toast.error(getErrorMessage(error, '导出失败，请重试'))
   }
 }
 
