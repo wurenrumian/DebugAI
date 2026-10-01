@@ -1,22 +1,20 @@
-# 核心 web / API 框架（升级后性能更好、文档更现代）
-fastapi>=0.135.0
-uvicorn[standard]>=0.41.0
+# 运行时依赖（直接依赖精确锁定版本；兼容 Python 3.11，与 Dockerfile 一致）
+# 升级方法：修改版本后执行 `uv pip compile requirements.txt --python-version 3.11` 校验兼容性，并运行 tests/ 全部用例
+# 注：openai 保持在 2.x（原代码基于 2.x 编写），3.x 为大版本升级，需单独验证后再升级
+# 测试依赖见 requirements-dev.txt
 
-# OpenAI 客户端（强烈建议升，但代码要适配 v2 API）
-openai>=2.24.0
+# Web / API 框架
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
 
-# 数据验证（保持最新，FastAPI 官方推荐）
-pydantic>=2.12.0
+# LLM 客户端（DeepSeek 兼容 OpenAI 接口）
+openai==2.54.0
+
+# 数据验证
+pydantic==2.13.5
 
 # 环境变量
-python-dotenv>=1.0.1
+python-dotenv==1.2.4
 
-# 测试框架（建议一起升级）
-pytest>=8.0
-pytest-asyncio>=0.24.0
-
-# HTTP 客户端（新版更安全、支持更好）
-httpx>=0.28.0
-
-# 日志（基本无风险）
-structlog>=24.1.0
+# 结构化日志
+structlog==26.1.0

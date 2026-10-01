@@ -58,3 +58,11 @@ Thumbs.db
 # 测试数据
 tests/fixtures/
 tests/__pycache__/
+# 测试与手动脚本（不进入生产镜像）
+tests/
+scripts/
+test.py
+requirements-dev.txt
+pytest.ini
+conftest.py
+README.md

@@ -1,0 +1,5 @@
+# 开发 / 测试依赖（不进入生产镜像）
+# 安装：uv pip install -r requirements.txt -r requirements-dev.txt
+pytest==9.1.1
+# FastAPI/Starlette TestClient 依赖（Starlette 1.x 推荐 httpx2，旧 httpx 已弃用）
+httpx2==2.13.1

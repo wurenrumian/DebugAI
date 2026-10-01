@@ -1,0 +1,7 @@
+# Python 缓存与本地环境（仓库根 .gitignore 只覆盖 ai-python 根目录）
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+# 手动评价脚本的输出
+ai_eval_results_*.json
