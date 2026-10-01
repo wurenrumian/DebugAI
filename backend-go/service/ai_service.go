@@ -6,10 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"backend-go/logger"
@@ -22,29 +21,38 @@ import (
 
 // AIServiceIface defines the interface for AI service operations
 type AIServiceIface interface {
-	ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
-	ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error)
-	ProxyEvaluateStream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error)
-	ProxyDebugV2Stream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error)
-	ProxyRecommendStream(requestBody []byte, studentID string) (io.ReadCloser, error)
+	ProxyEvaluate(ctx context.Context, requestBody []byte, studentID, conversationID string) (map[string]interface{}, error)
+	ProxyRecommend(ctx context.Context, requestBody []byte, studentID string) (map[string]interface{}, error)
+	ProxyEvaluateStream(ctx context.Context, requestBody []byte, studentID, conversationID string) (AIStreamReader, error)
+	ProxyDebugV2Stream(ctx context.Context, requestBody []byte, studentID, conversationID string, roundNumber int) (AIStreamReader, error)
+	ProxyRecommendStream(ctx context.Context, requestBody []byte, studentID string) (AIStreamReader, error)
+	SaveRecord(record *models.AIRecord) error
 	GetUserWeakPoints(studentID string, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	UpdateUserWeakPoints(studentID string, weakPoints map[string]int, recordDate time.Time) error
 	GetTopWeakPoints(studentID string, limit int, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	GetClassWeakPoints(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error)
 	ExportClassWeakPointsCSV(classID uint, studentIDs []string, startDate, endDate *time.Time) (string, error)
 	SeedWeakPointKeywords() error
-	GetDebugRecords(studentID string) ([]models.AIRecord, error)
-	GetEvaluateRecords(studentID string) ([]models.AIRecord, error)
-	GetRecommendRecords(studentID string) ([]models.AIRecord, error)
+	GetDebugRecords(studentID string, page RecordPage) ([]models.AIRecord, int64, error)
+	GetEvaluateRecords(studentID string, page RecordPage) ([]models.AIRecord, int64, error)
+	GetRecommendRecords(studentID string, page RecordPage) ([]models.AIRecord, int64, error)
 }
 
 // AIService handles communication with the AI Python backend
 type AIService struct {
-	DB                 *gorm.DB
-	PythonServiceURL   string
-	keywordCategoryMap map[string]string // keyword -> category mapping cache
-	weakPointCache     *cache.WeakPointCache
-	recordCache        *cache.RecordCache
+	DB               *gorm.DB
+	PythonServiceURL string
+
+	// keywordCategoryMap keyword -> category 映射缓存
+	// 会被多个 goroutine（流式回调、请求处理）并发读写，必须通过 kwMu 保护
+	keywordCategoryMap map[string]string
+	kwMu               sync.RWMutex
+
+	weakPointCache *cache.WeakPointCache
+	recordCache    *cache.RecordCache
+
+	// bg 跟踪后台写库 goroutine，便于测试与优雅退出时等待
+	bg sync.WaitGroup
 }
 
 // NewAIService creates a new AIService
@@ -71,19 +79,25 @@ func (s *AIService) loadKeywordCategoryMap() {
 		return
 	}
 
+	s.kwMu.Lock()
+	defer s.kwMu.Unlock()
 	for _, wp := range weakPoints {
 		s.keywordCategoryMap[wp.Keyword] = wp.Category
 	}
 }
 
-// categoryRule 分类规则
-type categoryRule struct {
-	category string
-	keywords []string
+// setKeywordCategory 并发安全地更新关键词分类缓存
+func (s *AIService) setKeywordCategory(keyword, category string) {
+	s.kwMu.Lock()
+	s.keywordCategoryMap[keyword] = category
+	s.kwMu.Unlock()
 }
 
 // getCategoryByKeyword returns category for given keyword using fuzzy matching
 func (s *AIService) getCategoryByKeyword(keyword string) string {
+	s.kwMu.RLock()
+	defer s.kwMu.RUnlock()
+
 	// 1. 精确匹配缓存
 	if category, exists := s.keywordCategoryMap[keyword]; exists {
 		return category
@@ -116,23 +130,66 @@ func (s *AIService) getCategoryByKeyword(keyword string) string {
 	return "自动分类"
 }
 
-// containsSubstring checks if str contains substr
-func containsSubstring(str, substr string) bool {
-	for i := 0; i <= len(str)-len(substr); i++ {
-		if str[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 // GetDB returns the database connection
 func (s *AIService) GetDB() *gorm.DB {
 	return s.DB
 }
 
+// runBackground 启动一个被跟踪的后台任务
+func (s *AIService) runBackground(fn func()) {
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		fn()
+	}()
+}
+
+// WaitBackground 等待所有后台写库任务完成（测试与优雅退出使用）
+func (s *AIService) WaitBackground() {
+	s.bg.Wait()
+}
+
+// SaveRecord 同步保存 AI 记录，并使该学生的个人记录缓存失效
+func (s *AIService) SaveRecord(record *models.AIRecord) error {
+	return s.saveAIRecord(record)
+}
+
+func (s *AIService) saveAIRecord(record *models.AIRecord) error {
+	if err := s.DB.Create(record).Error; err != nil {
+		return err
+	}
+	// 缓存失效：新记录插入后，使该用户的记录缓存失效
+	if s.recordCache != nil && record.StudentID != "" {
+		s.recordCache.InvalidateUserRecords(record.StudentID)
+	}
+	return nil
+}
+
+// saveAIRecordAsync saves an AI record asynchronously
+func (s *AIService) saveAIRecordAsync(record models.AIRecord) {
+	s.runBackground(func() {
+		if err := s.saveAIRecord(&record); err != nil {
+			logger.Error("Failed to save AIRecord asynchronously",
+				zap.Error(err),
+				zap.String("student_id", record.StudentID),
+				zap.String("conversation_id", record.ConversationID),
+			)
+		}
+	})
+}
+
+// logAIError 记录上游错误详情（只写日志，不返回给客户端）
+func logAIError(msg string, err error, studentID, conversationID string) {
+	logger.Error(msg,
+		zap.Error(err),
+		zap.String("student_id", studentID),
+		zap.String("conversation_id", conversationID),
+	)
+}
+
 // ProxyEvaluate proxies the evaluate request to the Python AI service
-func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID string) (map[string]interface{}, error) {
+// 任何非 2xx 均视为失败：不保存 assistant 记录，返回 AIUpstreamError（调用方应返回通用错误信息）
+func (s *AIService) ProxyEvaluate(ctx context.Context, requestBody []byte, studentID, conversationID string) (map[string]interface{}, error) {
 	// 1. Save request record
 	requestRecord := models.AIRecord{
 		ConversationID: conversationID,
@@ -141,67 +198,33 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 		Role:           "student",
 		RequestPayload: string(requestBody),
 	}
-	if err := s.DB.Create(&requestRecord).Error; err != nil {
+	if err := s.saveAIRecord(&requestRecord); err != nil {
 		return nil, fmt.Errorf("failed to save evaluate request record: %w", err)
 	}
 
-	// 缓存失效
-	if s.recordCache != nil && studentID != "" {
-		s.recordCache.InvalidateUserRecords(studentID)
-	}
-
 	// 2. Forward request to Python AI service
-	req, err := http.NewRequest("POST", s.PythonServiceURL+"/evaluate", bytes.NewBuffer(requestBody))
+	responseBody, err := doAIJSONRequest(ctx, s.PythonServiceURL+"/evaluate", requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request to AI service: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		errorRecord := models.AIRecord{
+		logAIError("Evaluate request to AI service failed", err, studentID, conversationID)
+		s.saveAIRecordAsync(models.AIRecord{
 			ConversationID: conversationID,
 			StudentID:      studentID,
 			RoundNumber:    0,
-			Role:           "system_error",
+			Role:           "ai_service_error",
 			RequestPayload: string(requestBody),
-			Error:          fmt.Sprintf("AI service unreachable: %v", err),
-		}
-		s.DB.Create(&errorRecord)
-		// 缓存失效
-		if s.recordCache != nil && studentID != "" {
-			s.recordCache.InvalidateUserRecords(studentID)
-		}
-		return nil, fmt.Errorf("AI service request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response from AI service: %w", err)
+			Error:          publicErrorText(err),
+		})
+		return nil, err
 	}
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		errorRecord := models.AIRecord{
-			ConversationID:  conversationID,
-			StudentID:       studentID,
-			RoundNumber:     0,
-			Role:            "ai_service_error",
-			RequestPayload:  string(requestBody),
-			ResponsePayload: string(responseBody),
-			Error:           fmt.Sprintf("AI service returned status %d", resp.StatusCode),
-		}
-		s.DB.Create(&errorRecord)
-		// 缓存失效
-		if s.recordCache != nil && studentID != "" {
-			s.recordCache.InvalidateUserRecords(studentID)
-		}
-		return nil, fmt.Errorf("AI service returned non-OK status %d: %s", resp.StatusCode, string(responseBody))
+	// 3. Parse response（先解析再保存，避免保存无效结果）
+	var result map[string]interface{}
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		logAIError("Failed to unmarshal evaluate response", err, studentID, conversationID)
+		return nil, &AIUpstreamError{Err: fmt.Errorf("invalid JSON from AI service: %w", err)}
 	}
 
-	// 3. Save response record
+	// 4. Save response record
 	responseRecord := models.AIRecord{
 		ConversationID:  conversationID,
 		StudentID:       studentID,
@@ -210,360 +233,130 @@ func (s *AIService) ProxyEvaluate(requestBody []byte, studentID, conversationID 
 		RequestPayload:  string(requestBody),
 		ResponsePayload: string(responseBody),
 	}
-	if err := s.DB.Create(&responseRecord).Error; err != nil {
+	if err := s.saveAIRecord(&responseRecord); err != nil {
 		logger.Error("Failed to save evaluate response record",
 			zap.Error(err),
 			zap.String("student_id", studentID),
 			zap.String("conversation_id", conversationID),
 		)
-	} else {
-		// 缓存失效
-		if s.recordCache != nil && studentID != "" {
-			s.recordCache.InvalidateUserRecords(studentID)
-		}
-	}
-
-	// 4. Parse and return response
-	var result map[string]interface{}
-	if err := json.Unmarshal(responseBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
 	}
 
 	return result, nil
 }
 
 // ProxyEvaluateStream proxies the evaluate stream request to the Python AI service
-func (s *AIService) ProxyEvaluateStream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error) {
-	// 1. Save request record (async, don't wait)
-	go s.saveAIRecordAsync(models.AIRecord{
-		ConversationID: conversationID,
-		StudentID:      studentID,
-		RoundNumber:    0,
-		Role:           "student",
-		RequestPayload: string(requestBody),
-	})
-
-	// 2. Forward request to Python AI service stream endpoint
-	req, err := http.NewRequest("POST", s.PythonServiceURL+"/evaluate/stream", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stream request to AI service: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Timeout: 0, // No timeout for streaming
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		// Log error asynchronously
-		go s.saveAIRecordAsync(models.AIRecord{
-			ConversationID: conversationID,
-			StudentID:      studentID,
-			RoundNumber:    0,
-			Role:           "system_error",
-			RequestPayload: string(requestBody),
-			Error:          fmt.Sprintf("AI stream service unreachable: %v", err),
-		})
-		return nil, fmt.Errorf("AI stream service request failed: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		// Log error asynchronously
-		go s.saveAIRecordAsync(models.AIRecord{
-			ConversationID:  conversationID,
-			StudentID:       studentID,
-			RoundNumber:     0,
-			Role:            "ai_service_error",
-			RequestPayload:  string(requestBody),
-			ResponsePayload: string(body),
-			Error:           fmt.Sprintf("AI stream service returned status %d", resp.StatusCode),
-		})
-		return nil, fmt.Errorf("AI stream service returned non-OK status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// 3. Return a wrapped reader that logs the response when closed
-	return &streamLogger{
-		ReadCloser:     resp.Body,
-		db:             s.DB,
+func (s *AIService) ProxyEvaluateStream(ctx context.Context, requestBody []byte, studentID, conversationID string) (AIStreamReader, error) {
+	return s.proxyStream(ctx, streamSpec{
+		endpoint:       "/evaluate/stream",
+		label:          models.JobTypeEvaluate,
 		studentID:      studentID,
 		conversationID: conversationID,
 		roundNumber:    0,
-		requestPayload: string(requestBody),
-	}, nil
+		requestBody:    requestBody,
+	})
 }
 
 // ProxyDebugV2Stream proxies the debug_v2 stream request to the Python AI service
-func (s *AIService) ProxyDebugV2Stream(requestBody []byte, studentID, conversationID string) (io.ReadCloser, error) {
-	// Parse request to get current_round for logging
-	var req map[string]interface{}
-	currentRound := 0
-	if err := json.Unmarshal(requestBody, &req); err == nil {
-		if round, ok := req["current_round"].(float64); ok {
-			currentRound = int(round)
-		}
-	}
-
-	// Save request record asynchronously (use currentRound extracted above)
-	go s.saveAIRecordAsync(models.AIRecord{
-		ConversationID: conversationID,
-		StudentID:      studentID,
-		RoundNumber:    currentRound,
-		Role:           "student",
-		RequestPayload: string(requestBody),
-	})
-
-	// Forward request to Python AI service stream endpoint
-	httpReq, err := http.NewRequest("POST", s.PythonServiceURL+"/debug_v2/stream", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create debug stream request to AI service: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Timeout: 0, // No timeout for streaming
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		// Log error asynchronously
-		go s.saveAIRecordAsync(models.AIRecord{
-			ConversationID: conversationID,
-			StudentID:      studentID,
-			RoundNumber:    currentRound,
-			Role:           "system_error",
-			RequestPayload: string(requestBody),
-			Error:          fmt.Sprintf("AI debug stream service unreachable: %v", err),
-		})
-		return nil, fmt.Errorf("AI debug stream service request failed: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		// Log error asynchronously
-		go s.saveAIRecordAsync(models.AIRecord{
-			ConversationID:  conversationID,
-			StudentID:       studentID,
-			RoundNumber:     currentRound,
-			Role:            "ai_service_error",
-			RequestPayload:  string(requestBody),
-			ResponsePayload: string(body),
-			Error:           fmt.Sprintf("AI debug stream service returned status %d", resp.StatusCode),
-		})
-		return nil, fmt.Errorf("AI debug stream service returned non-OK status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// 3. Return a wrapped reader that logs the response when closed
-	return &streamLogger{
-		ReadCloser:     resp.Body,
-		db:             s.DB,
+// roundNumber 由服务端根据已保存的对话记录计算（见 LoadDebugProgress），不信任客户端传入的轮次
+func (s *AIService) ProxyDebugV2Stream(ctx context.Context, requestBody []byte, studentID, conversationID string, roundNumber int) (AIStreamReader, error) {
+	spec := streamSpec{
+		endpoint:       "/debug_v2/stream",
+		label:          models.JobTypeDebug,
 		studentID:      studentID,
 		conversationID: conversationID,
-		roundNumber:    currentRound,
-		requestPayload: string(requestBody),
-		aiService:      s,
-	}, nil
+		roundNumber:    roundNumber,
+		requestBody:    requestBody,
+	}
+	// 第2轮成功后提取薄弱点
+	if roundNumber == 2 {
+		spec.onSuccess = func(payload string) {
+			s.updateWeakPointsFromPayload(studentID, payload)
+		}
+	}
+	return s.proxyStream(ctx, spec)
+}
+
+// updateWeakPointsFromPayload 从第2轮结果中提取 weak_points 并更新
+// 兼容流式结果（LLM 直接返回的 JSON）与非流式结果（{"ai_response": {...}} 包装）
+func (s *AIService) updateWeakPointsFromPayload(studentID, payload string) {
+	wpMap := extractWeakPoints([]byte(payload))
+	if len(wpMap) == 0 {
+		return
+	}
+	if err := s.UpdateUserWeakPoints(studentID, wpMap, time.Now()); err != nil {
+		logger.Error("Failed to update weak points",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+		)
+	}
+}
+
+// extractWeakPoints 解析响应中的 weak_points 字段
+func extractWeakPoints(payload []byte) map[string]int {
+	var resp map[string]interface{}
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return nil
+	}
+	if inner, ok := resp["ai_response"].(map[string]interface{}); ok {
+		resp = inner
+	}
+	weakPoints, ok := resp["weak_points"].([]interface{})
+	if !ok {
+		return nil
+	}
+	wpMap := make(map[string]int)
+	for _, wp := range weakPoints {
+		if wpStr, ok := wp.(string); ok && strings.TrimSpace(wpStr) != "" {
+			wpMap[wpStr]++
+		}
+	}
+	return wpMap
 }
 
 // ProxyRecommendStream proxies the recommend stream request to the Python AI service
-func (s *AIService) ProxyRecommendStream(requestBody []byte, studentID string) (io.ReadCloser, error) {
-	// Parse request to get max_recommendations for logging
-	var req map[string]interface{}
-	if err := json.Unmarshal(requestBody, &req); err != nil {
-		// If parsing fails, still continue with default conversation ID
-	}
-
+func (s *AIService) ProxyRecommendStream(ctx context.Context, requestBody []byte, studentID string) (AIStreamReader, error) {
 	// Generate conversation ID for stream
 	conversationID := fmt.Sprintf("rec_stream_%d", time.Now().UnixNano())
 
-	// Save request record asynchronously
-	go s.saveAIRecordAsync(models.AIRecord{
-		ConversationID: conversationID,
-		StudentID:      studentID,
-		RoundNumber:    0,
-		Role:           "student",
-		RequestPayload: string(requestBody),
-	})
-
-	// Forward request to Python AI service stream endpoint
-	httpReq, err := http.NewRequest("POST", s.PythonServiceURL+"/recommend/stream", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create recommend stream request to AI service: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Timeout: 0, // No timeout for streaming
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		// Log error asynchronously
-		go s.saveAIRecordAsync(models.AIRecord{
-			ConversationID: conversationID,
-			StudentID:      studentID,
-			RoundNumber:    0,
-			Role:           "system_error",
-			RequestPayload: string(requestBody),
-			Error:          fmt.Sprintf("AI recommend stream service unreachable: %v", err),
-		})
-		return nil, fmt.Errorf("AI recommend stream service request failed: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		go s.saveAIRecordAsync(models.AIRecord{
-			ConversationID:  conversationID,
-			StudentID:       studentID,
-			RoundNumber:     0,
-			Role:            "ai_service_error",
-			RequestPayload:  string(requestBody),
-			ResponsePayload: string(body),
-			Error:           fmt.Sprintf("AI recommend stream service returned status %d", resp.StatusCode),
-		})
-		return nil, fmt.Errorf("AI recommend stream service returned non-OK status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Return a wrapped reader that logs the response when closed
-	return &streamLogger{
-		ReadCloser:     resp.Body,
-		db:             s.DB,
+	return s.proxyStream(ctx, streamSpec{
+		endpoint:       "/recommend/stream",
+		label:          models.JobTypeRecommend,
 		studentID:      studentID,
 		conversationID: conversationID,
 		roundNumber:    0,
-		requestPayload: string(requestBody),
-	}, nil
-}
-
-// streamLogger wraps an io.ReadCloser to capture and log the stream content
-type streamLogger struct {
-	io.ReadCloser
-	db             *gorm.DB
-	studentID      string
-	conversationID string
-	roundNumber    int
-	requestPayload string
-	buffer         bytes.Buffer
-	aiService      *AIService
-}
-
-func (sl *streamLogger) Read(p []byte) (n int, err error) {
-	n, err = sl.ReadCloser.Read(p)
-	if n > 0 {
-		sl.buffer.Write(p[:n])
-	}
-	return n, err
-}
-
-func (sl *streamLogger) Close() error {
-	// Capture the full response
-	fullResponse := sl.buffer.String()
-
-	// Parse NDJSON to extract text content and final data
-	lines := strings.Split(fullResponse, "\n")
-	var textContent strings.Builder
-	var finalData string
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		var chunk map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &chunk); err == nil {
-			if chunkType, ok := chunk["type"].(string); ok {
-				switch chunkType {
-				case "text":
-					if content, ok := chunk["content"].(string); ok {
-						textContent.WriteString(content)
-					}
-				case "done":
-					// If there's data in the done chunk, use it
-					if data, ok := chunk["data"]; ok {
-						dataBytes, _ := json.Marshal(data)
-						finalData = string(dataBytes)
-					}
-				}
-			}
-		}
-	}
-
-	// If we didn't get explicit finalData, use the accumulated textContent
-	// (which should be the full JSON string if json_mode was used)
-	responsePayload := finalData
-	if responsePayload == "" {
-		responsePayload = textContent.String()
-	}
-
-	// Save the record
-	record := models.AIRecord{
-		ConversationID:  sl.conversationID,
-		StudentID:       sl.studentID,
-		RoundNumber:     sl.roundNumber,
-		Role:            "assistant",
-		RequestPayload:  sl.requestPayload,
-		ResponsePayload: responsePayload,
-	}
-
-	// Use a background context or a new goroutine to avoid blocking close
-	go func() {
-		if err := sl.db.Create(&record).Error; err != nil {
-			logger.Error("Failed to save stream AIRecord",
-				zap.Error(err),
-				zap.String("student_id", sl.studentID),
-			)
-		}
-
-		// If it's a debug round 2, extract weak points
-		if sl.roundNumber == 2 && sl.aiService != nil {
-			var aiResp map[string]interface{}
-			if err := json.Unmarshal([]byte(responsePayload), &aiResp); err == nil {
-				if weakPoints, ok := aiResp["weak_points"].([]interface{}); ok {
-					wpMap := make(map[string]int)
-					for _, wp := range weakPoints {
-						if wpStr, ok := wp.(string); ok {
-							wpMap[wpStr] = wpMap[wpStr] + 1
-						}
-					}
-					if len(wpMap) > 0 {
-						sl.aiService.UpdateUserWeakPoints(sl.studentID, wpMap, time.Now())
-					}
-				}
-			}
-		}
-	}()
-
-	return sl.ReadCloser.Close()
-}
-
-// saveAIRecordAsync saves an AI record asynchronously
-func (s *AIService) saveAIRecordAsync(record models.AIRecord) {
-	go func() {
-		if err := s.DB.Create(&record).Error; err != nil {
-			logger.Error("Failed to save AIRecord asynchronously",
-				zap.Error(err),
-				zap.String("student_id", record.StudentID),
-				zap.String("conversation_id", record.ConversationID),
-			)
-			return
-		}
-
-		// 缓存失效：新记录插入后，使该用户的记录缓存失效
-		if s.recordCache != nil && record.StudentID != "" {
-			s.recordCache.InvalidateUserRecords(record.StudentID)
-		}
-	}()
+		requestBody:    requestBody,
+	})
 }
 
 // ProxyRecommend proxies the recommend request to the Python AI service
-func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[string]interface{}, error) {
-	// 1. Parse the request to get weak points for updating
+func (s *AIService) ProxyRecommend(ctx context.Context, requestBody []byte, studentID string) (map[string]interface{}, error) {
+	// 1. Parse the request
 	var req models.RecommendRequest
 	if err := json.Unmarshal(requestBody, &req); err != nil {
 		return nil, fmt.Errorf("failed to parse recommend request: %w", err)
 	}
 
-	// 2. Update user's weak points
+	// 2. Forward request to Python AI service
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal recommend request: %w", err)
+	}
+
+	conversationID := fmt.Sprintf("rec_%d", time.Now().UnixNano())
+	responseBody, err := doAIJSONRequest(ctx, s.PythonServiceURL+"/recommend", reqBody)
+	if err != nil {
+		logAIError("Recommend request to AI service failed", err, studentID, conversationID)
+		return nil, err
+	}
+
+	// 3. Parse response
+	var result map[string]interface{}
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		logAIError("Failed to unmarshal recommend response", err, studentID, conversationID)
+		return nil, &AIUpstreamError{Err: fmt.Errorf("invalid JSON from AI service: %w", err)}
+	}
+
+	// 4. 仅在 AI 调用成功后更新薄弱点
 	if err := s.UpdateUserWeakPoints(studentID, req.WeakPoints, time.Now()); err != nil {
 		logger.Error("Failed to update user weak points",
 			zap.Error(err),
@@ -571,43 +364,7 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 		)
 	}
 
-	// 3. Forward request to Python AI service
-	reqBody, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal recommend request: %w", err)
-	}
-
-	httpReq, err := http.NewRequest("POST", s.PythonServiceURL+"/recommend", bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request to AI service: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("AI service request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response from AI service: %w", err)
-	}
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("AI service returned non-OK status %d: %s", resp.StatusCode, string(responseBody))
-	}
-
-	// 4. Parse and return response
-	var result map[string]interface{}
-	if err := json.Unmarshal(responseBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
-	}
-
 	// 5. Save to AIRecord table (for unified history query)
-	conversationID := fmt.Sprintf("rec_%d", time.Now().Unix())
 	aiRecord := models.AIRecord{
 		ConversationID:  conversationID,
 		StudentID:       studentID,
@@ -616,16 +373,11 @@ func (s *AIService) ProxyRecommend(requestBody []byte, studentID string) (map[st
 		RequestPayload:  string(requestBody),
 		ResponsePayload: string(responseBody),
 	}
-	if err := s.DB.Create(&aiRecord).Error; err != nil {
+	if err := s.saveAIRecord(&aiRecord); err != nil {
 		logger.Error("Failed to save AIRecord for recommend",
 			zap.Error(err),
 			zap.String("student_id", studentID),
 		)
-	} else {
-		// 缓存失效
-		if s.recordCache != nil && studentID != "" {
-			s.recordCache.InvalidateUserRecords(studentID)
-		}
 	}
 
 	return result, nil
@@ -763,7 +515,7 @@ func (s *AIService) UpdateUserWeakPoints(studentID string, weakPoints map[string
 				continue
 			}
 			// Update cache with new keyword-category pair
-			s.keywordCategoryMap[keyword] = category
+			s.setKeywordCategory(keyword, category)
 		} else if result.Error != nil {
 			continue
 		}
@@ -1063,56 +815,56 @@ func (s *AIService) SeedWeakPointKeywords() error {
 }
 
 // GetDebugRecords fetches debug records (round_number > 0) for a student
-func (s *AIService) GetDebugRecords(studentID string) ([]models.AIRecord, error) {
+// 未分页时返回最近 DefaultRecordLimit 条（带缓存）；分页时直接查询数据库并返回总数
+func (s *AIService) GetDebugRecords(studentID string, page RecordPage) ([]models.AIRecord, int64, error) {
+	query := s.DB.Model(&models.AIRecord{}).Where("student_id = ? AND round_number > 0", studentID)
+	if page.Enabled() {
+		return queryRecordPage(query, page)
+	}
+
 	// 尝试从缓存获取
 	if s.recordCache != nil {
 		records, err := s.recordCache.GetUserDebugRecords(context.Background(), studentID)
 		if err == nil {
-			return records, nil
+			return records, int64(len(records)), nil
 		}
 		// 缓存失败降级到DB
 	}
-
-	// 直接查询数据库（无缓存或缓存失败）
-	var records []models.AIRecord
-	if err := s.DB.Where("student_id = ? AND round_number > 0", studentID).Order("created_at desc").Find(&records).Error; err != nil {
-		return nil, fmt.Errorf("failed to get debug records: %w", err)
-	}
-	return records, nil
+	return queryRecentRecords(query)
 }
 
 // GetEvaluateRecords fetches evaluation records for a student (from AIRecord table)
-func (s *AIService) GetEvaluateRecords(studentID string) ([]models.AIRecord, error) {
+func (s *AIService) GetEvaluateRecords(studentID string, page RecordPage) ([]models.AIRecord, int64, error) {
+	// Only fetch records with conversation_id starting with "eval_"
+	query := s.DB.Model(&models.AIRecord{}).Where("student_id = ? AND conversation_id LIKE ?", studentID, "eval_%")
+	if page.Enabled() {
+		return queryRecordPage(query, page)
+	}
+
 	if s.recordCache != nil {
 		records, err := s.recordCache.GetUserEvaluateRecords(context.Background(), studentID)
 		if err == nil {
-			return records, nil
+			return records, int64(len(records)), nil
 		}
 	}
-
-	var records []models.AIRecord
-	// Only fetch records with conversation_id starting with "eval_"
-	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'eval_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
-		return nil, fmt.Errorf("failed to get evaluate records: %w", err)
-	}
-	return records, nil
+	return queryRecentRecords(query)
 }
 
 // GetRecommendRecords fetches recommendation records for a student (from AIRecord table)
-func (s *AIService) GetRecommendRecords(studentID string) ([]models.AIRecord, error) {
+func (s *AIService) GetRecommendRecords(studentID string, page RecordPage) ([]models.AIRecord, int64, error) {
+	// Only fetch records with conversation_id starting with "rec_"
+	query := s.DB.Model(&models.AIRecord{}).Where("student_id = ? AND conversation_id LIKE ?", studentID, "rec_%")
+	if page.Enabled() {
+		return queryRecordPage(query, page)
+	}
+
 	if s.recordCache != nil {
 		records, err := s.recordCache.GetUserRecommendRecords(context.Background(), studentID)
 		if err == nil {
-			return records, nil
+			return records, int64(len(records)), nil
 		}
 	}
-
-	var records []models.AIRecord
-	// Only fetch records with conversation_id starting with "rec_"
-	if err := s.DB.Where("student_id = ? AND conversation_id LIKE 'rec_%%'", studentID).Order("created_at desc").Find(&records).Error; err != nil {
-		return nil, fmt.Errorf("failed to get recommend records: %w", err)
-	}
-	return records, nil
+	return queryRecentRecords(query)
 }
 
 // ExportClassWeakPointsCSV exports class weak points as CSV content
@@ -1212,7 +964,7 @@ func (s *AIService) ExportClassWeakPointsCSV(classID uint, studentIDs []string, 
 		username := studentIDMap[uwp.StudentID]
 		// Format: student_id, username, keyword, category, count, date
 		buf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%d,%s\n",
-			uwp.StudentID,
+			escapeCSV(uwp.StudentID),
 			escapeCSV(username),
 			escapeCSV(wp.Keyword),
 			escapeCSV(wp.Category),
@@ -1225,9 +977,13 @@ func (s *AIService) ExportClassWeakPointsCSV(classID uint, studentIDs []string, 
 }
 
 // escapeCSV escapes special characters in CSV values
+// 同时防御 CSV 公式注入：以 = + - @ \t \r 开头的单元格前加单引号，避免 Excel 等软件将其当作公式执行
 func escapeCSV(s string) string {
+	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
+		s = "'" + s
+	}
 	s = strings.ReplaceAll(s, "\"", "\"\"")
-	if strings.Contains(s, ",") || strings.Contains(s, "\n") || strings.Contains(s, "\"") {
+	if strings.ContainsAny(s, ",\n\r\"") {
 		return "\"" + s + "\""
 	}
 	return s

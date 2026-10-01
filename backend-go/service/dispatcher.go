@@ -1,16 +1,27 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"sync"
 	"time"
 
+	"backend-go/logger"
 	"backend-go/models"
+
+	"go.uber.org/zap"
+)
+
+// 提交任务失败的原因（控制器据此返回 429 提示）
+var (
+	ErrUserTaskLimit      = errors.New("User task limit exceeded")
+	ErrRateLimitExceeded  = errors.New("Rate limit exceeded, please try again later")
+	ErrQueueFull          = errors.New("queue is full, please try again later")
+	ErrDispatcherStopped  = errors.New("dispatcher is stopped")
+	errUnknownJobType     = errors.New("unknown job type")
+	errJobContextCanceled = errors.New("job cancelled")
 )
 
 // Dispatcher manages multiple worker pools for different job types
@@ -30,6 +41,7 @@ type Dispatcher struct {
 
 	mu        sync.RWMutex
 	isRunning bool
+	stopped   bool
 }
 
 // WorkerPool represents a pool of workers
@@ -40,6 +52,8 @@ type WorkerPool struct {
 	WorkerCount   int
 	JobHandler    JobHandler
 	OnJobComplete func(job *models.AIJob) // Callback after job completes
+
+	wg sync.WaitGroup
 }
 
 // JobHandler is the interface for handling jobs
@@ -82,11 +96,13 @@ func NewDispatcher(pythonServiceURL string, db interface{}, poolConfigs map[stri
 		}
 	}
 
+	handler := &DefaultJobHandler{PythonServiceURL: pythonServiceURL}
+
 	d.EvaluatePool = &WorkerPool{
 		JobQueue:      d.EvaluateQueue,
 		MaxWorkers:    evalConfig.MaxWorkers,
 		MaxQueueSize:  evalConfig.MaxQueueSize,
-		JobHandler:    &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		JobHandler:    handler,
 		OnJobComplete: releaseCallback,
 	}
 
@@ -94,7 +110,7 @@ func NewDispatcher(pythonServiceURL string, db interface{}, poolConfigs map[stri
 		JobQueue:      d.DebugQueue,
 		MaxWorkers:    debugConfig.MaxWorkers,
 		MaxQueueSize:  debugConfig.MaxQueueSize,
-		JobHandler:    &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		JobHandler:    handler,
 		OnJobComplete: releaseCallback,
 	}
 
@@ -102,7 +118,7 @@ func NewDispatcher(pythonServiceURL string, db interface{}, poolConfigs map[stri
 		JobQueue:      d.RecommendQueue,
 		MaxWorkers:    recommendConfig.MaxWorkers,
 		MaxQueueSize:  recommendConfig.MaxQueueSize,
-		JobHandler:    &DefaultJobHandler{PythonServiceURL: pythonServiceURL},
+		JobHandler:    handler,
 		OnJobComplete: releaseCallback,
 	}
 
@@ -114,7 +130,7 @@ func (d *Dispatcher) Start() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if d.isRunning {
+	if d.isRunning || d.stopped {
 		return
 	}
 
@@ -124,18 +140,24 @@ func (d *Dispatcher) Start() {
 	d.EvaluatePool.Start()
 	d.DebugPool.Start()
 	d.RecommendPool.Start()
+
+	logger.Info("AI dispatcher started",
+		zap.Int("evaluate_workers", d.EvaluatePool.MaxWorkers),
+		zap.Int("debug_workers", d.DebugPool.MaxWorkers),
+		zap.Int("recommend_workers", d.RecommendPool.MaxWorkers),
+	)
 }
 
-// Stop stops all worker pools
-func (d *Dispatcher) Stop() {
+// closeQueues 停止接收新任务并关闭队列（持有写锁，保证没有并发的提交在发送）
+func (d *Dispatcher) closeQueues() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if !d.isRunning {
+	if d.stopped {
 		return
 	}
-
 	d.isRunning = false
+	d.stopped = true
 
 	// Close queues to signal workers to stop
 	close(d.EvaluateQueue)
@@ -143,9 +165,42 @@ func (d *Dispatcher) Stop() {
 	close(d.RecommendQueue)
 }
 
+// Stop 优雅停止（供 main.go 在退出时调用）：不再接收新任务，等待已入队和执行中的任务完成，
+// 最长等待 AI_DISPATCHER_DRAIN_TIMEOUT（默认 30s）。应在 HTTP 服务器 Shutdown 之后调用。
+func (d *Dispatcher) Stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), envDuration("AI_DISPATCHER_DRAIN_TIMEOUT", 30*time.Second))
+	defer cancel()
+	if err := d.Shutdown(ctx); err != nil {
+		logger.Warn("AI dispatcher drain timed out", zap.Error(err))
+		return
+	}
+	logger.Info("AI dispatcher stopped")
+}
+
+// Shutdown 与 Stop 相同，但由调用方通过 ctx 控制最长等待时间
+func (d *Dispatcher) Shutdown(ctx context.Context) error {
+	d.closeQueues()
+
+	done := make(chan struct{})
+	go func() {
+		d.EvaluatePool.wg.Wait()
+		d.DebugPool.wg.Wait()
+		d.RecommendPool.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Start starts the worker pool
 func (wp *WorkerPool) Start() {
 	for i := 0; i < wp.MaxWorkers; i++ {
+		wp.wg.Add(1)
 		go wp.worker(i)
 	}
 	wp.WorkerCount = wp.MaxWorkers
@@ -153,159 +208,126 @@ func (wp *WorkerPool) Start() {
 
 // worker is the main loop for a worker
 func (wp *WorkerPool) worker(_ int) {
+	defer wp.wg.Done()
 	for job := range wp.JobQueue {
-		startTime := time.Now()
+		wp.runJob(job)
+	}
+}
 
-		// Handle job with timeout
-		var response *models.AIJobResponse
-		if job.Context != nil {
-			select {
-			case <-job.Context.Done():
-				response = &models.AIJobResponse{Err: fmt.Errorf("job cancelled")}
-			default:
-				response = wp.JobHandler.HandleJob(job)
-			}
-		} else {
-			response = wp.JobHandler.HandleJob(job)
+// runJob 执行单个任务；任务上下文已取消（调用方超时/客户端断开）时直接跳过
+func (wp *WorkerPool) runJob(job *models.AIJob) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("AI job panicked", zap.Any("panic", r), zap.String("job_id", job.ID))
+			wp.sendResult(job, &models.AIJobResponse{Err: fmt.Errorf("job panicked")})
 		}
-
-		// Send result back
-		if job.ResultChan != nil {
-			select {
-			case job.ResultChan <- response:
-			case <-time.After(5 * time.Second):
-				// Timeout sending result
-			}
-		}
-
 		// Release user task slot after job completion
 		if wp.OnJobComplete != nil {
 			wp.OnJobComplete(job)
 		}
+	}()
 
-		// Log execution time (optional)
-		_ = startTime
+	var response *models.AIJobResponse
+	if job.Context != nil && job.Context.Err() != nil {
+		response = &models.AIJobResponse{Err: errJobContextCanceled}
+	} else {
+		response = wp.JobHandler.HandleJob(job)
+	}
+	wp.sendResult(job, response)
+}
+
+func (wp *WorkerPool) sendResult(job *models.AIJob, response *models.AIJobResponse) {
+	if job.ResultChan == nil {
+		return
+	}
+	// ResultChan 带缓冲，正常情况下不会阻塞；调用方已离开时不再等待
+	select {
+	case job.ResultChan <- response:
+	default:
 	}
 }
 
 // HandleJob handles the job based on its type
 func (h *DefaultJobHandler) HandleJob(job *models.AIJob) *models.AIJobResponse {
+	var path string
 	switch job.Type {
 	case models.JobTypeEvaluate:
-		return h.handleEvaluate(job)
+		path = "/evaluate"
 	case models.JobTypeDebug:
-		return h.handleDebug(job)
+		path = "/debug_v2"
 	case models.JobTypeRecommend:
-		return h.handleRecommend(job)
+		path = "/recommend"
 	default:
 		return &models.AIJobResponse{Err: fmt.Errorf("unknown job type: %s", job.Type)}
 	}
+	return h.callAI(job, path)
 }
 
-// handleEvaluate handles evaluate jobs
-func (h *DefaultJobHandler) handleEvaluate(job *models.AIJob) *models.AIJobResponse {
+// callAI 调用 Python 服务（带内部令牌、超时与任务上下文），任何非 2xx 都视为错误
+func (h *DefaultJobHandler) callAI(job *models.AIJob, path string) *models.AIJobResponse {
 	payloadBytes, err := json.Marshal(job.Payload)
 	if err != nil {
 		return &models.AIJobResponse{Err: fmt.Errorf("failed to marshal payload: %w", err)}
 	}
 
-	url := h.PythonServiceURL + "/evaluate"
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("AI service request failed: %w", err)}
+	ctx := job.Context
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return &models.AIJobResponse{Err: fmt.Errorf("AI service returned status %d: %s", resp.StatusCode, string(body))}
+	body, err := doAIJSONRequest(ctx, h.PythonServiceURL+path, payloadBytes)
+	if err != nil {
+		return &models.AIJobResponse{Err: err}
 	}
 
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("failed to decode response: %w", err)}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return &models.AIJobResponse{Err: &AIUpstreamError{Err: fmt.Errorf("failed to decode response: %w", err)}}
 	}
 
 	return &models.AIJobResponse{Data: result}
 }
 
-// handleDebug handles debug jobs
-func (h *DefaultJobHandler) handleDebug(job *models.AIJob) *models.AIJobResponse {
-	payloadBytes, err := json.Marshal(job.Payload)
-	if err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("failed to marshal payload: %w", err)}
+// queueFor 返回任务类型对应的队列
+func (d *Dispatcher) queueFor(jobType string) chan *models.AIJob {
+	switch jobType {
+	case models.JobTypeEvaluate:
+		return d.EvaluateQueue
+	case models.JobTypeDebug:
+		return d.DebugQueue
+	case models.JobTypeRecommend:
+		return d.RecommendQueue
+	default:
+		return nil
 	}
-
-	url := h.PythonServiceURL + "/debug_v2"
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("AI service request failed: %w", err)}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return &models.AIJobResponse{Err: fmt.Errorf("AI service returned status %d: %s", resp.StatusCode, string(body))}
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("failed to decode response: %w", err)}
-	}
-
-	return &models.AIJobResponse{Data: result}
 }
 
-// handleRecommend handles recommend jobs
-func (h *DefaultJobHandler) handleRecommend(job *models.AIJob) *models.AIJobResponse {
-	payloadBytes, err := json.Marshal(job.Payload)
-	if err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("failed to marshal payload: %w", err)}
+// enqueue 非阻塞入队；持有读锁以避免与 Stop 关闭队列发生竞争
+func (d *Dispatcher) enqueue(job *models.AIJob) error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if d.stopped {
+		return ErrDispatcherStopped
 	}
 
-	url := h.PythonServiceURL + "/recommend"
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("AI service request failed: %w", err)}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return &models.AIJobResponse{Err: fmt.Errorf("AI service returned status %d: %s", resp.StatusCode, string(body))}
+	jobQueue := d.queueFor(job.Type)
+	if jobQueue == nil {
+		return errUnknownJobType
 	}
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return &models.AIJobResponse{Err: fmt.Errorf("failed to decode response: %w", err)}
+	select {
+	case jobQueue <- job:
+		return nil
+	default:
+		return ErrQueueFull
 	}
-
-	return &models.AIJobResponse{Data: result}
 }
 
 // SubmitJob submits a job to the appropriate queue (non-blocking)
-// Returns true if job was submitted successfully, false if queue is full or user limit exceeded
+// Returns true if job was submitted successfully, false if queue is full
 func (d *Dispatcher) SubmitJob(job *models.AIJob) bool {
-	var jobQueue chan *models.AIJob
-
-	switch job.Type {
-	case models.JobTypeEvaluate:
-		jobQueue = d.EvaluateQueue
-	case models.JobTypeDebug:
-		jobQueue = d.DebugQueue
-	case models.JobTypeRecommend:
-		jobQueue = d.RecommendQueue
-	default:
-		return false
-	}
-
-	// Non-blocking submit
-	select {
-	case jobQueue <- job:
-		return true
-	default:
-		return false
-	}
+	return d.enqueue(job) == nil
 }
 
 // SubmitJobWithError submits a job and returns error information
@@ -315,7 +337,13 @@ func (d *Dispatcher) SubmitJobWithError(job *models.AIJob) (bool, error) {
 	// Check user concurrent task limit before submitting
 	if d.UserTaskTracker != nil && job.StudentID != "" {
 		if !d.UserTaskTracker.TryAcquire(job.StudentID, job.Type) {
-			return false, fmt.Errorf("User task limit exceeded")
+			return false, ErrUserTaskLimit
+		}
+	}
+
+	release := func() {
+		if d.UserTaskTracker != nil && job.StudentID != "" {
+			d.UserTaskTracker.Release(job.StudentID, job.Type)
 		}
 	}
 
@@ -323,94 +351,73 @@ func (d *Dispatcher) SubmitJobWithError(job *models.AIJob) (bool, error) {
 	if d.MinuteRateLimiter != nil && job.StudentID != "" {
 		if !d.MinuteRateLimiter.TryAcquire(job.StudentID, job.Type) {
 			// Release the concurrent slot we just acquired
-			if d.UserTaskTracker != nil && job.StudentID != "" {
-				d.UserTaskTracker.Release(job.StudentID, job.Type)
-			}
-			return false, fmt.Errorf("Rate limit exceeded, please try again later")
+			release()
+			return false, ErrRateLimitExceeded
 		}
 	}
 
-	var jobQueue chan *models.AIJob
-
-	switch job.Type {
-	case models.JobTypeEvaluate:
-		jobQueue = d.EvaluateQueue
-	case models.JobTypeDebug:
-		jobQueue = d.DebugQueue
-	case models.JobTypeRecommend:
-		jobQueue = d.RecommendQueue
-	default:
-		// Release user task slot on error
-		if d.UserTaskTracker != nil && job.StudentID != "" {
-			d.UserTaskTracker.Release(job.StudentID, job.Type)
-		}
-		return false, fmt.Errorf("unknown job type")
+	if err := d.enqueue(job); err != nil {
+		// Release user task slot on queue full / unknown type / stopped
+		release()
+		return false, err
 	}
-
-	// Non-blocking submit
-	select {
-	case jobQueue <- job:
-		// Success - user task slot will be released after job completion via SubmitJobWithError caller
-		return true, nil
-	default:
-		// Release user task slot on queue full
-		if d.UserTaskTracker != nil && job.StudentID != "" {
-			d.UserTaskTracker.Release(job.StudentID, job.Type)
-		}
-		return false, fmt.Errorf("queue is full, please try again later")
-	}
+	// Success - user task slot will be released by the worker after job completion
+	return true, nil
 }
 
 // SubmitAndWait submits a job and waits for the result with timeout
 // Returns the result or error if timeout
 func (d *Dispatcher) SubmitAndWait(job *models.AIJob, timeout time.Duration) (interface{}, error) {
-	// Check user concurrent task limit before submitting
-	if d.UserTaskTracker != nil && job.StudentID != "" {
-		if !d.UserTaskTracker.TryAcquire(job.StudentID, job.Type) {
-			return nil, fmt.Errorf("User task limit exceeded")
-		}
-		// Ensure release on exit
-		defer d.UserTaskTracker.Release(job.StudentID, job.Type)
+	if job.ResultChan == nil {
+		job.ResultChan = make(chan *models.AIJobResponse, 1)
+	}
+	if ok, err := d.SubmitJobWithError(job); !ok {
+		return nil, err
 	}
 
-	// Check minute rate limit before submitting
-	if d.MinuteRateLimiter != nil && job.StudentID != "" {
-		if !d.MinuteRateLimiter.TryAcquire(job.StudentID, job.Type) {
-			return nil, fmt.Errorf("Rate limit exceeded, please try again later")
-		}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	var jobDone <-chan struct{}
+	if job.Context != nil {
+		jobDone = job.Context.Done()
 	}
 
-	// Create result channel
-	resultChan := make(chan *models.AIJobResponse, 1)
-	job.ResultChan = resultChan
-
-	// Submit job
-	if !d.SubmitJob(job) {
-		return nil, fmt.Errorf("queue is full, please try again later")
-	}
-
-	// Wait for result with timeout
 	select {
-	case result := <-resultChan:
+	case result := <-job.ResultChan:
 		if result.Err != nil {
 			return nil, result.Err
 		}
 		return result.Data, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("AI response timeout")
+	case <-timer.C:
+		return nil, fmt.Errorf("AI response timeout: %w", context.DeadlineExceeded)
+	case <-jobDone:
+		return nil, job.Context.Err()
 	}
 }
 
-// NewAIJob creates a new AIJob with default settings
-func NewAIJob(jobType string, payload interface{}, studentID, conversationID string) *models.AIJob {
+// NewAIJob creates a new AIJob
+// ctx 应为调用方带截止时间的上下文（例如由请求上下文派生），调用方超时或客户端断开时任务随之取消
+func NewAIJob(ctx context.Context, jobType string, payload interface{}, studentID, conversationID string) *models.AIJob {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &models.AIJob{
 		ID:             fmt.Sprintf("job_%d_%s", time.Now().UnixNano(), jobType),
 		Type:           jobType,
 		Payload:        payload,
 		ResultChan:     make(chan *models.AIJobResponse, 1),
-		Context:        context.Background(),
+		Context:        ctx,
 		CreatedAt:      time.Now(),
 		StudentID:      studentID,
 		ConversationID: conversationID,
 	}
+}
+
+// JobTimeout 返回某类任务的超时时间（与 PoolConfigs 保持一致）
+func JobTimeout(jobType string) time.Duration {
+	if cfg, ok := models.PoolConfigs()[jobType]; ok && cfg.JobTimeout > 0 {
+		return cfg.JobTimeout
+	}
+	return AIRequestTimeout()
 }

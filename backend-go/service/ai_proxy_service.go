@@ -1,15 +1,14 @@
 package service
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"backend-go/logger"
 	"backend-go/models"
+	"backend-go/service/cache"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -17,8 +16,12 @@ import (
 
 // AIProxyServiceIface defines the interface for AIProxyService operations.
 type AIProxyServiceIface interface {
-	ProxyDebugV2(requestBody []byte, studentID, conversationID string, roundNumber int) (map[string]interface{}, error)
-	GetAIRecordsByStudentID(studentID string) ([]models.AIRecord, error)
+	ProxyDebugV2(ctx context.Context, requestBody []byte, studentID, conversationID string, roundNumber int) (map[string]interface{}, error)
+	PrepareDebugRequest(req *models.DebugV2Request, studentID string) ([]byte, int, error)
+	SaveRecord(record *models.AIRecord) error
+	SaveWeakPointsFromResponse(studentID string, responseBody []byte)
+	MarkConversationCompleted(conversationID, studentID string) error
+	GetAIRecordsByStudentID(studentID string, page RecordPage) ([]models.AIRecord, int64, error)
 	GetRoundInfo(roundNumber int, studentResponse string) *models.RoundInfo
 	ValidateDebugRequest(req *models.DebugV2Request) error
 	CloseConversation(conversationID, studentID string) error
@@ -29,6 +32,7 @@ type AIProxyServiceIface interface {
 type AIProxyService struct {
 	DB               *gorm.DB
 	PythonServiceURL string
+	recordCache      *cache.RecordCache
 }
 
 // NewAIProxyService creates a new AIProxyService
@@ -36,6 +40,7 @@ func NewAIProxyService(db *gorm.DB, pythonServiceURL string) *AIProxyService {
 	return &AIProxyService{
 		DB:               db,
 		PythonServiceURL: pythonServiceURL,
+		recordCache:      cache.NewRecordCache(cache.NewRedisCache(), db),
 	}
 }
 
@@ -54,31 +59,51 @@ func (s *AIProxyService) ValidateDebugRequest(req *models.DebugV2Request) error 
 	return models.ValidateDebugRequest(req)
 }
 
+// PrepareDebugRequest 校验会话归属/状态，并用服务端计算的轮次与历史重建请求体
+func (s *AIProxyService) PrepareDebugRequest(req *models.DebugV2Request, studentID string) ([]byte, int, error) {
+	return PrepareDebugRequest(s.DB, req, studentID)
+}
+
+// SaveRecord 保存 AI 记录并使该学生的个人记录缓存失效
+func (s *AIProxyService) SaveRecord(record *models.AIRecord) error {
+	if err := s.DB.Create(record).Error; err != nil {
+		return err
+	}
+	if s.recordCache != nil && record.StudentID != "" {
+		s.recordCache.InvalidateUserRecords(record.StudentID)
+	}
+	return nil
+}
+
+// saveRecordLogged 保存记录，失败只记录日志
+func (s *AIProxyService) saveRecordLogged(record *models.AIRecord) {
+	if err := s.SaveRecord(record); err != nil {
+		logger.Error("Failed to save AI record",
+			zap.Error(err),
+			zap.String("student_id", record.StudentID),
+			zap.String("conversation_id", record.ConversationID),
+			zap.String("role", record.Role),
+		)
+	}
+}
+
+// SaveWeakPointsFromResponse extracts weak_points from AI response and saves them
+func (s *AIProxyService) SaveWeakPointsFromResponse(studentID string, responseBody []byte) {
+	SaveWeakPointsFromDebugResponse(s.DB, studentID, responseBody)
+}
+
+// MarkConversationCompleted 第4轮完成后自动关闭对话
+func (s *AIProxyService) MarkConversationCompleted(conversationID, studentID string) error {
+	now := time.Now()
+	return s.DB.Model(&models.Conversation{}).
+		Where("conversation_id = ? AND student_id = ?", conversationID, studentID).
+		Updates(map[string]interface{}{"is_closed": true, "closed_at": now}).Error
+}
+
 // ProxyDebugV2 proxies the request to the Python AI service and records interactions
-func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversationID string, roundNumber int) (map[string]interface{}, error) {
-	// 0. Ensure conversation exists in conversations table (create if not exists)
-	var conv models.Conversation
-	err := s.DB.Where("conversation_id = ?", conversationID).First(&conv).Error
-	if err == gorm.ErrRecordNotFound {
-		// Create new conversation record
-		conv = models.Conversation{
-			ConversationID: conversationID,
-			StudentID:      studentID,
-			TaskType:       "debug",
-			IsClosed:       false,
-		}
-		if err := s.DB.Create(&conv).Error; err != nil {
-			return nil, fmt.Errorf("failed to create conversation record: %w", err)
-		}
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to check conversation: %w", err)
-	}
-
-	// Check if conversation is already closed
-	if conv.IsClosed {
-		return nil, fmt.Errorf("conversation already closed")
-	}
-
+// requestBody 必须是 PrepareDebugRequest 重建后的请求体，roundNumber 为服务端计算的轮次
+// 任何非 2xx 均视为失败：不保存 assistant 记录、不更新薄弱点
+func (s *AIProxyService) ProxyDebugV2(ctx context.Context, requestBody []byte, studentID, conversationID string, roundNumber int) (map[string]interface{}, error) {
 	// 1. Record student's request
 	studentRecord := models.AIRecord{
 		ConversationID: conversationID,
@@ -87,186 +112,79 @@ func (s *AIProxyService) ProxyDebugV2(requestBody []byte, studentID, conversatio
 		Role:           "student",
 		RequestPayload: string(requestBody),
 	}
-	if err := s.DB.Create(&studentRecord).Error; err != nil {
+	if err := s.SaveRecord(&studentRecord); err != nil {
 		return nil, fmt.Errorf("failed to save student request record: %w", err)
 	}
 
 	// 2. Forward request to Python AI service
-	req, err := http.NewRequest("POST", s.PythonServiceURL, bytes.NewBuffer(requestBody))
+	responseBody, err := doAIJSONRequest(ctx, s.PythonServiceURL, requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request to AI service: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second} // Set a timeout for AI service call
-	resp, err := client.Do(req)
-	if err != nil {
-		// Record error if AI service is unreachable
-		errorRecord := models.AIRecord{
+		logAIError("Debug request to AI service failed", err, studentID, conversationID)
+		s.saveRecordLogged(&models.AIRecord{
 			ConversationID: conversationID,
 			StudentID:      studentID,
 			RoundNumber:    roundNumber,
-			Role:           "system_error",
+			Role:           "ai_service_error",
 			RequestPayload: string(requestBody),
-			Error:          fmt.Sprintf("AI service unreachable: %v", err),
-		}
-		s.DB.Create(&errorRecord) // Save error record, but don't fail the primary operation if this save fails
-		return nil, fmt.Errorf("AI service request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response from AI service: %w", err)
+			Error:          publicErrorText(err),
+		})
+		return nil, err
 	}
 
-	// 检查AI服务返回的状态码
-	if resp.StatusCode != http.StatusOK {
-		// 非200状态码也视为错误，并记录下来
-		errorRecord := models.AIRecord{
-			ConversationID:  conversationID,
-			StudentID:       studentID,
-			RoundNumber:     roundNumber,
-			Role:            "ai_service_error",
-			RequestPayload:  string(requestBody),
-			ResponsePayload: string(responseBody),
-			Error:           fmt.Sprintf("AI service returned status %d: %s", resp.StatusCode, string(responseBody)),
-		}
-		s.DB.Create(&errorRecord)
-
-		// 尝试解析AI服务返回的错误信息，并透传给前端
-		var errorResp map[string]interface{}
-		if json.Unmarshal(responseBody, &errorResp) == nil {
-			return errorResp, fmt.Errorf("AI service returned error: %s", string(responseBody))
-		}
-		return nil, fmt.Errorf("AI service returned non-OK status %d: %s", resp.StatusCode, string(responseBody))
+	// 3. 解析AI响应（解析失败视为上游错误，不保存）
+	var result map[string]interface{}
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		logAIError("Failed to unmarshal debug response", err, studentID, conversationID)
+		return nil, &AIUpstreamError{Err: fmt.Errorf("invalid JSON from AI service: %w", err)}
 	}
 
-	// 3. 将AI的响应保存为assistant的记录
-	aiRecord := models.AIRecord{
+	// 4. 将AI的响应保存为assistant的记录
+	s.saveRecordLogged(&models.AIRecord{
 		ConversationID:  conversationID,
 		StudentID:       studentID,
 		RoundNumber:     roundNumber,
 		Role:            "assistant",
-		RequestPayload:  string(requestBody), // 也可以只存储关键的出入参，但为了完整性，这里都存
+		RequestPayload:  string(requestBody),
 		ResponsePayload: string(responseBody),
-	}
-	if err := s.DB.Create(&aiRecord).Error; err != nil {
-		// 如果保存AI响应失败，记录错误但仍尝试返回AI的响应给前端
-		logger.Error("Failed to save AI response record",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.Int("round_number", roundNumber),
-		)
-	}
+	})
 
-	// 4. 如果是第2轮，提取并保存 weak_points
+	// 5. 如果是第2轮，提取并保存 weak_points
 	if roundNumber == 2 {
-		s.saveWeakPointsFromResponse(studentID, responseBody)
+		s.SaveWeakPointsFromResponse(studentID, responseBody)
 	}
 
-	// 5. 如果是第4轮，自动关闭对话
+	// 6. 如果是第4轮，自动关闭对话
 	if roundNumber == 4 {
-		s.DB.Model(&models.Conversation{}).
-			Where("conversation_id = ?", conversationID).
-			Updates(map[string]interface{}{"is_closed": true})
-	}
-
-	// 6. 解析AI响应并返回
-	var result map[string]interface{}
-	if err := json.Unmarshal(responseBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal AI service response: %w", err)
+		if err := s.MarkConversationCompleted(conversationID, studentID); err != nil {
+			logger.Error("Failed to close conversation", zap.Error(err), zap.String("conversation_id", conversationID))
+		}
 	}
 
 	return result, nil
 }
 
-// saveWeakPointsFromResponse extracts weak_points from AI response and saves them
-func (s *AIProxyService) saveWeakPointsFromResponse(studentID string, responseBody []byte) {
-	var response map[string]interface{}
-	if err := json.Unmarshal(responseBody, &response); err != nil {
-		logger.Error("Failed to unmarshal weak points response",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.String("response_preview", string(responseBody)[:min(500, len(string(responseBody)))]),
-		)
-		return
+// GetAIRecordsByStudentID fetches AI interaction records for a given student ID
+// 未分页时返回最近 DefaultRecordLimit 条
+func (s *AIProxyService) GetAIRecordsByStudentID(studentID string, page RecordPage) ([]models.AIRecord, int64, error) {
+	query := s.DB.Model(&models.AIRecord{}).Where("student_id = ?", studentID)
+	var (
+		records []models.AIRecord
+		total   int64
+		err     error
+	)
+	if page.Enabled() {
+		records, total, err = queryRecordPage(query, page)
+	} else {
+		records, total, err = queryRecentRecords(query)
 	}
-
-	// 提取 weak_points
-	aiResponse, ok := response["ai_response"].(map[string]interface{})
-	if !ok {
-		logger.Warn("No ai_response in weak points data",
-			zap.String("student_id", studentID),
-		)
-		return
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get AI records: %w", err)
 	}
-
-	weakPointsRaw, ok := aiResponse["weak_points"]
-	if !ok {
-		logger.Warn("No weak_points in ai_response",
-			zap.String("student_id", studentID),
-		)
-		return
-	}
-
-	// weak_points 可以是数组或 interface{}
-	var weakPoints []interface{}
-	switch v := weakPointsRaw.(type) {
-	case []interface{}:
-		weakPoints = v
-	case []string:
-		for _, wp := range v {
-			weakPoints = append(weakPoints, wp)
-		}
-	default:
-		logger.Warn("Unexpected weak_points type",
-			zap.String("student_id", studentID),
-			zap.Any("weak_points_type", fmt.Sprintf("%T", weakPointsRaw)),
-		)
-		return
-	}
-
-	if len(weakPoints) == 0 {
-		logger.Info("Empty weak_points",
-			zap.String("student_id", studentID),
-		)
-		return
-	}
-
-	// 转换为 map[string]int 并保存
-	weakPointsMap := make(map[string]int)
-	for _, wp := range weakPoints {
-		switch v := wp.(type) {
-		case string:
-			weakPointsMap[v] = 1
-		case float64:
-			// 如果是数字，忽略
-		}
-	}
-
-	// 使用 AIService 的方法来保存
-	aiService := NewAIService(s.DB, "")
-	if err := aiService.UpdateUserWeakPoints(studentID, weakPointsMap, time.Now()); err != nil {
-		logger.Error("Failed to update weak points",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.Int("weak_points_count", len(weakPointsMap)),
-		)
-	}
-}
-
-// GetAIRecordsByStudentID fetches all AI interaction records for a given student ID
-func (s *AIProxyService) GetAIRecordsByStudentID(studentID string) ([]models.AIRecord, error) {
-	var records []models.AIRecord
-	if err := s.DB.Where("student_id = ?", studentID).Order("created_at desc").Find(&records).Error; err != nil {
-		return nil, fmt.Errorf("failed to get AI records for student %s: %w", studentID, err)
-	}
-	return records, nil
+	return records, total, nil
 }
 
 // CloseConversation closes a debug conversation by setting IsClosed to true in the conversations table
-// Note: Conversation record should be created by ProxyDebugV2 when the debug session starts
+// Note: Conversation record should be created when the debug session starts
 func (s *AIProxyService) CloseConversation(conversationID, studentID string) error {
 	now := time.Now()
 
@@ -275,7 +193,6 @@ func (s *AIProxyService) CloseConversation(conversationID, studentID string) err
 	err := s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
 
 	if err == gorm.ErrRecordNotFound {
-		// Conversation not found - it should have been created by ProxyDebugV2
 		return fmt.Errorf("conversation not found or already closed")
 	}
 
@@ -305,18 +222,11 @@ func (s *AIProxyService) CloseConversation(conversationID, studentID string) err
 
 // IsConversationClosed checks if a conversation is already closed using the conversations table
 func (s *AIProxyService) IsConversationClosed(conversationID, studentID string) (bool, error) {
-	var count int64
-	err := s.DB.Model(&models.Conversation{}).Where("conversation_id = ? AND student_id = ?", conversationID, studentID).Count(&count).Error
-	if err != nil {
-		return false, fmt.Errorf("failed to check conversation status: %w", err)
-	}
-	if count == 0 {
+	var conv models.Conversation
+	err := s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
+	if err == gorm.ErrRecordNotFound {
 		return false, nil // 如果对话不存在，视为未关闭
 	}
-
-	// Get the conversation to check if closed
-	var conv models.Conversation
-	err = s.DB.Where("conversation_id = ? AND student_id = ?", conversationID, studentID).First(&conv).Error
 	if err != nil {
 		return false, fmt.Errorf("failed to check conversation status: %w", err)
 	}

@@ -1,10 +1,10 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -25,15 +25,32 @@ type DispatcherIface interface {
 
 // AIController handles AI evaluate and recommend requests
 type AIController struct {
-	AIService  service.AIServiceIface
-	Dispatcher DispatcherIface
+	AIService     service.AIServiceIface
+	Dispatcher    DispatcherIface
+	StreamLimiter *service.StreamLimiter // 流式接口限流（流式请求不经过 Dispatcher）
 }
 
 // NewAIController creates a new AIController
 func NewAIController(aiService service.AIServiceIface, dispatcher DispatcherIface) *AIController {
 	return &AIController{
-		AIService:  aiService,
-		Dispatcher: dispatcher,
+		AIService:     aiService,
+		Dispatcher:    dispatcher,
+		StreamLimiter: service.NewDefaultStreamLimiter(),
+	}
+}
+
+// saveRecordLogged 保存记录（同时失效个人记录缓存），失败只记录日志
+func (ctrl *AIController) saveRecordLogged(record *models.AIRecord) {
+	if record == nil {
+		return
+	}
+	if err := ctrl.AIService.SaveRecord(record); err != nil {
+		logger.Error("Failed to save AI record",
+			zap.Error(err),
+			zap.String("student_id", record.StudentID),
+			zap.String("conversation_id", record.ConversationID),
+			zap.String("role", record.Role),
+		)
 	}
 }
 
@@ -43,7 +60,7 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Read request body
-	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
 		return
@@ -77,79 +94,40 @@ func (ctrl *AIController) HandleEvaluate(c *gin.Context) {
 	// Use dispatcher if available, otherwise fall back to direct service call
 	if ctrl.Dispatcher != nil {
 		// Save request record to DB first
-		requestRecord := models.AIRecord{
+		ctrl.saveRecordLogged(&models.AIRecord{
 			ConversationID: req.ConversationID,
 			StudentID:      studentID,
 			RoundNumber:    0,
 			Role:           "student",
 			RequestPayload: string(requestBody),
-		}
-		if db, ok := ctrl.AIService.(*service.AIService); ok {
-			db.GetDB().Create(&requestRecord)
-		}
+		})
 
-		// Create job - pass the parsed struct, not raw bytes
-		job := service.NewAIJob(models.JobTypeEvaluate, req, studentID, req.ConversationID)
-
-		// Try to submit job (non-blocking)
-		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
-			// Return appropriate error message based on the reason
-			errorMsg := "Server busy, please try again later"
-			if err != nil {
-				switch err.Error() {
-				case "User task limit exceeded":
-					errorMsg = "User task limit exceeded"
-				case "Rate limit exceeded, please try again later":
-					errorMsg = "Rate limit exceeded, please try again later"
-				}
-			}
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
+		// Pass the parsed struct, not raw bytes
+		data, err := dispatchAndWait(c, ctrl.Dispatcher, models.JobTypeEvaluate, req, studentID, req.ConversationID)
+		if err != nil {
+			ctrl.saveRecordLogged(aiErrorRecord(req.ConversationID, studentID, 0, requestBody, err))
+			logAndRespondAIError(c, "Evaluate job failed", err, studentID, req.ConversationID)
 			return
 		}
 
-		// Wait for result with timeout
-		select {
-		case result := <-job.ResultChan:
-			if result.Err != nil {
-				// Save error record
-				if db, ok := ctrl.AIService.(*service.AIService); ok {
-					errorRecord := models.AIRecord{
-						ConversationID: req.ConversationID,
-						StudentID:      studentID,
-						RoundNumber:    0,
-						Role:           "system_error",
-						RequestPayload: string(requestBody),
-						Error:          result.Err.Error(),
-					}
-					db.GetDB().Create(&errorRecord)
-				}
-				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
-				return
-			}
-			// Save response record
-			if db, ok := ctrl.AIService.(*service.AIService); ok {
-				responseData, _ := json.Marshal(result.Data)
-				responseRecord := models.AIRecord{
-					ConversationID:  req.ConversationID,
-					StudentID:       studentID,
-					RoundNumber:     0,
-					Role:            "assistant",
-					RequestPayload:  string(requestBody),
-					ResponsePayload: string(responseData),
-				}
-				db.GetDB().Create(&responseRecord)
-			}
-			c.JSON(http.StatusOK, result.Data)
-		case <-time.After(30 * time.Second):
-			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
-		}
+		// Save response record（仅在成功时保存）
+		responseData, _ := json.Marshal(data)
+		ctrl.saveRecordLogged(&models.AIRecord{
+			ConversationID:  req.ConversationID,
+			StudentID:       studentID,
+			RoundNumber:     0,
+			Role:            "assistant",
+			RequestPayload:  string(requestBody),
+			ResponsePayload: string(responseData),
+		})
+		c.JSON(http.StatusOK, data)
 		return
 	}
 
 	// Fallback: direct service call
-	aiResponse, err := ctrl.AIService.ProxyEvaluate(requestBody, studentID, req.ConversationID)
+	aiResponse, err := ctrl.AIService.ProxyEvaluate(c.Request.Context(), requestBody, studentID, req.ConversationID)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
+		logAndRespondAIError(c, "Evaluate request failed", err, studentID, req.ConversationID)
 		return
 	}
 
@@ -163,7 +141,7 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Read request body
-	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
 		return
@@ -195,79 +173,39 @@ func (ctrl *AIController) HandleRecommend(c *gin.Context) {
 		conversationID := fmt.Sprintf("rec_%d", time.Now().UnixNano())
 
 		// Save request record to DB first
-		requestRecord := models.AIRecord{
+		ctrl.saveRecordLogged(&models.AIRecord{
 			ConversationID: conversationID,
 			StudentID:      studentID,
 			RoundNumber:    0,
 			Role:           "student",
 			RequestPayload: string(requestBody),
-		}
-		if db, ok := ctrl.AIService.(*service.AIService); ok {
-			db.GetDB().Create(&requestRecord)
-		}
+		})
 
-		// Create job - pass the parsed struct, not raw bytes
-		job := service.NewAIJob(models.JobTypeRecommend, req, studentID, conversationID)
-
-		// Try to submit job (non-blocking)
-		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
-			// Return appropriate error message based on the reason
-			errorMsg := "Server busy, please try again later"
-			if err != nil {
-				switch err.Error() {
-				case "User task limit exceeded":
-					errorMsg = "User task limit exceeded"
-				case "Rate limit exceeded, please try again later":
-					errorMsg = "Rate limit exceeded, please try again later"
-				}
-			}
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
+		data, err := dispatchAndWait(c, ctrl.Dispatcher, models.JobTypeRecommend, req, studentID, conversationID)
+		if err != nil {
+			ctrl.saveRecordLogged(aiErrorRecord(conversationID, studentID, 0, requestBody, err))
+			logAndRespondAIError(c, "Recommend job failed", err, studentID, conversationID)
 			return
 		}
 
-		// Wait for result with timeout
-		select {
-		case result := <-job.ResultChan:
-			if result.Err != nil {
-				// Save error record
-				if db, ok := ctrl.AIService.(*service.AIService); ok {
-					errorRecord := models.AIRecord{
-						ConversationID: conversationID,
-						StudentID:      studentID,
-						RoundNumber:    0,
-						Role:           "system_error",
-						RequestPayload: string(requestBody),
-						Error:          result.Err.Error(),
-					}
-					db.GetDB().Create(&errorRecord)
-				}
-				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
-				return
-			}
-			// Save response record
-			if db, ok := ctrl.AIService.(*service.AIService); ok {
-				responseData, _ := json.Marshal(result.Data)
-				responseRecord := models.AIRecord{
-					ConversationID:  conversationID,
-					StudentID:       studentID,
-					RoundNumber:     0,
-					Role:            "assistant",
-					RequestPayload:  string(requestBody),
-					ResponsePayload: string(responseData),
-				}
-				db.GetDB().Create(&responseRecord)
-			}
-			c.JSON(http.StatusOK, result.Data)
-		case <-time.After(20 * time.Second):
-			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
-		}
+		// Save response record（仅在成功时保存）
+		responseData, _ := json.Marshal(data)
+		ctrl.saveRecordLogged(&models.AIRecord{
+			ConversationID:  conversationID,
+			StudentID:       studentID,
+			RoundNumber:     0,
+			Role:            "assistant",
+			RequestPayload:  string(requestBody),
+			ResponsePayload: string(responseData),
+		})
+		c.JSON(http.StatusOK, data)
 		return
 	}
 
 	// Fallback: direct service call
-	aiResponse, err := ctrl.AIService.ProxyRecommend(requestBody, studentID)
+	aiResponse, err := ctrl.AIService.ProxyRecommend(c.Request.Context(), requestBody, studentID)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
+		logAndRespondAIError(c, "Recommend request failed", err, studentID, "")
 		return
 	}
 
@@ -566,7 +504,8 @@ func (ctrl *AIController) ExportClassWeakPointsCSV(c *gin.Context) {
 	// Call service to export CSV
 	csvContent, err := ctrl.AIService.ExportClassWeakPointsCSV(classID, studentIDs, startDatePtr, endDatePtr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export CSV: " + err.Error()})
+		logger.Error("Failed to export class weak points CSV", zap.Error(err), zap.Uint("class_id", classID))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出 CSV 失败"})
 		return
 	}
 
@@ -581,42 +520,58 @@ func (ctrl *AIController) ExportClassWeakPointsCSV(c *gin.Context) {
 }
 
 // GetDebugRecords handles the /api/v1/ai/records/debug endpoint
+// 可选 page / page_size；不传时返回最近 200 条
 func (ctrl *AIController) GetDebugRecords(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
+	page, ok := parseAIRecordPage(c)
+	if !ok {
+		return
+	}
 
-	records, err := ctrl.AIService.GetDebugRecords(studentID)
+	records, total, err := ctrl.AIService.GetDebugRecords(studentID, page)
 	if err != nil {
+		logger.Error("Failed to fetch debug records", zap.Error(err), zap.String("student_id", studentID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch debug records"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Debug records fetched successfully", "data": records})
+	respondAIRecords(c, "Debug records fetched successfully", records, total, page)
 }
 
 // GetEvaluateRecords handles the /api/v1/ai/records/evaluate endpoint
 func (ctrl *AIController) GetEvaluateRecords(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
+	page, ok := parseAIRecordPage(c)
+	if !ok {
+		return
+	}
 
-	records, err := ctrl.AIService.GetEvaluateRecords(studentID)
+	records, total, err := ctrl.AIService.GetEvaluateRecords(studentID, page)
 	if err != nil {
+		logger.Error("Failed to fetch evaluate records", zap.Error(err), zap.String("student_id", studentID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch evaluate records"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Evaluate records fetched successfully", "data": records})
+	respondAIRecords(c, "Evaluate records fetched successfully", records, total, page)
 }
 
 // GetRecommendRecords handles the /api/v1/ai/records/recommend endpoint
 func (ctrl *AIController) GetRecommendRecords(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
+	page, ok := parseAIRecordPage(c)
+	if !ok {
+		return
+	}
 
-	records, err := ctrl.AIService.GetRecommendRecords(studentID)
+	records, total, err := ctrl.AIService.GetRecommendRecords(studentID, page)
 	if err != nil {
+		logger.Error("Failed to fetch recommend records", zap.Error(err), zap.String("student_id", studentID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommend records"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Recommend records fetched successfully", "data": records})
+	respondAIRecords(c, "Recommend records fetched successfully", records, total, page)
 }
 
 // HandleEvaluateStream handles the /api/v1/ai/evaluate/stream endpoint
@@ -624,7 +579,7 @@ func (ctrl *AIController) HandleEvaluateStream(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Read request body
-	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
 		return
@@ -654,59 +609,19 @@ func (ctrl *AIController) HandleEvaluateStream(c *gin.Context) {
 		req.ConversationID = generateConversationID()
 	}
 
-	// Call stream proxy
-	streamReader, err := ctrl.AIService.ProxyEvaluateStream(requestBody, studentID, req.ConversationID)
-	if err != nil {
-		logger.Error("Failed to proxy evaluate stream",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.String("conversation_id", req.ConversationID),
-		)
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI stream service error: %v", err.Error())})
-		return
-	}
-	defer streamReader.Close()
-
-	// Set headers for streaming
-	c.Header("Content-Type", "application/x-ndjson")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
-	// Stream data to client
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
-		return
-	}
-
-	// Copy stream to response
-	buf := make([]byte, 4096)
-	for {
-		n, err := streamReader.Read(buf)
-		if n > 0 {
-			c.Writer.Write(buf[:n])
-			flusher.Flush()
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			logger.Error("Error reading from stream",
-				zap.Error(err),
-				zap.String("student_id", studentID),
-			)
-			break
-		}
-	}
+	serveAIStream(c, ctrl.StreamLimiter, models.JobTypeEvaluate, studentID, req.ConversationID,
+		func(ctx context.Context) (service.AIStreamReader, error) {
+			return ctrl.AIService.ProxyEvaluateStream(ctx, requestBody, studentID, req.ConversationID)
+		})
 }
 
 // HandleDebugV2Stream handles the /api/v1/ai/debug_v2/stream endpoint
+// 轮次与对话历史由服务端根据已保存记录计算，客户端传入的 current_round / dialogue_history 会被忽略
 func (ctrl *AIController) HandleDebugV2Stream(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Read request body
-	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
 		return
@@ -725,89 +640,31 @@ func (ctrl *AIController) HandleDebugV2Stream(c *gin.Context) {
 		return
 	}
 
-	// Validate request
-	if err := models.ValidateDebugRequest(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Generate conversation ID if not provided
-	if req.ConversationID == "" {
-		req.ConversationID = generateConversationID()
-	}
-
-	// Ensure conversation record exists in database (create if not)
-	// This is needed because when using streaming, the conversation record should be created here
-	if aiService, ok := ctrl.AIService.(*service.AIService); ok {
-		db := aiService.GetDB()
-		var count int64
-		db.Model(&models.Conversation{}).Where("conversation_id = ?", req.ConversationID).Count(&count)
-		if count == 0 {
-			// Create new conversation record
-			conv := models.Conversation{
-				ConversationID: req.ConversationID,
-				StudentID:      studentID,
-				TaskType:       "debug",
-				IsClosed:       false,
-			}
-			if err := db.Create(&conv).Error; err != nil {
-				logger.Error("Failed to create conversation record",
-					zap.Error(err),
-					zap.String("conversation_id", req.ConversationID),
-					zap.String("student_id", studentID),
-				)
-				// Continue anyway, don't fail the request
-			}
-		}
-	}
-
-	// Call stream proxy
-	streamReader, err := ctrl.AIService.ProxyDebugV2Stream(requestBody, studentID, req.ConversationID)
-	if err != nil {
-		logger.Error("Failed to proxy debug stream",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.String("conversation_id", req.ConversationID),
-			zap.Int("current_round", req.CurrentRound),
-		)
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI debug stream service error: %v", err.Error())})
-		return
-	}
-	defer streamReader.Close()
-
-	// Set headers for streaming
-	c.Header("Content-Type", "application/x-ndjson")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
-	// Stream data to client
-	flusher, ok := c.Writer.(http.Flusher)
+	aiService, ok := ctrl.AIService.(*service.AIService)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
 		return
 	}
 
-	// Copy stream to response
-	buf := make([]byte, 4096)
-	for {
-		n, err := streamReader.Read(buf)
-		if n > 0 {
-			c.Writer.Write(buf[:n])
-			flusher.Flush()
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			logger.Error("Error reading from debug stream",
-				zap.Error(err),
-				zap.String("student_id", studentID),
-				zap.Int("current_round", req.CurrentRound),
-			)
-			break
-		}
+	// 同一会话同一时间只允许一个请求，避免并发请求得到相同轮次
+	unlock, ok := service.TryLockConversation(req.ConversationID)
+	if !ok {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "该对话正在处理中，请稍候"})
+		return
 	}
+	defer unlock()
+
+	// 校验会话归属与状态，并用服务端轮次/历史重建请求体
+	debugBody, round, err := service.PrepareDebugRequest(aiService.GetDB(), &req, studentID)
+	if err != nil {
+		respondDebugPrepareError(c, err, studentID, req.ConversationID)
+		return
+	}
+
+	serveAIStream(c, ctrl.StreamLimiter, models.JobTypeDebug, studentID, req.ConversationID,
+		func(ctx context.Context) (service.AIStreamReader, error) {
+			return ctrl.AIService.ProxyDebugV2Stream(ctx, debugBody, studentID, req.ConversationID, round)
+		})
 }
 
 // HandleRecommendStream handles the /api/v1/ai/recommend/stream endpoint
@@ -815,7 +672,7 @@ func (ctrl *AIController) HandleRecommendStream(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
 
 	// Read request body
-	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
 		return
@@ -840,50 +697,10 @@ func (ctrl *AIController) HandleRecommendStream(c *gin.Context) {
 		return
 	}
 
-	// Call stream proxy
-	streamReader, err := ctrl.AIService.ProxyRecommendStream(requestBody, studentID)
-	if err != nil {
-		logger.Error("Failed to proxy recommend stream",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-		)
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI recommend stream service error: %v", err.Error())})
-		return
-	}
-	defer streamReader.Close()
-
-	// Set headers for streaming
-	c.Header("Content-Type", "application/x-ndjson")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
-	// Stream data to client
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
-		return
-	}
-
-	// Copy stream to response
-	buf := make([]byte, 4096)
-	for {
-		n, err := streamReader.Read(buf)
-		if n > 0 {
-			c.Writer.Write(buf[:n])
-			flusher.Flush()
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			logger.Error("Error reading from recommend stream",
-				zap.Error(err),
-				zap.String("student_id", studentID),
-			)
-			break
-		}
-	}
+	serveAIStream(c, ctrl.StreamLimiter, models.JobTypeRecommend, studentID, "",
+		func(ctx context.Context) (service.AIStreamReader, error) {
+			return ctrl.AIService.ProxyRecommendStream(ctx, requestBody, studentID)
+		})
 }
 
 // generateConversationID generates a unique conversation ID

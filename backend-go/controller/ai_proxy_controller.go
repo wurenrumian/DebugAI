@@ -3,7 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 // AIProxyController handles AI debug v2 requests
@@ -30,13 +29,28 @@ func NewAIProxyController(aiProxyService service.AIProxyServiceIface, dispatcher
 	}
 }
 
+// saveRecordLogged 保存记录（同时失效个人记录缓存），失败只记录日志
+func (ctrl *AIProxyController) saveRecordLogged(record *models.AIRecord) {
+	if record == nil {
+		return
+	}
+	if err := ctrl.AIProxyService.SaveRecord(record); err != nil {
+		logger.Error("Failed to save AI record",
+			zap.Error(err),
+			zap.String("student_id", record.StudentID),
+			zap.String("conversation_id", record.ConversationID),
+			zap.String("role", record.Role),
+		)
+	}
+}
+
 // HandleDebugV2 handles the /api/v1/ai/debug_v2 endpoint
+// 轮次与对话历史由服务端根据已保存记录计算，客户端传入的 current_round / dialogue_history 会被忽略
 func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 	// Get student ID from token (secure way)
 	studentID := c.MustGet("student_id").(string)
 
-	// Read the request body manually to pass it as-is to the Python service
-	requestBody, err := ioutil.ReadAll(c.Request.Body)
+	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read request body"})
 		return
@@ -56,46 +70,23 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 		return
 	}
 
-	// Check if conversation is already closed and ensure conversation record exists
-	isClosed, err := ctrl.AIProxyService.IsConversationClosed(req.ConversationID, studentID)
+	// 同一会话同一时间只允许一个请求，避免并发请求得到相同轮次
+	unlock, ok := service.TryLockConversation(req.ConversationID)
+	if !ok {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "该对话正在处理中，请稍候"})
+		return
+	}
+	defer unlock()
+
+	// 校验会话归属/是否关闭（不存在则创建），并用服务端轮次与历史重建请求体
+	debugBody, round, err := ctrl.AIProxyService.PrepareDebugRequest(&req, studentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check conversation status"})
-		return
-	}
-	if isClosed {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation already closed"})
-		return
-	}
-
-	// Ensure conversation record exists in database (create if not)
-	// This is needed because when using Dispatcher, ProxyDebugV2 is not called directly
-	if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
-		db := proxyService.GetDB()
-		var count int64
-		db.Model(&models.Conversation{}).Where("conversation_id = ?", req.ConversationID).Count(&count)
-		if count == 0 {
-			// Create new conversation record
-			conv := models.Conversation{
-				ConversationID: req.ConversationID,
-				StudentID:      studentID,
-				TaskType:       "debug",
-				IsClosed:       false,
-			}
-			if err := db.Create(&conv).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation record"})
-				return
-			}
-		}
-	}
-
-	// Validate request
-	if err := ctrl.AIProxyService.ValidateDebugRequest(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondDebugPrepareError(c, err, studentID, req.ConversationID)
 		return
 	}
 
 	// Get round info for the frontend
-	roundInfo := ctrl.AIProxyService.GetRoundInfo(req.CurrentRound, req.StudentResponse)
+	roundInfo := ctrl.AIProxyService.GetRoundInfo(round, req.StudentResponse)
 	if roundInfo == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid round number"})
 		return
@@ -104,104 +95,59 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 	// Use dispatcher if available, otherwise fall back to direct service call
 	if ctrl.Dispatcher != nil {
 		// Save request record to DB first
-		requestRecord := models.AIRecord{
+		ctrl.saveRecordLogged(&models.AIRecord{
 			ConversationID: req.ConversationID,
 			StudentID:      studentID,
-			RoundNumber:    req.CurrentRound,
+			RoundNumber:    round,
 			Role:           "student",
-			RequestPayload: string(requestBody),
-		}
-		if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
-			proxyService.GetDB().Create(&requestRecord)
-		}
+			RequestPayload: string(debugBody),
+		})
 
-		// Create job - pass the parsed struct, not raw bytes
-		job := service.NewAIJob(models.JobTypeDebug, req, studentID, req.ConversationID)
-
-		// Try to submit job (non-blocking)
-		if ok, err := ctrl.Dispatcher.SubmitJobWithError(job); !ok {
-			// Return appropriate error message based on the reason
-			errorMsg := "Server busy, please try again later"
-			if err != nil {
-				switch err.Error() {
-				case "User task limit exceeded":
-					errorMsg = "User task limit exceeded"
-				case "Rate limit exceeded, please try again later":
-					errorMsg = "Rate limit exceeded, please try again later"
-				}
-			}
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": errorMsg})
+		// Pass the rebuilt struct (server-side round/history)
+		data, err := dispatchAndWait(c, ctrl.Dispatcher, models.JobTypeDebug, req, studentID, req.ConversationID)
+		if err != nil {
+			ctrl.saveRecordLogged(aiErrorRecord(req.ConversationID, studentID, round, debugBody, err))
+			logAndRespondAIError(c, "Debug job failed", err, studentID, req.ConversationID)
 			return
 		}
 
-		// Wait for result with timeout
-		select {
-		case result := <-job.ResultChan:
-			if result.Err != nil {
-				// Save error record
-				if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
-					errorRecord := models.AIRecord{
-						ConversationID: req.ConversationID,
-						StudentID:      studentID,
-						RoundNumber:    req.CurrentRound,
-						Role:           "system_error",
-						RequestPayload: string(requestBody),
-						Error:          result.Err.Error(),
-					}
-					proxyService.GetDB().Create(&errorRecord)
-				}
-				c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", result.Err.Error())})
-				return
-			}
-			// Save response record
-			if proxyService, ok := ctrl.AIProxyService.(*service.AIProxyService); ok {
-				responseData, _ := json.Marshal(result.Data)
-				responseRecord := models.AIRecord{
-					ConversationID:  req.ConversationID,
-					StudentID:       studentID,
-					RoundNumber:     req.CurrentRound,
-					Role:            "assistant",
-					RequestPayload:  string(requestBody),
-					ResponsePayload: string(responseData),
-				}
-				proxyService.GetDB().Create(&responseRecord)
+		// Save response record（仅在成功时保存，服务端据此推进轮次）
+		responseData, _ := json.Marshal(data)
+		ctrl.saveRecordLogged(&models.AIRecord{
+			ConversationID:  req.ConversationID,
+			StudentID:       studentID,
+			RoundNumber:     round,
+			Role:            "assistant",
+			RequestPayload:  string(debugBody),
+			ResponsePayload: string(responseData),
+		})
 
-				// If round 2, save weak_points from response
-				if req.CurrentRound == 2 {
-					saveWeakPoints(proxyService.GetDB(), studentID, responseData)
-				}
-
-				// If round 4, auto-close the conversation
-				if req.CurrentRound == 4 {
-					proxyService.GetDB().Model(&models.Conversation{}).
-						Where("conversation_id = ?", req.ConversationID).
-						Updates(map[string]interface{}{"is_closed": true})
-				}
-			}
-			// Add round info to the response
-			if result.Data != nil {
-				if respMap, ok := result.Data.(map[string]interface{}); ok {
-					respMap["round_info"] = roundInfo
-					c.JSON(http.StatusOK, respMap)
-					return
-				}
-			}
-			c.JSON(http.StatusOK, result.Data)
-		case <-time.After(60 * time.Second):
-			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "AI response timeout"})
+		// If round 2, save weak_points from response
+		if round == 2 {
+			ctrl.AIProxyService.SaveWeakPointsFromResponse(studentID, responseData)
 		}
+
+		// If round 4, auto-close the conversation
+		if round == 4 {
+			if err := ctrl.AIProxyService.MarkConversationCompleted(req.ConversationID, studentID); err != nil {
+				logger.Error("Failed to close conversation", zap.Error(err), zap.String("conversation_id", req.ConversationID))
+			}
+		}
+
+		// Add round info to the response
+		if respMap, ok := data.(map[string]interface{}); ok {
+			respMap["round_info"] = roundInfo
+			c.JSON(http.StatusOK, respMap)
+			return
+		}
+		c.JSON(http.StatusOK, data)
 		return
 	}
 
 	// Fallback: direct service call
-	aiResponse, err := ctrl.AIProxyService.ProxyDebugV2(requestBody, studentID, req.ConversationID, req.CurrentRound)
+	aiResponse, err := ctrl.AIProxyService.ProxyDebugV2(c.Request.Context(), debugBody, studentID, req.ConversationID, round)
 	if err != nil {
-		// If the error contains a partial AI response (e.g., from non-200 status), return that
-		if aiResponse != nil {
-			c.JSON(http.StatusBadGateway, aiResponse) // Use StatusBadGateway as it's an upstream service error
-			return
-		}
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("AI service communication error: %v", err.Error())})
+		logAndRespondAIError(c, "Debug request failed", err, studentID, req.ConversationID)
 		return
 	}
 
@@ -214,17 +160,23 @@ func (ctrl *AIProxyController) HandleDebugV2(c *gin.Context) {
 	c.JSON(http.StatusOK, aiResponse)
 }
 
-// GetAIRecords fetches all AI interaction records for the authenticated student
+// GetAIRecords fetches AI interaction records for the authenticated student
+// 可选 page / page_size；不传时返回最近 200 条
 func (ctrl *AIProxyController) GetAIRecords(c *gin.Context) {
 	studentID := c.MustGet("student_id").(string)
+	page, ok := parseAIRecordPage(c)
+	if !ok {
+		return
+	}
 
-	records, err := ctrl.AIProxyService.GetAIRecordsByStudentID(studentID)
+	records, total, err := ctrl.AIProxyService.GetAIRecordsByStudentID(studentID, page)
 	if err != nil {
+		logger.Error("Failed to fetch AI records", zap.Error(err), zap.String("student_id", studentID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch AI records"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "AI records fetched successfully", "data": records})
+	respondAIRecords(c, "AI records fetched successfully", records, total, page)
 }
 
 // GetRoundInfo handles the /api/v1/ai/round_info endpoint
@@ -304,84 +256,14 @@ func (ctrl *AIProxyController) HandleCloseConversation(c *gin.Context) {
 	// Close the conversation
 	err := ctrl.AIProxyService.CloseConversation(req.ConversationID, studentID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		logger.Warn("Failed to close conversation",
+			zap.Error(err),
+			zap.String("student_id", studentID),
+			zap.String("conversation_id", req.ConversationID),
+		)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "对话不存在或已关闭"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Conversation closed successfully"})
-}
-
-// saveWeakPoints extracts weak_points from AI response and saves them to the database
-func saveWeakPoints(db *gorm.DB, studentID string, responseData []byte) {
-	var response map[string]interface{}
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		logger.Error("Failed to unmarshal weak points response",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.String("response_preview", string(responseData)[:min(500, len(string(responseData)))]),
-		)
-		return
-	}
-
-	// Extract weak_points
-	aiResponse, ok := response["ai_response"].(map[string]interface{})
-	if !ok {
-		logger.Warn("No ai_response in weak points data",
-			zap.String("student_id", studentID),
-		)
-		return
-	}
-
-	weakPointsRaw, ok := aiResponse["weak_points"]
-	if !ok {
-		logger.Warn("No weak_points in ai_response",
-			zap.String("student_id", studentID),
-		)
-		return
-	}
-
-	// weak_points can be array or interface{}
-	var weakPoints []interface{}
-	switch v := weakPointsRaw.(type) {
-	case []interface{}:
-		weakPoints = v
-	case []string:
-		for _, wp := range v {
-			weakPoints = append(weakPoints, wp)
-		}
-	default:
-		logger.Warn("Unexpected weak_points type",
-			zap.String("student_id", studentID),
-			zap.Any("weak_points_type", fmt.Sprintf("%T", weakPointsRaw)),
-		)
-		return
-	}
-
-	if len(weakPoints) == 0 {
-		logger.Info("Empty weak_points",
-			zap.String("student_id", studentID),
-		)
-		return
-	}
-
-	// Convert to map[string]int and save
-	weakPointsMap := make(map[string]int)
-	for _, wp := range weakPoints {
-		switch v := wp.(type) {
-		case string:
-			weakPointsMap[v] = 1
-		case float64:
-			// Ignore if number
-		}
-	}
-
-	// Use AIService to save
-	aiService := service.NewAIService(db, "")
-	if err := aiService.UpdateUserWeakPoints(studentID, weakPointsMap, time.Now()); err != nil {
-		logger.Error("Failed to update weak points",
-			zap.Error(err),
-			zap.String("student_id", studentID),
-			zap.Int("weak_points_count", len(weakPointsMap)),
-		)
-	}
 }
