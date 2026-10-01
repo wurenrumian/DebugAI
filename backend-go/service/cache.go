@@ -29,7 +29,7 @@ type CacheService struct {
 		Get(ctx context.Context, key string) (string, error)
 		Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
 		Del(ctx context.Context, keys ...string) error
-		Keys(ctx context.Context, pattern string) ([]string, error)
+		Scan(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error)
 		SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error)
 		MGet(ctx context.Context, keys ...string) ([]interface{}, error)
 		MSet(ctx context.Context, values ...interface{}) error
@@ -42,7 +42,7 @@ func NewCacheService(redisClient interface {
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
 	Del(ctx context.Context, keys ...string) error
-	Keys(ctx context.Context, pattern string) ([]string, error)
+	Scan(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error)
 	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error)
 	MGet(ctx context.Context, keys ...string) ([]interface{}, error)
 	MSet(ctx context.Context, values ...interface{}) error
@@ -82,21 +82,28 @@ func (s *CacheService) Delete(ctx context.Context, key string) error {
 	return s.client.Del(ctx, key)
 }
 
-// InvalidatePattern 根据模式批量删除缓存键
+// InvalidatePattern 根据模式批量删除缓存键（使用 SCAN 迭代，避免 KEYS 阻塞 Redis）
 func (s *CacheService) InvalidatePattern(ctx context.Context, pattern string) error {
 	if !s.enabled {
 		return nil
 	}
 
-	keys, err := s.client.Keys(ctx, pattern)
-	if err != nil {
-		return err
+	var cursor uint64
+	for {
+		keys, next, err := s.client.Scan(ctx, cursor, pattern, 500)
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := s.client.Del(ctx, keys...); err != nil {
+				return err
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			return nil
+		}
 	}
-
-	if len(keys) > 0 {
-		return s.client.Del(ctx, keys...)
-	}
-	return nil
 }
 
 // GetMulti 批量获取缓存

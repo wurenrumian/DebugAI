@@ -82,15 +82,61 @@ func (c *RedisCache) Delete(ctx context.Context, key string) error {
 	return c.client.Del(ctx, key).Err()
 }
 
-// InvalidatePattern 根据模式批量删除缓存键（带指数退避重试）
+// DeleteKeys 批量删除指定的缓存键
+func (c *RedisCache) DeleteKeys(ctx context.Context, keys ...string) error {
+	if !c.enabled || c.client == nil || len(keys) == 0 {
+		return nil
+	}
+	return c.deleteKeys(ctx, keys)
+}
+
+// scanBatchSize 每次 SCAN 的建议数量
+const scanBatchSize = 500
+
+// scanKeys 使用 SCAN 迭代匹配的键（避免 KEYS 阻塞 Redis）
+func (c *RedisCache) scanKeys(ctx context.Context, pattern string) ([]string, error) {
+	var (
+		keys   []string
+		cursor uint64
+	)
+	for {
+		batch, next, err := c.client.Scan(ctx, cursor, pattern, scanBatchSize).Result()
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, batch...)
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return keys, nil
+}
+
+// deleteKeys 分批删除键
+func (c *RedisCache) deleteKeys(ctx context.Context, keys []string) error {
+	var firstErr error
+	for start := 0; start < len(keys); start += scanBatchSize {
+		end := start + scanBatchSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		if err := c.client.Del(ctx, keys[start:end]...).Err(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// InvalidatePattern 根据模式批量删除缓存键（SCAN 迭代 + 延迟双删，带指数退避重试）
 func (c *RedisCache) InvalidatePattern(ctx context.Context, pattern string) error {
 	if !c.enabled || c.client == nil {
 		return nil
 	}
 
-	keys, err := c.client.Keys(ctx, pattern).Result()
+	keys, err := c.scanKeys(ctx, pattern)
 	if err != nil {
-		return fmt.Errorf("failed to get keys by pattern: %w", err)
+		return fmt.Errorf("failed to scan keys by pattern: %w", err)
 	}
 
 	if len(keys) == 0 {
@@ -98,7 +144,7 @@ func (c *RedisCache) InvalidatePattern(ctx context.Context, pattern string) erro
 	}
 
 	// 第一次立即删除
-	if err := c.client.Del(ctx, keys...).Err(); err != nil {
+	if err := c.deleteKeys(ctx, keys); err != nil {
 		logger.Error("Failed to invalidate cache (first delete)",
 			zap.String("pattern", pattern),
 			zap.Error(err))
@@ -125,7 +171,7 @@ func (c *RedisCache) InvalidatePattern(ctx context.Context, pattern string) erro
 				break retryLoop
 			}
 
-			if err := c.client.Del(retryCtx, keys...).Err(); err != nil {
+			if err := c.deleteKeys(retryCtx, keys); err != nil {
 				// 最后一次重试失败，记录错误并触发告警
 				if i == maxRetries-1 {
 					logger.Error("InvalidatePattern failed after all retries",
@@ -133,7 +179,6 @@ func (c *RedisCache) InvalidatePattern(ctx context.Context, pattern string) erro
 						zap.Int("key_count", len(keys)),
 						zap.Error(err))
 					// TODO: 触发告警（邮件/钉钉/监控系统）
-					// alert.Send("缓存删除失败", fmt.Sprintf("Pattern: %s, Error: %v", pattern, err))
 				} else {
 					logger.Warn("Retry invalidate cache failed",
 						zap.String("pattern", pattern),

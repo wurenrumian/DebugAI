@@ -2,6 +2,8 @@ package models
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -153,24 +155,56 @@ func (t *UserTaskTracker) getLimit(jobType string) int {
 }
 
 // PoolConfigs returns pool configurations for different job types
+// 可通过环境变量调整（未设置或非法时使用默认值）：
+//
+//	AI_EVALUATE_WORKERS / AI_EVALUATE_QUEUE_SIZE   默认 10 / 100
+//	AI_DEBUG_WORKERS    / AI_DEBUG_QUEUE_SIZE      默认 20 / 200
+//	AI_RECOMMEND_WORKERS/ AI_RECOMMEND_QUEUE_SIZE  默认 5 / 50
+//	AI_REQUEST_TIMEOUT  非流式任务超时（含 Dispatcher 任务与控制器等待），默认 150s，需大于 Python 端 LLM_TOTAL_TIMEOUT（120s）
 func PoolConfigs() map[string]PoolConfig {
+	timeout := envDuration("AI_REQUEST_TIMEOUT", 150*time.Second)
 	return map[string]PoolConfig{
 		JobTypeEvaluate: {
-			MaxWorkers:   3,
-			MaxQueueSize: 50,
-			JobTimeout:   30 * time.Second,
+			MaxWorkers:   envInt("AI_EVALUATE_WORKERS", 10),
+			MaxQueueSize: envInt("AI_EVALUATE_QUEUE_SIZE", 100),
+			JobTimeout:   timeout,
 		},
 		JobTypeDebug: {
-			MaxWorkers:   5,
-			MaxQueueSize: 100,
-			JobTimeout:   60 * time.Second,
+			MaxWorkers:   envInt("AI_DEBUG_WORKERS", 20),
+			MaxQueueSize: envInt("AI_DEBUG_QUEUE_SIZE", 200),
+			JobTimeout:   timeout,
 		},
 		JobTypeRecommend: {
-			MaxWorkers:   2,
-			MaxQueueSize: 30,
-			JobTimeout:   20 * time.Second,
+			MaxWorkers:   envInt("AI_RECOMMEND_WORKERS", 5),
+			MaxQueueSize: envInt("AI_RECOMMEND_QUEUE_SIZE", 50),
+			JobTimeout:   timeout,
 		},
 	}
+}
+
+// envInt 读取正整数环境变量
+func envInt(name string, def int) int {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// envDuration 读取时长环境变量，支持 "60s"/"2m" 或纯数字（秒）
+func envDuration(name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		return time.Duration(n) * time.Second
+	}
+	return def
 }
 
 // MinuteRateLimiter implements a per-user, per-minute rate limiter using sliding window

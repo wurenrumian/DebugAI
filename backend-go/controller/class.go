@@ -18,6 +18,7 @@ import (
 
 // ClassCache 全局班级缓存服务
 var classCache *cache.ClassCache
+var classWeakPointCache *cache.WeakPointCache
 
 // currentUserIDFromCtx 从上下文获取当前登录用户ID（由 AuthMiddleware 设置）
 func currentUserIDFromCtx(c *gin.Context) (uint, bool) {
@@ -38,6 +39,15 @@ func isSystemAdminCtx(c *gin.Context) bool {
 // InitClassCache 初始化班级缓存服务
 func InitClassCache(redisCache *cache.RedisCache, db *gorm.DB) {
 	classCache = cache.NewClassCache(redisCache, db)
+	classWeakPointCache = cache.NewWeakPointCache(redisCache, db)
+}
+
+// invalidateClassMembership 班级成员变化后失效班级详情与班级薄弱点缓存
+func invalidateClassMembership(classID uint) {
+	classCache.InvalidateClassDetail(classID)
+	if classWeakPointCache != nil {
+		classWeakPointCache.InvalidateClassWeakPoints(classID)
+	}
 }
 
 // CreateClass 创建班级（仅 admin 可执行）
@@ -190,7 +200,7 @@ func JoinClass(c *gin.Context) {
 
 	// 失效班级成员缓存
 	if classCache != nil {
-		classCache.InvalidateClassDetail(uint(classID))
+		invalidateClassMembership(uint(classID))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "加入班级成功", "data": member})
@@ -564,7 +574,7 @@ func AddMembers(c *gin.Context) {
 
 	// 失效班级详情和成员缓存
 	if classCache != nil {
-		classCache.InvalidateClassDetail(uint(classID))
+		invalidateClassMembership(uint(classID))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -724,7 +734,7 @@ func RemoveMembers(c *gin.Context) {
 
 	// 失效班级详情和成员缓存
 	if classCache != nil {
-		classCache.InvalidateClassDetail(uint(classID))
+		invalidateClassMembership(uint(classID))
 	}
 
 	c.JSON(http.StatusOK, gin.H{

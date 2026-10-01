@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"backend-go/logger"
@@ -208,6 +209,7 @@ func (s *WeakPointCache) fetchTopWeakPointsFromDB(studentID string, limit int, s
 }
 
 // GetClassWeakPoints 获取班级薄弱点（带缓存）
+// studentIDs 为空时统计班级全部学生；非空时只统计其中属于该班级的学生
 func (s *WeakPointCache) GetClassWeakPoints(ctx context.Context, classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
 	// 默认当天
 	if startDate == nil && endDate == nil {
@@ -216,7 +218,7 @@ func (s *WeakPointCache) GetClassWeakPoints(ctx context.Context, classID uint, s
 		endDate = &today
 	}
 
-	cacheKey := utils.WeakPointsClassKey(classID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+	cacheKey := utils.WeakPointsClassKey(classID, formatDatePtr(startDate), formatDatePtr(endDate), studentIDs)
 
 	// 尝试从缓存获取
 	var result []map[string]interface{}
@@ -233,14 +235,54 @@ func (s *WeakPointCache) GetClassWeakPoints(ctx context.Context, classID uint, s
 	return s.fetchClassWeakPointsFromDB(classID, studentIDs, startDate, endDate)
 }
 
-// fetchClassWeakPointsFromDB 从数据库获取班级薄弱点
-func (s *WeakPointCache) fetchClassWeakPointsFromDB(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
-	var userWeakPoints []models.UserWeakPoint
-	query := s.db
-
-	if len(studentIDs) > 0 {
-		query = query.Where("student_id IN ?", studentIDs)
+// formatDatePtr 格式化可空日期（用于缓存键）
+func formatDatePtr(t *time.Time) string {
+	if t == nil {
+		return "-"
 	}
+	return t.Format("2006-01-02")
+}
+
+// classStudentIDs 获取班级内学生的 student_id 列表；filter 非空时取交集
+func (s *WeakPointCache) classStudentIDs(classID uint, filter []string) ([]string, error) {
+	var ids []string
+	err := s.db.Model(&models.User{}).
+		Joins("JOIN class_members ON class_members.user_id = users.id").
+		Where("class_members.class_id = ? AND class_members.member_role = ?", classID, models.MemberRoleStudent).
+		Pluck("users.student_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(filter) == 0 {
+		return ids, nil
+	}
+
+	allowed := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		allowed[id] = struct{}{}
+	}
+	result := make([]string, 0, len(filter))
+	for _, id := range filter {
+		if _, ok := allowed[id]; ok {
+			result = append(result, id)
+		}
+	}
+	return result, nil
+}
+
+// fetchClassWeakPointsFromDB 从数据库获取班级薄弱点（按关键词聚合）
+// 始终限定在该班级的学生范围内，防止返回其他班级/全系统学生的数据
+func (s *WeakPointCache) fetchClassWeakPointsFromDB(classID uint, studentIDs []string, startDate, endDate *time.Time) ([]map[string]interface{}, error) {
+	memberIDs, err := s.classStudentIDs(classID, studentIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(memberIDs) == 0 {
+		return []map[string]interface{}{}, nil
+	}
+
+	var userWeakPoints []models.UserWeakPoint
+	query := s.db.Where("student_id IN ?", memberIDs)
 
 	if startDate != nil {
 		query = query.Where("DATE(record_date) >= ?", startDate.Format("2006-01-02"))
@@ -292,23 +334,30 @@ func (s *WeakPointCache) fetchClassWeakPointsFromDB(classID uint, studentIDs []s
 		}
 	}
 
-	// 转换为slice并按count排序
+	// 转换为slice并按count降序排序（count 相同时按关键词排序，保证结果稳定）
 	result := make([]map[string]interface{}, 0, len(aggregated))
 	for _, v := range aggregated {
 		result = append(result, v)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		ci, cj := result[i]["count"].(int), result[j]["count"].(int)
+		if ci != cj {
+			return ci > cj
+		}
+		return result[i]["keyword"].(string) < result[j]["keyword"].(string)
+	})
 
 	// 写入缓存
 	if s.cache != nil && len(result) > 0 {
-		s.cache.Set(context.Background(), utils.WeakPointsClassKey(classID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")), result, 10*time.Minute)
+		s.cache.Set(context.Background(), utils.WeakPointsClassKey(classID, formatDatePtr(startDate), formatDatePtr(endDate), studentIDs), result, 10*time.Minute)
 	}
 
 	return result, nil
 }
 
-// InvalidateUserWeakPoints 失效用户薄弱点缓存
+// InvalidateUserWeakPoints 失效用户薄弱点缓存，并同时失效该学生所在所有班级的班级薄弱点缓存
 func (s *WeakPointCache) InvalidateUserWeakPoints(studentID string) {
-	if s.cache == nil {
+	if s.cache == nil || !s.cache.IsEnabled() {
 		return
 	}
 
@@ -327,23 +376,48 @@ func (s *WeakPointCache) InvalidateUserWeakPoints(studentID string) {
 					zap.Error(err))
 			}
 		}
+
+		for _, classID := range s.studentClassIDs(studentID) {
+			s.invalidateClassPattern(ctx, classID)
+		}
 	}()
 }
 
-// InvalidateClassWeakPoints 失效班级薄弱点缓存
+// studentClassIDs 查询学生所在的班级
+func (s *WeakPointCache) studentClassIDs(studentID string) []uint {
+	if s.db == nil {
+		return nil
+	}
+	var classIDs []uint
+	err := s.db.Model(&models.ClassMember{}).
+		Joins("JOIN users ON users.id = class_members.user_id").
+		Where("users.student_id = ? AND users.deleted_at IS NULL", studentID).
+		Distinct().
+		Pluck("class_members.class_id", &classIDs).Error
+	if err != nil {
+		logger.Error("Failed to query student classes for cache invalidation",
+			zap.String("student_id", studentID),
+			zap.Error(err))
+		return nil
+	}
+	return classIDs
+}
+
+// InvalidateClassWeakPoints 失效班级薄弱点缓存（班级成员变化时应调用）
 func (s *WeakPointCache) InvalidateClassWeakPoints(classID uint) {
-	if s.cache == nil {
+	if s.cache == nil || !s.cache.IsEnabled() {
 		return
 	}
 
-	go func() {
-		ctx := context.Background()
-		pattern := utils.WeakPointsClassPattern(classID)
-		if err := s.cache.InvalidatePattern(ctx, pattern); err != nil {
-			logger.Error("Failed to invalidate class weak points cache",
-				zap.Uint("class_id", classID),
-				zap.String("pattern", pattern),
-				zap.Error(err))
-		}
-	}()
+	go s.invalidateClassPattern(context.Background(), classID)
+}
+
+func (s *WeakPointCache) invalidateClassPattern(ctx context.Context, classID uint) {
+	pattern := utils.WeakPointsClassPattern(classID)
+	if err := s.cache.InvalidatePattern(ctx, pattern); err != nil {
+		logger.Error("Failed to invalidate class weak points cache",
+			zap.Uint("class_id", classID),
+			zap.String("pattern", pattern),
+			zap.Error(err))
+	}
 }
