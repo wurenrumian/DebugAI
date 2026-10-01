@@ -2,264 +2,171 @@ package utils
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"net"
-	"net/http"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// SecurityManager 基于Redis的安全管理器
+// SecurityManager 基于Redis的安全管理器（登录失败节流、接口频率限制）
+//
+// 设计说明：
+//   - 不再按学号全局锁定账户：任何人都能对任意学号连续输错密码，全局锁定会导致
+//     他人账号被恶意锁死（DoS）。改为按 (IP, 学号) 组合与按 IP 两个维度做短时退避。
+//   - 计数统一使用 INCR + PEXPIRE（Lua 脚本保证原子性），避免同一秒内多次请求
+//     只被记一次的问题。
 type SecurityManager struct {
 	client *redis.Client
-	mu     sync.RWMutex
 	config SecurityConfig
 }
 
 // SecurityConfig 安全配置
 type SecurityConfig struct {
-	MaxLoginAttempts  int           // 最大登录尝试次数
-	LockoutDuration   time.Duration // 锁定时间
-	FailureWindow     time.Duration // 失败统计窗口
-	CaptchaThreshold  int           // 触发验证码的失败次数
-	RegisterRateLimit int           // 注册频率限制（每小时）
-	LoginRateLimit    int           // 登录频率限制（每小时）
+	LoginPairMaxFailures int           // 同一 IP + 学号 在窗口内允许的最大失败次数
+	LoginPairWindow      time.Duration // IP + 学号 失败统计窗口（达到上限后需等待窗口结束）
+	LoginIPMaxFailures   int           // 同一 IP 在窗口内允许的最大失败次数（机房/NAT 场景需放宽）
+	LoginIPWindow        time.Duration // IP 失败统计窗口
 }
 
 // DefaultSecurityConfig 默认安全配置
 var DefaultSecurityConfig = SecurityConfig{
-	MaxLoginAttempts:  15,
-	LockoutDuration:   5 * time.Minute,
-	FailureWindow:     15 * time.Minute,
-	CaptchaThreshold:  15,
-	RegisterRateLimit: 20,
-	LoginRateLimit:    20,
+	LoginPairMaxFailures: 10,
+	LoginPairWindow:      10 * time.Minute,
+	LoginIPMaxFailures:   100,
+	LoginIPWindow:        15 * time.Minute,
 }
+
+// redisOpTimeout 安全相关 Redis 操作的超时时间。
+// 使用独立的 context，避免客户端断开连接导致失败计数未被记录。
+const redisOpTimeout = 2 * time.Second
+
+// incrWithExpireScript 原子地自增计数并在首次创建（或丢失TTL）时设置过期时间
+// KEYS[1] 计数key；ARGV[1] 过期时间（毫秒）
+// 返回 {当前计数, 剩余TTL毫秒}
+var incrWithExpireScript = redis.NewScript(`
+local n = redis.call('INCR', KEYS[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl < 0 then
+	redis.call('PEXPIRE', KEYS[1], ARGV[1])
+	ttl = tonumber(ARGV[1])
+end
+return {n, ttl}
+`)
 
 // GlobalSecurity 全局安全管理器
 var GlobalSecurity *SecurityManager
 
 // InitSecurityManager 初始化安全管理器
 func InitSecurityManager(redisClient *redis.Client) {
-	GlobalSecurity = &SecurityManager{
-		client: redisClient,
-		config: DefaultSecurityConfig,
-	}
+	GlobalSecurity = NewSecurityManager(redisClient, DefaultSecurityConfig)
 }
 
-// GetIPFromRequest 从HTTP请求获取IP
-func GetIPFromRequest(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ips := strings.Split(xff, ",")
-		for _, ip := range ips {
-			ip = strings.TrimSpace(ip)
-			if ip != "" && ip != "unknown" {
-				return ip
+// NewSecurityManager 创建安全管理器
+func NewSecurityManager(redisClient *redis.Client, cfg SecurityConfig) *SecurityManager {
+	return &SecurityManager{client: redisClient, config: cfg}
+}
+
+func (sm *SecurityManager) available() bool {
+	return sm != nil && sm.client != nil
+}
+
+// incr 原子自增计数，返回当前计数与剩余有效期
+func (sm *SecurityManager) incr(ctx context.Context, key string, window time.Duration) (int64, time.Duration, error) {
+	res, err := incrWithExpireScript.Run(ctx, sm.client, []string{key}, window.Milliseconds()).Int64Slice()
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(res) != 2 {
+		return 0, 0, fmt.Errorf("unexpected script result: %v", res)
+	}
+	return res[0], time.Duration(res[1]) * time.Millisecond, nil
+}
+
+// Allow 固定窗口频率限制：window 时间内最多允许 limit 次请求。
+// 返回是否允许以及（被拒绝时）需要等待的时间。Redis 不可用时放行。
+func (sm *SecurityManager) Allow(key string, limit int, window time.Duration) (bool, time.Duration) {
+	if !sm.available() {
+		return true, 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
+	defer cancel()
+
+	count, ttl, err := sm.incr(ctx, "rate_limit:"+key, window)
+	if err != nil {
+		return true, 0 // Redis 异常时放行，避免影响正常业务
+	}
+	if count > int64(limit) {
+		return false, ttl
+	}
+	return true, 0
+}
+
+// CheckRateLimit 检查频率限制（1小时窗口，Redis不可用时跳过）
+func (sm *SecurityManager) CheckRateLimit(key string, limit int) bool {
+	ok, _ := sm.Allow(key, limit, time.Hour)
+	return ok
+}
+
+func loginPairKey(ip, studentID string) string {
+	return fmt.Sprintf("login_backoff:pair:%s:%s", ip, studentID)
+}
+
+func loginIPKey(ip string) string {
+	return fmt.Sprintf("login_backoff:ip:%s", ip)
+}
+
+// CheckLoginAllowed 检查该 IP + 学号 是否处于登录退避期。
+// 返回是否允许以及需要等待的时间。Redis不可用时放行。
+func (sm *SecurityManager) CheckLoginAllowed(ip, studentID string) (bool, time.Duration) {
+	if !sm.available() {
+		return true, 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
+	defer cancel()
+
+	checks := []struct {
+		key   string
+		limit int
+	}{
+		{loginPairKey(ip, studentID), sm.config.LoginPairMaxFailures},
+		{loginIPKey(ip), sm.config.LoginIPMaxFailures},
+	}
+	for _, chk := range checks {
+		count, err := sm.client.Get(ctx, chk.key).Int()
+		if err != nil {
+			continue // 不存在或 Redis 异常
+		}
+		if count >= chk.limit {
+			ttl, err := sm.client.PTTL(ctx, chk.key).Result()
+			if err != nil || ttl <= 0 {
+				continue
 			}
+			return false, ttl
 		}
 	}
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		return xrip
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
+	return true, 0
 }
 
-// CheckLockout 检查账户是否被锁定（Redis不可用时跳过）
-func (sm *SecurityManager) CheckLockout(studentID string) (bool, time.Time) {
-	if sm == nil || sm.client == nil {
-		return false, time.Time{}
+// RecordLoginFailure 记录一次登录失败，返回该 IP + 学号 当前窗口内的失败次数（Redis不可用时跳过）
+func (sm *SecurityManager) RecordLoginFailure(ip, studentID string) int {
+	if !sm.available() {
+		return 0
 	}
-	ctx := context.Background()
-	lockKey := fmt.Sprintf("lockout:user:%s", studentID)
+	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
+	defer cancel()
 
-	exists, err := sm.client.Exists(ctx, lockKey).Result()
-	if err != nil || exists == 0 {
-		return false, time.Time{}
-	}
-
-	ttl, err := sm.client.TTL(ctx, lockKey).Result()
-	if err != nil || ttl <= 0 {
-		return false, time.Time{}
-	}
-
-	return true, time.Now().Add(ttl)
+	pairCount, _, _ := sm.incr(ctx, loginPairKey(ip, studentID), sm.config.LoginPairWindow)
+	_, _, _ = sm.incr(ctx, loginIPKey(ip), sm.config.LoginIPWindow)
+	return int(pairCount)
 }
 
-// CheckIPLockout 检查IP是否被锁定（Redis不可用时跳过）
-func (sm *SecurityManager) CheckIPLockout(ip string) (bool, time.Time) {
-	if sm == nil || sm.client == nil {
-		return false, time.Time{}
-	}
-	ctx := context.Background()
-	lockKey := fmt.Sprintf("lockout:ip:%s", ip)
-
-	exists, err := sm.client.Exists(ctx, lockKey).Result()
-	if err != nil || exists == 0 {
-		return false, time.Time{}
-	}
-
-	ttl, err := sm.client.TTL(ctx, lockKey).Result()
-	if err != nil || ttl <= 0 {
-		return false, time.Time{}
-	}
-
-	return true, time.Now().Add(ttl)
-}
-
-// RecordLoginFailure 记录登录失败（Redis不可用时跳过）
-func (sm *SecurityManager) RecordLoginFailure(studentID, ip string) (int, bool) {
-	if sm == nil || sm.client == nil {
-		return 0, false
-	}
-	ctx := context.Background()
-	now := time.Now().Unix()
-	windowStart := now - int64(sm.config.FailureWindow.Seconds())
-
-	// 学号失败记录key
-	studentKey := fmt.Sprintf("login_fail:user:%s", studentID)
-	ipKey := fmt.Sprintf("login_fail:ip:%s", ip)
-
-	// 清理窗口外的记录
-	sm.client.ZRemRangeByScore(ctx, studentKey, "0", fmt.Sprintf("%d", windowStart))
-	sm.client.ZRemRangeByScore(ctx, ipKey, "0", fmt.Sprintf("%d", windowStart))
-
-	// 添加本次失败记录
-	member := fmt.Sprintf("%d", now)
-	sm.client.ZAdd(ctx, studentKey, redis.Z{Score: float64(now), Member: member})
-	sm.client.ZAdd(ctx, ipKey, redis.Z{Score: float64(now), Member: member})
-
-	// 设置过期时间
-	sm.client.Expire(ctx, studentKey, sm.config.FailureWindow*2)
-	sm.client.Expire(ctx, ipKey, sm.config.FailureWindow*2)
-
-	// 统计当前失败次数
-	failCount, _ := sm.client.ZCard(ctx, studentKey).Result()
-	ipFailCount, _ := sm.client.ZCard(ctx, ipKey).Result()
-
-	failureCount := int(failCount)
-	ipFailureCount := int(ipFailCount)
-
-	// 检查是否需要锁定
-	if failureCount >= sm.config.MaxLoginAttempts {
-		lockKey := fmt.Sprintf("lockout:user:%s", studentID)
-		sm.client.Set(ctx, lockKey, "1", sm.config.LockoutDuration)
-	}
-
-	if ipFailureCount >= sm.config.MaxLoginAttempts {
-		lockKey := fmt.Sprintf("lockout:ip:%s", ip)
-		sm.client.Set(ctx, lockKey, "1", sm.config.LockoutDuration)
-	}
-
-	// 检查是否需要验证码
-	requiresCaptcha := failureCount >= sm.config.CaptchaThreshold
-	if requiresCaptcha {
-		captchaKey := fmt.Sprintf("captcha_required:user:%s", studentID)
-		sm.client.Set(ctx, captchaKey, "1", sm.config.FailureWindow)
-	}
-
-	return failureCount, requiresCaptcha
-}
-
-// RecordLoginSuccess 记录登录成功（Redis不可用时跳过）
-func (sm *SecurityManager) RecordLoginSuccess(studentID, ip string) {
-	if sm == nil || sm.client == nil {
+// RecordLoginSuccess 登录成功后清除该 IP + 学号 的失败记录。
+// 注意：不清除 IP 维度计数，否则攻击者可以用自己的账号登录来重置 IP 计数。
+func (sm *SecurityManager) RecordLoginSuccess(ip, studentID string) {
+	if !sm.available() {
 		return
 	}
-	ctx := context.Background()
-
-	// 清除失败记录
-	studentKey := fmt.Sprintf("login_fail:user:%s", studentID)
-	ipKey := fmt.Sprintf("login_fail:ip:%s", ip)
-	captchaKey := fmt.Sprintf("captcha_required:user:%s", studentID)
-
-	sm.client.Del(ctx, studentKey, ipKey, captchaKey)
-}
-
-// IsCaptchaRequired 检查是否需要验证码（Redis不可用时跳过）
-func (sm *SecurityManager) IsCaptchaRequired(studentID string) bool {
-	if sm == nil || sm.client == nil {
-		return false
-	}
-	ctx := context.Background()
-	captchaKey := fmt.Sprintf("captcha_required:user:%s", studentID)
-
-	val, err := sm.client.Get(ctx, captchaKey).Result()
-	if err == nil && val == "1" {
-		return true
-	}
-
-	// 检查失败次数
-	studentKey := fmt.Sprintf("login_fail:user:%s", studentID)
-	count, _ := sm.client.ZCard(ctx, studentKey).Result()
-
-	return int(count) >= sm.config.CaptchaThreshold
-}
-
-// ClearCaptchaRequirement 清除验证码要求（Redis不可用时跳过）
-func (sm *SecurityManager) ClearCaptchaRequirement(studentID string) {
-	if sm == nil || sm.client == nil {
-		return
-	}
-	ctx := context.Background()
-	captchaKey := fmt.Sprintf("captcha_required:user:%s", studentID)
-	sm.client.Del(ctx, captchaKey)
-}
-
-// CheckRateLimit 检查频率限制（Redis不可用时跳过）
-func (sm *SecurityManager) CheckRateLimit(key string, limit int) bool {
-	if sm == nil || sm.client == nil {
-		return true // Redis未初始化，跳过限制
-	}
-	ctx := context.Background()
-	now := time.Now().Unix()
-	windowStart := now - 3600 // 1小时窗口
-
-	zsetKey := fmt.Sprintf("rate_limit:%s", key)
-
-	// 清理窗口外的记录（删除 score < windowStart 的记录）
-	sm.client.ZRemRangeByScore(ctx, zsetKey, "0", fmt.Sprintf("%d", windowStart))
-
-	// 统计当前窗口内的请求数
-	count, _ := sm.client.ZCount(ctx, zsetKey, fmt.Sprintf("%d", windowStart), fmt.Sprintf("%d", now)).Result()
-	if int(count) >= limit {
-		return false
-	}
-
-	// 添加本次请求记录
-	member := fmt.Sprintf("%d", now)
-	sm.client.ZAdd(ctx, zsetKey, redis.Z{Score: float64(now), Member: member})
-	sm.client.Expire(ctx, zsetKey, 2*time.Hour)
-
-	return true
-}
-
-// GenerateCaptcha 生成6位字母数字验证码（增强安全性）
-func GenerateCaptcha() (string, string) {
-	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 排除易混淆字符
-	b := make([]byte, 6)
-	rand.Read(b)
-	for i := 0; i < 6; i++ {
-		b[i] = chars[int(b[i])%len(chars)]
-	}
-	captcha := string(b)
-
-	// 存储哈希值而非明文
-	hash := sha256.Sum256([]byte(captcha))
-	return captcha, hex.EncodeToString(hash[:])
-}
-
-// VerifyCaptcha 验证验证码（使用哈希比对）
-func VerifyCaptcha(userInput, storedHash string) bool {
-	hash := sha256.Sum256([]byte(strings.ToUpper(userInput)))
-	return hex.EncodeToString(hash[:]) == storedHash
+	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
+	defer cancel()
+	sm.client.Del(ctx, loginPairKey(ip, studentID))
 }

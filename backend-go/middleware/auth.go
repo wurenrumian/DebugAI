@@ -4,9 +4,11 @@ import (
 	"backend-go/config"
 	"backend-go/models"
 	"backend-go/utils"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -47,7 +49,12 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 查询数据库获取最新用户信息（包括 token_version）
 		var user models.User
 		if err := config.DB.Where("id = ?", claims.ID).First(&user).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
+			} else {
+				// 数据库异常不能返回 401，否则前端会清除登录态
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
+			}
 			c.Abort()
 			return
 		}

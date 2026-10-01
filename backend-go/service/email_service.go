@@ -87,11 +87,6 @@ func (s *EmailService) SendVerificationEmailWithLink(user *models.User, verifica
 
 // sendEmail helper method to send email
 func (s *EmailService) sendEmail(recipient, subject, verificationLink, username string) error {
-	// Check if SMTP is configured
-	if !s.IsEmailConfigured() {
-		return fmt.Errorf("SMTP is not configured")
-	}
-
 	body := fmt.Sprintf(`
 尊敬的 %s，
 
@@ -106,6 +101,15 @@ func (s *EmailService) sendEmail(recipient, subject, verificationLink, username 
 此致，
 DebugAI 团队
 `, username, verificationLink)
+
+	return s.SendPlainEmail(recipient, subject, body)
+}
+
+// SendPlainEmail 发送纯文本邮件（通用方法）
+func (s *EmailService) SendPlainEmail(recipient, subject, body string) error {
+	if !s.IsEmailConfigured() {
+		return fmt.Errorf("SMTP is not configured")
+	}
 
 	// Create email message
 	m := gomail.NewMessage()
