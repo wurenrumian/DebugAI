@@ -1,54 +1,58 @@
 <template>
-  <div class="reset-password-container">
-    <div class="reset-password-box">
-      <div class="reset-password-header">
-        <h1>重置密码</h1>
-        <p>请设置您的新密码</p>
-      </div>
-      
-      <form @submit.prevent="handleResetPassword" class="reset-password-form">
-        <div v-if="errorMessage" class="message message-error">
-          {{ errorMessage }}
-        </div>
-        
-        <div v-if="successMessage" class="message message-success">
-          {{ successMessage }}
-        </div>
-        
-        <div class="form-group">
-          <label for="newPassword">新密码</label>
-          <input 
-            id="newPassword"
-            v-model="newPassword" 
-            type="password" 
-            placeholder="请输入新密码"
-            required
-            :disabled="loading || success"
-          />
-          <div class="hint">密码长度不少于6位，支持数字和字母组合</div>
-        </div>
-        
-        <div class="form-group">
-          <label for="confirmPassword">确认新密码</label>
-          <input 
-            id="confirmPassword"
-            v-model="confirmPassword" 
-            type="password" 
-            placeholder="请再次输入新密码"
-            required
-            :disabled="loading || success"
-          />
-        </div>
-        
-        <button type="submit" class="btn btn-primary reset-password-btn" :disabled="loading || success">
-          {{ loading ? '提交中...' : (success ? '重置成功' : '重置密码') }}
-        </button>
-      </form>
-      
-      <div class="reset-password-footer">
-        <router-link to="/login" class="link">返回登录</router-link>
-      </div>
+  <div class="reset-password-page">
+    <div class="auth-heading">
+      <h1 class="auth-title">重置密码</h1>
+      <p class="auth-subtitle">请设置你的新密码</p>
     </div>
+
+    <form class="auth-form" @submit.prevent="handleResetPassword">
+      <AppAlert v-if="errorMessage" tone="danger">{{ errorMessage }}</AppAlert>
+
+      <AppAlert v-if="successMessage" tone="success">{{ successMessage }}</AppAlert>
+
+      <div class="field">
+        <label class="field-label" for="newPassword">新密码</label>
+        <input
+          id="newPassword"
+          v-model="newPassword"
+          type="password"
+          placeholder="请输入新密码"
+          autocomplete="new-password"
+          aria-describedby="new-password-hint"
+          required
+          :disabled="loading || success"
+        />
+        <p id="new-password-hint" class="field-hint">密码长度不少于6位，支持数字和字母组合</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="confirmPassword">确认新密码</label>
+        <input
+          id="confirmPassword"
+          v-model="confirmPassword"
+          type="password"
+          placeholder="请再次输入新密码"
+          autocomplete="new-password"
+          required
+          :disabled="loading || success"
+        />
+      </div>
+
+      <AppButton
+        type="submit"
+        variant="primary"
+        size="lg"
+        block
+        :loading="loading"
+        :disabled="success"
+      >
+        {{ loading ? '提交中...' : (success ? '重置成功' : '重置密码') }}
+      </AppButton>
+    </form>
+
+    <p class="auth-footer">
+      <router-link to="/login">返回登录</router-link>
+    </p>
   </div>
 </template>
 
@@ -56,6 +60,8 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import AppAlert from '../components/ui/AppAlert.vue'
+import AppButton from '../components/ui/AppButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -122,134 +128,3 @@ const handleResetPassword = async () => {
   }
 }
 </script>
-
-<style scoped>
-.reset-password-container {
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.reset-password-box {
-  width: 400px;
-  background: white;
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-}
-
-.reset-password-header {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.reset-password-header h1 {
-  font-size: 24px;
-  color: #303133;
-  margin-bottom: 8px;
-}
-
-.reset-password-header p {
-  font-size: 14px;
-  color: #909399;
-}
-
-.message {
-  padding: 12px;
-  border-radius: 6px;
-  margin-bottom: 20px;
-  font-size: 14px;
-}
-
-.message-error {
-  background-color: #fef0f0;
-  color: #f56c6c;
-  border: 1px solid #fde2e2;
-}
-
-.message-success {
-  background-color: #f0f9eb;
-  color: #67c23a;
-  border: 1px solid #e1f3d8;
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #606266;
-  font-weight: 500;
-}
-
-.form-group input {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.3s;
-  box-sizing: border-box;
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: #409eff;
-}
-
-.form-group input:disabled {
-  background-color: #f5f7fa;
-  cursor: not-allowed;
-}
-
-.hint {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
-}
-
-.btn {
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.btn-primary {
-  background-color: #409eff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: #66b1ff;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.reset-password-footer {
-  text-align: center;
-  margin-top: 20px;
-  font-size: 14px;
-}
-
-.link {
-  color: #409eff;
-  text-decoration: none;
-}
-
-.link:hover {
-  text-decoration: underline;
-}
-</style>

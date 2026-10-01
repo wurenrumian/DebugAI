@@ -1,101 +1,116 @@
 <template>
-  <div class="register-container">
-    <div class="register-box">
-      <div class="register-header">
-        <h1>用户注册</h1>
-        <p>加入 AI 教学辅助平台</p>
-      </div>
-      
-      <form @submit.prevent="handleRegister" class="register-form">
-        <div v-if="errorMessage" class="message message-error">
-          {{ errorMessage }}
-        </div>
-        
-        <div v-if="successMessage" class="message message-success">
-          {{ successMessage }}
-        </div>
-        
-        <div v-if="emailSent" class="message message-info">
-          验证邮件已发送到：{{ formData.email }}
-          <br>请查收邮件并点击验证链接完成注册
-          <br>
-          <button type="button" @click="resendVerification" :disabled="resendLoading" class="btn-link">
-            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
-          </button>
-        </div>
-        
-        <div class="form-group">
-          <label for="studentId">学号</label>
-          <input 
-            id="studentId"
-            v-model="formData.student_id" 
-            type="text" 
-            placeholder="请输入学号"
-            required
-            :disabled="emailSent"
-          />
-        </div>
-        
-        <div class="form-group">
-          <label for="username">用户名</label>
-          <input 
-            id="username"
-            v-model="formData.username" 
-            type="text" 
-            placeholder="请输入用户名"
-            required
-            :disabled="emailSent"
-          />
-        </div>
-        
-        <div class="form-group">
-          <label for="password">密码</label>
-          <input
-            id="password"
-            v-model="formData.password"
-            type="password"
-            placeholder="请输入密码"
-            required
-            :disabled="emailSent"
-          />
-          <div class="hint">密码长度不少于6位，支持数字和字母组合</div>
-        </div>
-        
-        <div class="form-group">
-          <label for="confirmPassword">确认密码</label>
-          <input
-            id="confirmPassword"
-            v-model="formData.confirmPassword"
-            type="password"
-            placeholder="请再次输入密码"
-            required
-            :disabled="emailSent"
-          />
-        </div>
-        
-        <div class="form-group">
-          <label for="email">邮箱</label>
-          <input
-            id="email"
-            v-model="formData.email"
-            type="email"
-            placeholder="请输入邮箱地址"
-            required
-            :disabled="emailSent"
-          />
-          <div class="hint">验证邮件将发送到此邮箱，请确保邮箱有效</div>
-        </div>
-        
-        <button type="submit" class="btn btn-primary register-btn" :disabled="loading || emailSent">
-          {{ loading ? '发送中...' : (emailSent ? '验证邮件已发送' : '发送验证邮件') }}
-        </button>
-      </form>
-      
-      <div class="register-footer">
-        <span>已有账号？</span>
-        <router-link to="/login" class="link">立即登录</router-link>
-      </div>
+  <div class="register-page">
+    <div class="auth-heading">
+      <h1 class="auth-title">创建账号</h1>
+      <p class="auth-subtitle">加入 AI 教学辅助平台，使用学号注册</p>
     </div>
+
+    <form class="auth-form" @submit.prevent="handleRegister">
+      <AppAlert v-if="errorMessage" tone="danger">{{ errorMessage }}</AppAlert>
+
+      <AppAlert v-if="successMessage" tone="success">{{ successMessage }}</AppAlert>
+
+      <AppAlert v-if="emailSent" tone="info" title="请查收验证邮件">
+        验证邮件已发送到：<strong class="email-text">{{ formData.email }}</strong>
+        <br>请查收邮件并点击验证链接完成注册
+        <div class="alert-action">
+          <AppButton
+            variant="link"
+            size="sm"
+            :loading="resendLoading"
+            @click="resendVerification"
+          >
+            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
+          </AppButton>
+        </div>
+      </AppAlert>
+
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label" for="studentId">学号</label>
+          <input
+            id="studentId"
+            v-model="formData.student_id"
+            type="text"
+            placeholder="请输入学号"
+            autocomplete="username"
+            required
+            :disabled="emailSent"
+          />
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="username">用户名</label>
+          <input
+            id="username"
+            v-model="formData.username"
+            type="text"
+            placeholder="请输入用户名"
+            autocomplete="nickname"
+            required
+            :disabled="emailSent"
+          />
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="password">密码</label>
+        <input
+          id="password"
+          v-model="formData.password"
+          type="password"
+          placeholder="请输入密码"
+          autocomplete="new-password"
+          aria-describedby="password-hint"
+          required
+          :disabled="emailSent"
+        />
+        <p id="password-hint" class="field-hint">密码长度不少于6位，支持数字和字母组合</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="confirmPassword">确认密码</label>
+        <input
+          id="confirmPassword"
+          v-model="formData.confirmPassword"
+          type="password"
+          placeholder="请再次输入密码"
+          autocomplete="new-password"
+          required
+          :disabled="emailSent"
+        />
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="email">邮箱</label>
+        <input
+          id="email"
+          v-model="formData.email"
+          type="email"
+          placeholder="请输入邮箱地址"
+          autocomplete="email"
+          aria-describedby="email-hint"
+          required
+          :disabled="emailSent"
+        />
+        <p id="email-hint" class="field-hint">验证邮件将发送到此邮箱，请确保邮箱有效</p>
+      </div>
+
+      <AppButton
+        type="submit"
+        variant="primary"
+        size="lg"
+        block
+        :loading="loading"
+        :disabled="emailSent"
+      >
+        {{ loading ? '发送中...' : (emailSent ? '验证邮件已发送' : '发送验证邮件') }}
+      </AppButton>
+    </form>
+
+    <p class="auth-footer">
+      已有账号？<router-link to="/login">立即登录</router-link>
+    </p>
   </div>
 </template>
 
@@ -105,6 +120,8 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 import { toast } from '../utils/toast'
+import AppAlert from '../components/ui/AppAlert.vue'
+import AppButton from '../components/ui/AppButton.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -196,164 +213,23 @@ const resendVerification = async () => {
 </script>
 
 <style scoped>
-.register-container {
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
 }
 
-.register-box {
-  width: 400px;
-  background: white;
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+.alert-action {
+  margin-top: var(--space-1);
 }
 
-.register-header {
-  text-align: center;
-  margin-bottom: 30px;
+.email-text {
+  word-break: break-all;
 }
 
-.register-header h1 {
-  font-size: 24px;
-  color: #303133;
-  margin-bottom: 8px;
-}
-
-.register-header p {
-  font-size: 14px;
-  color: #909399;
-}
-
-.register-form {
-  margin-bottom: 20px;
-}
-
-.message {
-  padding: 12px;
-  border-radius: 6px;
-  margin-bottom: 20px;
-  font-size: 14px;
-}
-
-.message-error {
-  background-color: #fef0f0;
-  color: #f56c6c;
-  border: 1px solid #fde2e2;
-}
-
-.message-success {
-  background-color: #f0f9eb;
-  color: #67c23a;
-  border: 1px solid #e1f3d8;
-}
-
-.message-info {
-  background-color: #ecf5ff;
-  color: #409eff;
-  border: 1px solid #d9ecff;
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #606266;
-  font-weight: 500;
-}
-
-.form-group input {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.3s;
-  box-sizing: border-box;
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: #409eff;
-}
-
-.form-group input:disabled {
-  background-color: #f5f7fa;
-  cursor: not-allowed;
-}
-
-.hint {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
-}
-
-.btn {
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.btn-primary {
-  background-color: #409eff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: #66b1ff;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-link {
-  background: none;
-  border: none;
-  color: #409eff;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-  font-size: 14px;
-  margin-left: 10px;
-}
-
-.btn-link:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.register-btn {
-  margin-top: 10px;
-}
-
-.register-footer {
-  text-align: center;
-  margin-top: 20px;
-  font-size: 14px;
-  color: #909399;
-}
-
-.link {
-  color: #409eff;
-  text-decoration: none;
-  margin-left: 5px;
-}
-
-.link:hover {
-  text-decoration: underline;
+@media (max-width: 480px) {
+  .field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
