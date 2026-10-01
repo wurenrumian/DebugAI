@@ -122,6 +122,8 @@ services:
 
   # Go 后端 API 服务
   backend:
+    # 优雅关闭：HTTP 排空（SHUTDOWN_TIMEOUT_SECONDS）+ AI 任务排空（AI_DISPATCHER_DRAIN_TIMEOUT）
+    stop_grace_period: 45s
     build:
       context: ./backend-go
       dockerfile: Dockerfile
@@ -164,6 +166,17 @@ services:
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?请在 .env 中设置 AI_SERVICE_TOKEN}
       AI_STREAM_MAX_CONCURRENT:
       AI_STREAM_TIMEOUT:
+      AI_STREAM_HEADER_TIMEOUT:
+      AI_STREAM_MAX_PER_USER:
+      AI_STREAM_RATE_PER_MINUTE:
+      AI_REQUEST_TIMEOUT:
+      AI_EVALUATE_WORKERS:
+      AI_EVALUATE_QUEUE_SIZE:
+      AI_DEBUG_WORKERS:
+      AI_DEBUG_QUEUE_SIZE:
+      AI_RECOMMEND_WORKERS:
+      AI_RECOMMEND_QUEUE_SIZE:
+      AI_DISPATCHER_DRAIN_TIMEOUT:
       # HTTP / 代理
       # 信任的反向代理网段（逗号分隔，代码默认私有网段，覆盖 Docker 网络中的 Nginx）
       TRUSTED_PROXIES:
