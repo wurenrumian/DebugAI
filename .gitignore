@@ -20,7 +20,8 @@
 .DS_Store
 .env
 .env.local
-!.env.production
+.env.production
+.env.*.local
 logs/
 *.log
 *.backup
@@ -29,8 +30,14 @@ logs/
 .conda
 *.db
 
+# Deploy（本地证书、数据库备份、本地 compose 覆盖文件，均不提交）
+/certs/
+/backups/
+docker-compose.override.yml
+
 # Personal
 /test_data
+/project_test/
 **/todo.md
 **/todos.md
 .roo/
