@@ -4,9 +4,13 @@ import App from './App.vue'
 import router from './router'
 import { useAuthStore } from './stores/auth'
 import { setUnauthorizedHandler, safeRedirectPath } from './utils/session'
-import './style.css'
-import './assets/common.css'
+import { initTheme } from './utils/theme'
+import './styles/tokens.css'
+import './styles/base.css'
 import './assets/markdown.css'
+
+// 主题偏好（浅色 / 深色 / 跟随系统）
+initTheme()
 
 const app = createApp(App)
 const pinia = createPinia()

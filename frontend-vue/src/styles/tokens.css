@@ -1,0 +1,347 @@
+/*
+ * 设计令牌（Design Tokens）
+ *
+ * 所有颜色、间距、圆角、阴影、字号、层级都在这里定义，组件中只使用 var(--*)。
+ * 主题：
+ *  - 默认跟随系统（prefers-color-scheme）
+ *  - <html data-theme="light|dark"> 时强制使用对应主题（见 utils/theme.js）
+ */
+
+:root {
+	/* ---------- 字体 ---------- */
+	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+		'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', system-ui, 'Helvetica Neue', Arial,
+		sans-serif;
+	--font-mono: 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo,
+		'Courier New', monospace;
+
+	--fs-xs: 12px;
+	--fs-sm: 13px;
+	--fs-base: 14px;
+	--fs-md: 15px;
+	--fs-lg: 16px;
+	--fs-xl: 18px;
+	--fs-2xl: 22px;
+	--fs-3xl: 26px;
+
+	--fw-normal: 400;
+	--fw-medium: 500;
+	--fw-semibold: 600;
+
+	--lh-tight: 1.35;
+	--lh-base: 1.65;
+
+	/* ---------- 间距 ---------- */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-10: 40px;
+	--space-12: 48px;
+
+	/* ---------- 圆角 ---------- */
+	--radius-sm: 6px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+	--radius-full: 999px;
+
+	/* ---------- 层级 ---------- */
+	--z-sticky: 100;
+	--z-nav: 200;
+	--z-dropdown: 300;
+	--z-drawer: 900;
+	--z-modal: 1000;
+	--z-toast: 3000;
+
+	/* ---------- 布局 ---------- */
+	--layout-max: 1280px;
+	--nav-height: 60px;
+	--control-height: 38px;
+	--control-height-sm: 32px;
+	--control-height-lg: 44px;
+
+	/* ---------- 动效 ---------- */
+	--ease: cubic-bezier(0.2, 0, 0, 1);
+	--duration-fast: 120ms;
+	--duration: 200ms;
+}
+
+/* ================= 浅色主题（默认） ================= */
+:root {
+	color-scheme: light;
+
+	--color-bg: #f5f6f8;
+	--color-surface: #ffffff;
+	--color-surface-2: #f7f8fa;
+	--color-surface-3: #eef0f4;
+	--color-surface-hover: #f2f4f7;
+	--color-border: #e3e6eb;
+	--color-border-strong: #cdd2da;
+
+	--color-text: #1d2433;
+	--color-text-secondary: #485263;
+	--color-text-muted: #5e6879;
+	--color-text-disabled: #98a2b3;
+
+	--color-primary: #2357d6;
+	--color-primary-hover: #1c47b3;
+	--color-primary-active: #173b94;
+	--color-primary-text: #2357d6;
+	--color-primary-soft: #eef3ff;
+	--color-primary-soft-border: #c9d7fb;
+	--color-on-primary: #ffffff;
+
+	--color-success: #157f3b;
+	--color-success-soft: #edfbf2;
+	--color-success-border: #b4e8c6;
+	--color-warning: #a35200;
+	--color-warning-soft: #fff7e8;
+	--color-warning-border: #f6d69a;
+	--color-danger: #c93030;
+	--color-danger-hover: #ad2525;
+	--color-danger-soft: #fef1f1;
+	--color-danger-border: #f5c2c2;
+	--color-info: #2357d6;
+	--color-info-soft: #eef3ff;
+	--color-info-border: #c9d7fb;
+	--color-on-solid: #ffffff;
+
+	/* 评价等级：优秀 / 合格 / 待改进 */
+	--grade-excellent: #157f3b;
+	--grade-excellent-soft: #edfbf2;
+	--grade-excellent-border: #b4e8c6;
+	--grade-pass: #2357d6;
+	--grade-pass-soft: #eef3ff;
+	--grade-pass-border: #c9d7fb;
+	--grade-improve: #b44a0c;
+	--grade-improve-soft: #fff3eb;
+	--grade-improve-border: #f8cfb3;
+
+	--color-overlay: rgba(16, 24, 40, 0.48);
+	--color-focus: #2357d6;
+	--color-focus-ring: rgba(35, 87, 214, 0.28);
+	--color-selection: rgba(35, 87, 214, 0.16);
+
+	--shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+	--shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+	--shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.04);
+	--shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.16), 0 4px 12px rgba(16, 24, 40, 0.06);
+
+	/* 代码（编辑器 / 只读代码块 / Markdown 代码块） */
+	--code-bg: #f7f8fa;
+	--code-text: #1d2433;
+	--code-border: #e3e6eb;
+	--code-gutter-text: #98a2b3;
+	--code-active-line: rgba(35, 87, 214, 0.05);
+	--code-inline-bg: #eef0f4;
+	--code-inline-text: #a3324b;
+	--hl-comment: #6a737d;
+	--hl-keyword: #c0315f;
+	--hl-string: #0a7a50;
+	--hl-number: #8a4b00;
+	--hl-function: #6639ba;
+	--hl-type: #0b62a8;
+	--hl-meta: #8a4b00;
+	--hl-variable: #1d2433;
+	--hl-attr: #a24b00;
+
+	/* 图表分类色：按固定顺序使用、不循环（第 9 类起合并为“其他”）；已通过色盲区分度校验 */
+	--chart-1: #2a78d6;
+	--chart-2: #eb6834;
+	--chart-3: #1baf7a;
+	--chart-4: #eda100;
+	--chart-5: #e87ba4;
+	--chart-6: #008300;
+	--chart-7: #4a3aa7;
+	--chart-8: #e34948;
+	--chart-axis: #667085;
+	--chart-grid: #e8ebf0;
+	--chart-label: #485263;
+}
+
+/* ================= 深色主题 =================
+ * 同一组变量出现两次：跟随系统时（未强制浅色）与手动选择深色时。修改时请两处同步。
+ */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		color-scheme: dark;
+
+		--color-bg: #0f1218;
+		--color-surface: #171b23;
+		--color-surface-2: #1c212a;
+		--color-surface-3: #252b36;
+		--color-surface-hover: #212732;
+		--color-border: #2b313d;
+		--color-border-strong: #3c4452;
+
+		--color-text: #e7e9ee;
+		--color-text-secondary: #b8bfcb;
+		--color-text-muted: #8f98a8;
+		--color-text-disabled: #5f6878;
+
+		--color-primary: #2f66e0;
+		--color-primary-hover: #2a5ccc;
+		--color-primary-active: #2858c4;
+		--color-primary-text: #86acff;
+		--color-primary-soft: rgba(80, 130, 255, 0.14);
+		--color-primary-soft-border: rgba(110, 150, 255, 0.36);
+		--color-on-primary: #ffffff;
+
+		--color-success: #5fd38d;
+		--color-success-soft: rgba(52, 199, 110, 0.12);
+		--color-success-border: rgba(80, 210, 130, 0.32);
+		--color-warning: #f2b450;
+		--color-warning-soft: rgba(242, 170, 60, 0.12);
+		--color-warning-border: rgba(242, 180, 80, 0.32);
+		--color-danger: #ff8080;
+		--color-danger-hover: #ff9696;
+		--color-danger-soft: rgba(255, 100, 100, 0.12);
+		--color-danger-border: rgba(255, 120, 120, 0.34);
+		--color-info: #86acff;
+		--color-info-soft: rgba(80, 130, 255, 0.14);
+		--color-info-border: rgba(110, 150, 255, 0.36);
+		--color-on-solid: #14171d;
+
+		--grade-excellent: #5fd38d;
+		--grade-excellent-soft: rgba(52, 199, 110, 0.12);
+		--grade-excellent-border: rgba(80, 210, 130, 0.32);
+		--grade-pass: #86acff;
+		--grade-pass-soft: rgba(80, 130, 255, 0.14);
+		--grade-pass-border: rgba(110, 150, 255, 0.36);
+		--grade-improve: #ffa66b;
+		--grade-improve-soft: rgba(255, 140, 70, 0.12);
+		--grade-improve-border: rgba(255, 160, 100, 0.34);
+
+		--color-overlay: rgba(0, 0, 0, 0.62);
+		--color-focus: #86acff;
+		--color-focus-ring: rgba(134, 172, 255, 0.35);
+		--color-selection: rgba(134, 172, 255, 0.22);
+
+		--shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+		--shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+		--shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.25);
+		--shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+
+		--code-bg: #12161d;
+		--code-text: #dde1e8;
+		--code-border: #2b313d;
+		--code-gutter-text: #5f6878;
+		--code-active-line: rgba(134, 172, 255, 0.06);
+		--code-inline-bg: #252b36;
+		--code-inline-text: #ff9db5;
+		--hl-comment: #7d8799;
+		--hl-keyword: #ff7ab2;
+		--hl-string: #7ee0a6;
+		--hl-number: #f5b871;
+		--hl-function: #c4a4ff;
+		--hl-type: #73c6ff;
+		--hl-meta: #f5b871;
+		--hl-variable: #dde1e8;
+		--hl-attr: #f5b871;
+
+		--chart-1: #3987e5;
+		--chart-2: #d95926;
+		--chart-3: #199e70;
+		--chart-4: #c98500;
+		--chart-5: #d55181;
+		--chart-6: #008300;
+		--chart-7: #9085e9;
+		--chart-8: #e66767;
+		--chart-axis: #8f98a8;
+		--chart-grid: #262c37;
+		--chart-label: #b8bfcb;
+	}
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+
+	--color-bg: #0f1218;
+	--color-surface: #171b23;
+	--color-surface-2: #1c212a;
+	--color-surface-3: #252b36;
+	--color-surface-hover: #212732;
+	--color-border: #2b313d;
+	--color-border-strong: #3c4452;
+
+	--color-text: #e7e9ee;
+	--color-text-secondary: #b8bfcb;
+	--color-text-muted: #8f98a8;
+	--color-text-disabled: #5f6878;
+
+	--color-primary: #2f66e0;
+	--color-primary-hover: #2a5ccc;
+	--color-primary-active: #2858c4;
+	--color-primary-text: #86acff;
+	--color-primary-soft: rgba(80, 130, 255, 0.14);
+	--color-primary-soft-border: rgba(110, 150, 255, 0.36);
+	--color-on-primary: #ffffff;
+
+	--color-success: #5fd38d;
+	--color-success-soft: rgba(52, 199, 110, 0.12);
+	--color-success-border: rgba(80, 210, 130, 0.32);
+	--color-warning: #f2b450;
+	--color-warning-soft: rgba(242, 170, 60, 0.12);
+	--color-warning-border: rgba(242, 180, 80, 0.32);
+	--color-danger: #ff8080;
+	--color-danger-hover: #ff9696;
+	--color-danger-soft: rgba(255, 100, 100, 0.12);
+	--color-danger-border: rgba(255, 120, 120, 0.34);
+	--color-info: #86acff;
+	--color-info-soft: rgba(80, 130, 255, 0.14);
+	--color-info-border: rgba(110, 150, 255, 0.36);
+	--color-on-solid: #14171d;
+
+	--grade-excellent: #5fd38d;
+	--grade-excellent-soft: rgba(52, 199, 110, 0.12);
+	--grade-excellent-border: rgba(80, 210, 130, 0.32);
+	--grade-pass: #86acff;
+	--grade-pass-soft: rgba(80, 130, 255, 0.14);
+	--grade-pass-border: rgba(110, 150, 255, 0.36);
+	--grade-improve: #ffa66b;
+	--grade-improve-soft: rgba(255, 140, 70, 0.12);
+	--grade-improve-border: rgba(255, 160, 100, 0.34);
+
+	--color-overlay: rgba(0, 0, 0, 0.62);
+	--color-focus: #86acff;
+	--color-focus-ring: rgba(134, 172, 255, 0.35);
+	--color-selection: rgba(134, 172, 255, 0.22);
+
+	--shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+	--shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+	--shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.25);
+	--shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+
+	--code-bg: #12161d;
+	--code-text: #dde1e8;
+	--code-border: #2b313d;
+	--code-gutter-text: #5f6878;
+	--code-active-line: rgba(134, 172, 255, 0.06);
+	--code-inline-bg: #252b36;
+	--code-inline-text: #ff9db5;
+	--hl-comment: #7d8799;
+	--hl-keyword: #ff7ab2;
+	--hl-string: #7ee0a6;
+	--hl-number: #f5b871;
+	--hl-function: #c4a4ff;
+	--hl-type: #73c6ff;
+	--hl-meta: #f5b871;
+	--hl-variable: #dde1e8;
+	--hl-attr: #f5b871;
+
+	--chart-1: #3987e5;
+	--chart-2: #d95926;
+	--chart-3: #199e70;
+	--chart-4: #c98500;
+	--chart-5: #d55181;
+	--chart-6: #008300;
+	--chart-7: #9085e9;
+	--chart-8: #e66767;
+	--chart-axis: #8f98a8;
+	--chart-grid: #262c37;
+	--chart-label: #b8bfcb;
+}

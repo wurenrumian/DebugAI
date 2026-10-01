@@ -1,0 +1,320 @@
+/* 全局基础样式：重置、排版、表单控件、表格与少量工具类（颜色均来自 tokens.css） */
+
+*,
+*::before,
+*::after {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+body {
+	font-family: var(--font-sans);
+	font-size: var(--fs-base);
+	line-height: var(--lh-base);
+	background-color: var(--color-bg);
+	color: var(--color-text);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	min-height: 100vh;
+	overflow-x: hidden;
+}
+
+::selection {
+	background: var(--color-selection);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-weight: var(--fw-semibold);
+	line-height: var(--lh-tight);
+	color: var(--color-text);
+}
+
+a {
+	color: var(--color-primary-text);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+	border: none;
+	background: none;
+}
+
+button:disabled {
+	cursor: not-allowed;
+}
+
+ul,
+ol {
+	list-style: none;
+}
+
+code,
+kbd,
+pre,
+samp {
+	font-family: var(--font-mono);
+}
+
+img,
+svg {
+	display: block;
+	max-width: 100%;
+}
+
+/* ---------- 焦点：仅键盘导航时可见 ---------- */
+:focus:not(:focus-visible) {
+	outline: none;
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 2px;
+}
+
+/* ---------- 表单控件 ---------- */
+.form-control,
+textarea,
+select,
+input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+	display: block;
+	width: 100%;
+	min-height: var(--control-height);
+	padding: 8px 12px;
+	font: inherit;
+	font-size: var(--fs-base);
+	line-height: 1.5;
+	color: var(--color-text);
+	background-color: var(--color-surface);
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-md);
+	transition:
+		border-color var(--duration-fast) var(--ease),
+		box-shadow var(--duration-fast) var(--ease);
+}
+
+textarea {
+	resize: vertical;
+	min-height: 80px;
+}
+
+select {
+	appearance: none;
+	-webkit-appearance: none;
+	padding-right: 32px;
+	background-image: linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
+		linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
+	background-position:
+		calc(100% - 16px) 50%,
+		calc(100% - 11px) 50%;
+	background-size:
+		5px 5px,
+		5px 5px;
+	background-repeat: no-repeat;
+}
+
+select[multiple] {
+	padding-right: 8px;
+	background-image: none;
+	min-height: 120px;
+}
+
+select[multiple] option {
+	padding: 4px 6px;
+	border-radius: 4px;
+}
+
+::placeholder {
+	color: var(--color-text-muted);
+	opacity: 1;
+}
+
+.form-control:hover,
+textarea:hover:not(:disabled),
+select:hover:not(:disabled),
+input:not([type='checkbox']):not([type='radio']):hover:not(:disabled) {
+	border-color: var(--color-text-muted);
+}
+
+.form-control:focus,
+textarea:focus,
+select:focus,
+input:not([type='checkbox']):not([type='radio']):focus {
+	border-color: var(--color-primary);
+	box-shadow: 0 0 0 3px var(--color-focus-ring);
+	/* 透明轮廓：高对比度模式下仍可见 */
+	outline: 2px solid transparent;
+	outline-offset: 0;
+}
+
+textarea:disabled,
+select:disabled,
+input:disabled {
+	color: var(--color-text-muted);
+	background-color: var(--color-surface-3);
+	border-color: var(--color-border);
+	cursor: not-allowed;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--color-primary);
+	cursor: pointer;
+	vertical-align: middle;
+}
+
+input[type='checkbox']:disabled {
+	cursor: not-allowed;
+}
+
+/* 表单字段：标签 + 控件 + 提示 */
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.field + .field {
+	margin-top: var(--space-4);
+}
+
+.field-label {
+	font-size: var(--fs-sm);
+	font-weight: var(--fw-medium);
+	color: var(--color-text-secondary);
+}
+
+.field-label .optional {
+	font-weight: var(--fw-normal);
+	color: var(--color-text-muted);
+	margin-left: 4px;
+}
+
+.field-hint {
+	font-size: var(--fs-xs);
+	color: var(--color-text-muted);
+	line-height: 1.5;
+}
+
+/* ---------- 数据表格（放在 .table-wrap 里在小屏横向滚动） ---------- */
+.table-wrap {
+	width: 100%;
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+}
+
+.data-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--fs-base);
+	white-space: nowrap;
+}
+
+.data-table th,
+.data-table td {
+	padding: 10px 14px;
+	text-align: left;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.data-table th {
+	font-size: var(--fs-sm);
+	font-weight: var(--fw-medium);
+	color: var(--color-text-muted);
+	background: var(--color-surface-2);
+}
+
+.data-table tbody tr:last-child td {
+	border-bottom: none;
+}
+
+.data-table tbody tr:hover td {
+	background: var(--color-surface-hover);
+}
+
+/* ---------- 记录列表（历史记录 / 班级历史，配合 RecordListItem） ---------- */
+.record-list {
+	overflow: hidden;
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-xs);
+}
+
+/* ---------- 键盘快捷键提示 ---------- */
+kbd,
+.kbd {
+	display: inline-block;
+	padding: 0 5px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 18px;
+	color: var(--color-text-muted);
+	background: var(--color-surface-2);
+	border: 1px solid var(--color-border);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+}
+
+/* ---------- 工具类 ---------- */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.text-muted {
+	color: var(--color-text-muted);
+}
+
+/* 纯文本展示（学生输入、AI 原始输出等），保留换行 */
+.plain-text {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* 细滚动条 */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-border-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
