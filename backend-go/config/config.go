@@ -27,25 +27,46 @@ type Config struct {
 
 	// 前端URL（用于生成验证链接等）
 	FrontendURL string
+
+	// HTTP 服务配置
+	TrustedProxies         []string // 受信任的反向代理（CIDR/IP），用于 c.ClientIP() 解析 X-Forwarded-For
+	MaxBodyBytes           int64    // 全局请求体大小上限（字节）
+	ShutdownTimeoutSeconds int      // 优雅关闭等待时间（秒）
+}
+
+// DefaultTrustedProxies 默认受信任代理：本机与私有网段（docker 网络、内网 nginx）
+const DefaultTrustedProxies = "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+// DefaultMaxBodyBytes 默认请求体大小上限：1 MiB
+const DefaultMaxBodyBytes = 1 << 20
+
+// placeholderJWTSecrets 已知的示例/占位 JWT 密钥，任何环境下都禁止使用
+var placeholderJWTSecrets = []string{
+	"your-strong-secret-key-min-32-chars",
 }
 
 // LoadConfig 从环境变量加载配置
 func LoadConfig() *Config {
 	cfg := &Config{
-		AppEnv:                getEnvString("ENV", "development"),
-		JWTSecret:             getEnvString("JWT_SECRET", ""),
-		JWTExpiry:             getEnvInt("JWT_EXPIRY_HOURS", 24),
-		BCryptCost:            getEnvInt("BCRYPT_COST", 10),
-		Debug:                 getEnvBool("DEBUG", false),
-		SkipEmailVerification: getEnvBool("SKIP_EMAIL_VERIFICATION", false),
-		Port:                  getEnvInt("BACKEND_PORT", 8080),
-		SMTPHost:              getEnvString("SMTP_HOST", ""),
-		SMTPPort:              getEnvInt("SMTP_PORT", 587),
-		SMTPUsername:          getEnvString("SMTP_USERNAME", ""),
-		SMTPPassword:          getEnvString("SMTP_PASSWORD", ""),
-		SMTPFrom:              getEnvString("SMTP_FROM", ""),
-		FrontendURL:           getEnvString("FRONTEND_URL", ""),
+		AppEnv:                 getEnvString("ENV", "development"),
+		JWTSecret:              getEnvString("JWT_SECRET", ""),
+		JWTExpiry:              getEnvInt("JWT_EXPIRY_HOURS", 24),
+		BCryptCost:             getEnvInt("BCRYPT_COST", 10),
+		Debug:                  getEnvBool("DEBUG", false),
+		SkipEmailVerification:  getEnvBool("SKIP_EMAIL_VERIFICATION", false),
+		Port:                   getEnvInt("BACKEND_PORT", 8080),
+		SMTPHost:               getEnvString("SMTP_HOST", ""),
+		SMTPPort:               getEnvInt("SMTP_PORT", 587),
+		SMTPUsername:           getEnvString("SMTP_USERNAME", ""),
+		SMTPPassword:           getEnvString("SMTP_PASSWORD", ""),
+		SMTPFrom:               getEnvString("SMTP_FROM", ""),
+		FrontendURL:            getEnvString("FRONTEND_URL", ""),
+		MaxBodyBytes:           int64(getEnvInt("MAX_BODY_BYTES", DefaultMaxBodyBytes)),
+		ShutdownTimeoutSeconds: getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 10),
 	}
+
+	// 解析受信任代理
+	cfg.TrustedProxies = splitAndTrim(getEnvString("TRUSTED_PROXIES", DefaultTrustedProxies))
 
 	// 解析CORS源
 	if cors := getEnvString("CORS_ALLOW_ORIGINS", "http://localhost:5173"); cors != "" {
@@ -55,6 +76,32 @@ func LoadConfig() *Config {
 	return cfg
 }
 
+// splitAndTrim 按逗号切分并去除空白项
+func splitAndTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// isPlaceholderSecret 判断是否为示例/占位密钥
+func isPlaceholderSecret(secret string) bool {
+	lower := strings.ToLower(secret)
+	if strings.Contains(lower, "your-") {
+		return true
+	}
+	for _, p := range placeholderJWTSecrets {
+		if lower == p {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate 验证配置的合法性
 func (c *Config) Validate() error {
 	var errors []string
@@ -62,8 +109,10 @@ func (c *Config) Validate() error {
 	// 验证JWT密钥
 	if c.JWTSecret == "" {
 		errors = append(errors, "JWT_SECRET is required")
+	} else if isPlaceholderSecret(c.JWTSecret) {
+		errors = append(errors, "JWT_SECRET is a placeholder value, please generate a random secret (e.g. openssl rand -hex 32)")
 	} else if len(c.JWTSecret) < 32 {
-		errors = append(errors, "JWT_SECRET must be at least 32 characters for production")
+		errors = append(errors, "JWT_SECRET must be at least 32 characters")
 	}
 
 	// 验证bcrypt成本
@@ -74,6 +123,15 @@ func (c *Config) Validate() error {
 	// 验证JWT过期时间
 	if c.JWTExpiry <= 0 || c.JWTExpiry > 720 { // 最大30天
 		errors = append(errors, "JWT_EXPIRY_HOURS must be between 1 and 720")
+	}
+
+	// 验证请求体大小上限
+	if c.MaxBodyBytes <= 0 {
+		errors = append(errors, "MAX_BODY_BYTES must be positive")
+	}
+
+	if c.ShutdownTimeoutSeconds <= 0 {
+		errors = append(errors, "SHUTDOWN_TIMEOUT_SECONDS must be positive")
 	}
 
 	// 验证SMTP配置（如果提供了部分配置，则需要完整配置）
