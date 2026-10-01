@@ -224,6 +224,17 @@
 
 ## AI 服务接口
 
+### 通用说明（错误处理、超时与限流）
+
+- **错误信息不透传上游**：Python AI 服务的任何非 2xx 响应（LLM/上游失败 502、参数错误 422、内部令牌无效 401）、网络错误、返回内容无法解析，Go 都视为失败：
+  - 不保存 assistant 记录（即不会出现"伪造"的评价/调试结果），不更新薄弱点；
+  - 只返回通用中文错误，原始错误只写入服务端日志：
+    - `502 Bad Gateway`：`{ "error": "AI 服务暂时不可用，请稍后重试" }`
+    - `504 Gateway Timeout`：`{ "error": "AI 响应超时，请稍后重试" }`
+- **超时**：非流式调用（含 Dispatcher 任务与等待）整体超时 `AI_REQUEST_TIMEOUT`，默认 150s（大于 Python 端 LLM 总超时 120s）；流式调用整体超时 `AI_STREAM_TIMEOUT`，默认 180s。客户端断开时，正在进行的上游请求会被取消。
+- **限流**：超限返回 `429 Too Many Requests`，`error` 为中文提示，见文末 [限流说明](#限流说明)。
+- Go 调用 Python 时携带内部鉴权头 `X-Internal-Token`（取自环境变量 `AI_SERVICE_TOKEN`，为空时不发送），前端无需关心。
+
 ### 开始新对话
 
 **POST** `/ai/start`
@@ -270,6 +281,10 @@
 
 代理多轮代码调试请求给 Python AI 服务。
 
+**服务端权威轮次**：`current_round` 与 `dialogue_history` 字段仍可传入（兼容旧前端），但**会被忽略**。服务端根据该会话已成功保存的 AI 回复记录计算当前轮次（第 1 轮 → 第 4 轮依次推进，失败的请求不推进），并从数据库重建对话历史后再发送给 Python。第 2-4 轮必须提供 `student_response`。
+
+**会话校验**：`conversation_id` 首次使用时自动创建会话并归属当前学生；会话属于其他学生返回 `403`；会话已关闭或已完成 4 轮返回 `400`；同一会话已有请求在处理中返回 `429`。
+
 **请求体**：
 ```json
 {
@@ -293,7 +308,7 @@
 ```
 
 **响应**：
-- `200 OK`：直接透传 Python AI 服务的响应
+- `200 OK`：透传 Python AI 服务的响应，并附加 `round_info`（基于服务端计算的轮次）
   ```json
   {
     "student_id": "2024001",
@@ -316,29 +331,37 @@
     }
   }
   ```
-- `400 Bad Request`：对话已关闭
+- `400 Bad Request`：参数错误，或对话已关闭/已完成
   ```json
-  { "error": "Conversation already closed" }
+  { "error": "对话已结束，请开始新的对话" }
   ```
-- `429 Too Many Requests`：队列满或限流
+- `403 Forbidden`：会话属于其他学生
   ```json
-  { "error": "Server busy, please try again later" }
+  { "error": "无权访问该对话" }
+  ```
+- `429 Too Many Requests`：队列满、用户并发超限、每分钟次数超限或会话正在处理中
+  ```json
+  { "error": "服务器繁忙，请稍后重试" }
   ```
   or
   ```json
-  { "error": "User task limit exceeded" }
+  { "error": "您有进行中的 AI 请求，请等待完成后再试" }
   ```
   or
   ```json
-  { "error": "Rate limit exceeded, please try again later" }
+  { "error": "请求过于频繁，请稍后再试" }
+  ```
+  or
+  ```json
+  { "error": "该对话正在处理中，请稍候" }
+  ```
+- `502 Bad Gateway`：AI 服务失败（任何上游非 2xx 或通信错误）
+  ```json
+  { "error": "AI 服务暂时不可用，请稍后重试" }
   ```
 - `504 Gateway Timeout`：超时
   ```json
-  { "error": "AI response timeout" }
-  ```
-- `502 Bad Gateway`：AI 服务通信错误
-  ```json
-  { "error": "AI service communication error: ..." }
+  { "error": "AI 响应超时，请稍后重试" }
   ```
 
 **轮次说明**：
@@ -369,7 +392,7 @@
   ```
 - `400 Bad Request`：对话不存在或已关闭
   ```json
-  { "error": "conversation not found or already closed" }
+  { "error": "对话不存在或已关闭" }
   ```
 
 ---
@@ -458,11 +481,43 @@
   ```
 - 错误码同 `debug_v2`
 
-**注意**：该接口会同时更新 `user_weak_points` 表，累加传入的薄弱点计数。
+**注意**：未启用 Dispatcher 的直连模式下，该接口会在 AI 调用**成功后**更新 `user_weak_points` 表，累加传入的薄弱点计数；AI 调用失败时不更新。
 
 **安全说明**：
 - `student_id` 字段为可选参数，如果提供则必须与当前认证用户的 `student_id` 一致
 - 后端会进行严格校验，防止越权访问其他学生的数据
+
+---
+
+### 流式接口（NDJSON）
+
+**POST** `/ai/evaluate/stream`、`/ai/debug_v2/stream`、`/ai/recommend/stream`
+
+请求体分别与 `/ai/evaluate`、`/ai/debug_v2`、`/ai/recommend` 相同（`/ai/debug_v2/stream` 同样忽略 `current_round` / `dialogue_history`，由服务端计算，会话校验规则相同）。前端使用 `fetch` 读取流（不是 SSE），详见 [stream.md](./stream.md)。
+
+**成功响应**：`200 OK`，`Content-Type: application/x-ndjson`，每行一个 JSON：
+
+```json
+{"type":"text","content":"部分内容"}
+{"type":"done"}
+```
+
+**流内失败**：上游 LLM 失败、超时或流异常结束时，最后一行为通用错误事件（不会再有 `done`）：
+
+```json
+{"type":"error","message":"AI 服务暂时不可用，请稍后重试"}
+```
+
+此时**不会保存 assistant 记录、不会更新薄弱点、调试轮次不推进**。只有收到 `done` 的流才会被保存。
+
+**开始流之前的错误**（返回普通 JSON）：
+- `400` / `403`：参数错误、对话已结束 / 会话属于其他学生（仅调试）
+- `429 Too Many Requests`：流式限流
+  ```json
+  { "error": "当前 AI 请求过多，请稍后重试" }
+  ```
+  or `"您有进行中的 AI 请求，请等待完成后再试"` / `"请求过于频繁，请稍后再试"` / `"该对话正在处理中，请稍候"`
+- `502` / `504`：上游非 2xx / 连接失败 / 等待响应头超时（通用中文错误）
 
 ---
 
@@ -471,6 +526,22 @@
 **GET** `/ai/records`
 
 获取当前用户的所有 AI 交互记录（debug/evaluate/recommend）。
+
+**查询参数（可选，分页）**：
+- `page`：页码，从 1 开始
+- `page_size`：每页条数，默认 20，最大 100
+
+不传分页参数时保持旧行为（`data` 为数组），但**最多返回最近 200 条**。传入任一分页参数时，响应额外包含 `total`、`page`、`page_size`：
+
+```json
+{
+  "message": "...",
+  "data": [ /* 当前页记录，按 created_at 倒序 */ ],
+  "total": 523,
+  "page": 2,
+  "page_size": 20
+}
+```
 
 **响应**：
 - `200 OK`：
@@ -500,6 +571,8 @@
 
 获取当前用户的 debug 类型历史记录（`round_number > 0`）。
 
+**查询参数**：同 [`/ai/records`](#获取-ai-历史记录所有类型)，支持 `page` / `page_size`，不传时最多返回最近 200 条。
+
 **响应**：
 - `200 OK`：
   ```json
@@ -526,7 +599,9 @@
 
 **GET** `/ai/records/evaluate`
 
-获取当前用户的 evaluate 类型历史记录（`task_type = "evaluate"`）。
+获取当前用户的 evaluate 类型历史记录（`conversation_id` 以 `eval_` 开头）。
+
+**查询参数**：支持 `page` / `page_size`，规则同 `/ai/records`。
 
 **响应**：
 - `200 OK`：
@@ -554,7 +629,9 @@
 
 **GET** `/ai/records/recommend`
 
-获取当前用户的 recommend 类型历史记录（`task_type = "recommend"`）。
+获取当前用户的 recommend 类型历史记录（`conversation_id` 以 `rec_` 开头）。
+
+**查询参数**：支持 `page` / `page_size`，规则同 `/ai/records`。
 
 **响应**：同 evaluate 格式
 
@@ -635,7 +712,7 @@
 
 **GET** `/ai/weak_points/class`
 
-获取班级所有学生的薄弱点统计（仅班级管理员或系统管理员可访问）。
+获取班级学生的薄弱点统计（仅班级管理员或系统管理员可访问）。统计范围**始终限定为该班级的学生成员**：不传 `student_ids` 时为全班学生；传入时只统计其中属于该班级的学生。
 
 **查询参数**：
 - `class_id`（必填）：班级 ID
@@ -644,27 +721,21 @@
 - `student_ids`（可选）：学生 ID 列表，JSON 数组格式，需进行 URL 编码，如 `%5B%222024001%22%2C%222024002%22%5D`
 
 **响应**：
-- `200 OK`：
+- `200 OK`：按关键词聚合后的列表，按 `count` 降序
   ```json
   {
     "message": "班级薄弱点查询成功",
     "data": [
       {
-        "student_id": "2024001",
-        "username": "张三",
-        "weak_points": [
-          {
-            "keyword": "数组",
-            "category": "数据结构",
-            "count": 5,
-            "description": "数组操作相关知识点"
-          }
-        ],
-        "total_count": 15
+        "keyword": "数组越界",
+        "category": "内存类",
+        "count": 5,
+        "description": "访问数组时索引超出有效范围"
       }
     ]
   }
   ```
+  > 注：缓存不可用的降级路径可能返回按学生分组的格式（`[{student_id, username, weak_points, total_count}]`），前端两种格式均已兼容。
 - `403 Forbidden`：无权限
 - `404 Not Found`：班级不存在
 - `400 Bad Request`：参数错误或学生不属于该班级
@@ -687,6 +758,8 @@
 - `403 Forbidden`：无权限
 - `404 Not Found`：班级不存在
 - `400 Bad Request`：参数错误或学生不属于该班级
+
+**CSV 安全**：以 `=`、`+`、`-`、`@`、Tab、回车开头的单元格会自动加前缀单引号 `'`，防止在 Excel 中被当作公式执行（CSV 注入）。
 
 **CSV 格式**：
 ```csv
@@ -1075,10 +1148,10 @@
 | `conversation_id`  | string      | 对话 ID，用于关联多轮对话                        |
 | `student_id`       | string      | 学生 ID                                          |
 | `round_number`     | int         | 轮次（debug 为 1-4，evaluate/recommend 为 0）    |
-| `role`             | string      | 角色："student" \| "assistant" \| "system_error" |
+| `role`             | string      | 角色："student" \| "assistant" \| "system_error" \| "ai_service_error" |
 | `request_payload`  | string      | 请求 JSON 字符串                                 |
 | `response_payload` | string      | 响应 JSON 字符串                                 |
-| `error`            | string      | 错误信息（如有）                                 |
+| `error`            | string      | 错误信息（如有，仅为简短描述，不含上游原始返回） |
 | `created_at`       | time.Time   | 创建时间                                         |
 | `updated_at`       | time.Time   | 更新时间                                         |
 | `deleted_at`       | \*time.Time | 删除时间（软删除）                               |
@@ -1125,23 +1198,41 @@ if record.RoundNumber > 0 && (strings.HasPrefix(record.ConversationID, "conv_") 
 
 ## 限流说明
 
-### 用户级并发限制
+### 非流式接口（Dispatcher）
+
+**用户级并发限制**：
 
 - **Debug**：每用户最多 2 个并发任务
 - **Evaluate**：每用户最多 1 个并发任务
 - **Recommend**：每用户最多 1 个并发任务
 
-超限返回 `429`，错误消息：`"User task limit exceeded"`
+超限返回 `429`，错误消息：`"您有进行中的 AI 请求，请等待完成后再试"`
 
-### 时间窗口限流
-
-滑动窗口算法，维护最近 1 分钟内的请求时间戳：
+**时间窗口限流**（滑动窗口，最近 1 分钟）：
 
 - **Debug**：每用户最多 10 次请求/分钟
 - **Evaluate**：每用户最多 5 次请求/分钟
 - **Recommend**：每用户最多 5 次请求/分钟
 
-超限返回 `429`，错误消息：`"Rate limit exceeded, please try again later"`
+超限返回 `429`，错误消息：`"请求过于频繁，请稍后再试"`；队列已满返回 `"服务器繁忙，请稍后重试"`。
+
+**Worker 数量与队列长度**（环境变量，括号内为默认值）：`AI_EVALUATE_WORKERS`(10) / `AI_EVALUATE_QUEUE_SIZE`(100)、`AI_DEBUG_WORKERS`(20) / `AI_DEBUG_QUEUE_SIZE`(200)、`AI_RECOMMEND_WORKERS`(5) / `AI_RECOMMEND_QUEUE_SIZE`(50)。
+
+### 流式接口
+
+流式请求不经过 Dispatcher，单独限流：
+
+| 限制                         | 环境变量                    | 默认值 | 超限提示                                 |
+| ---------------------------- | --------------------------- | ------ | ---------------------------------------- |
+| 全局并发流数量               | `AI_STREAM_MAX_CONCURRENT`  | 20     | `当前 AI 请求过多，请稍后重试`           |
+| 单用户并发（按接口类型）     | `AI_STREAM_MAX_PER_USER`    | 2      | `您有进行中的 AI 请求，请等待完成后再试` |
+| 单用户每分钟次数（按接口类型） | `AI_STREAM_RATE_PER_MINUTE` | 10     | `请求过于频繁，请稍后再试`               |
+
+每分钟次数基于 Redis 原子计数（多实例共享），Redis 不可用时退化为进程内限流。
+
+### 调试会话
+
+同一调试会话同一时间只处理一个请求（流式与非流式共用），否则返回 `429`：`"该对话正在处理中，请稍候"`。
 
 ---
 
@@ -1154,7 +1245,7 @@ if record.RoundNumber > 0 && (strings.HasPrefix(record.ConversationID, "conv_") 
 | 403         | 只有管理员可以创建班级/只有班级管理员可以添加成员/无权访问班级薄弱点数据                                     | 权限不足           |
 | 404         | 班级不存在                                                                                                   | 资源不存在         |
 | 409         | 学号已存在/已经是班级成员                                                                                    | 资源冲突           |
-| 429         | Server busy, please try again later / User task limit exceeded / Rate limit exceeded, please try again later | 限流               |
-| 502         | AI service communication error                                                                               | AI 服务不可达      |
-| 504         | AI response timeout                                                                                          | 超时               |
+| 429         | 服务器繁忙，请稍后重试 / 您有进行中的 AI 请求，请等待完成后再试 / 请求过于频繁，请稍后再试 / 当前 AI 请求过多，请稍后重试 / 该对话正在处理中，请稍候 | 限流 |
+| 502         | AI 服务暂时不可用，请稍后重试                                                                                | AI 服务失败（上游任何非 2xx 或通信错误） |
+| 504         | AI 响应超时，请稍后重试                                                                                      | 超时               |
 | 500         | 内部服务器错误                                                                                               | 未知错误           |
