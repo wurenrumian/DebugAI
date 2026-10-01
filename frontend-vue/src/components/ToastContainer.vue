@@ -7,13 +7,16 @@
         :class="['toast-item', `toast-${item.type}`]"
         :role="item.type === 'error' ? 'alert' : 'status'"
       >
+        <AppIcon :name="iconFor(item.type)" :size="18" class="toast-icon" />
         <span class="toast-message">{{ item.message }}</span>
         <button
           type="button"
           class="toast-close"
           aria-label="关闭提示"
           @click="dismissToast(item.id)"
-        >×</button>
+        >
+          <AppIcon name="close" :size="15" />
+        </button>
       </div>
     </TransitionGroup>
   </div>
@@ -21,19 +24,27 @@
 
 <script setup>
 import { toastState, dismissToast } from '../utils/toast'
+import AppIcon from './ui/AppIcon.vue'
+
+const iconFor = (type) => ({
+  success: 'check-circle',
+  error: 'alert',
+  warning: 'alert',
+  info: 'info'
+}[type] || 'info')
 </script>
 
 <style scoped>
 .toast-container {
   position: fixed;
-  top: 20px;
+  top: calc(var(--nav-height) + 12px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 3000;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   pointer-events: none;
   width: max-content;
   max-width: calc(100vw - 32px);
@@ -42,44 +53,76 @@ import { toastState, dismissToast } from '../utils/toast'
 .toast-item {
   pointer-events: auto;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px 12px 20px;
-  border-radius: 6px;
-  color: white;
-  font-size: 14px;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 240px;
+  max-width: 520px;
+  padding: 12px 12px 12px 14px;
+  font-size: var(--fs-base);
   line-height: 1.5;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   word-break: break-word;
 }
 
+.toast-icon {
+  margin-top: 1px;
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+}
+
 .toast-success {
-  background: #67c23a;
+  border-left-color: var(--color-success);
+}
+
+.toast-success .toast-icon {
+  color: var(--color-success);
 }
 
 .toast-error {
-  background: #f56c6c;
+  border-left-color: var(--color-danger);
+}
+
+.toast-error .toast-icon {
+  color: var(--color-danger);
 }
 
 .toast-warning {
-  background: #e6a23c;
+  border-left-color: var(--color-warning);
+}
+
+.toast-warning .toast-icon {
+  color: var(--color-warning);
 }
 
 .toast-info {
-  background: #409eff;
+  border-left-color: var(--color-info);
+}
+
+.toast-info .toast-icon {
+  color: var(--color-info);
 }
 
 .toast-close {
-  background: transparent;
-  color: inherit;
-  font-size: 18px;
-  line-height: 1;
-  padding: 0 4px;
-  opacity: 0.8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
 }
 
 .toast-close:hover {
-  opacity: 1;
+  color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 
 .toast-enter-active,
@@ -91,5 +134,12 @@ import { toastState, dismissToast } from '../utils/toast'
 .toast-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+@media (max-width: 640px) {
+  .toast-item {
+    min-width: 0;
+    width: calc(100vw - 32px);
+  }
 }
 </style>

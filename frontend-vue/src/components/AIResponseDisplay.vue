@@ -2,156 +2,105 @@
   <div class="ai-response-display">
     <!-- 学生回复（若非空） -->
     <div v-if="studentResponse" class="section student-response-section">
-      <div class="section-header">
-        <span class="section-icon">👤</span>
-        <span class="section-title">你的回复</span>
-      </div>
-      <div class="section-content">
-        {{ studentResponse }}
-      </div>
+      <h4 class="section-title"><AppIcon name="user" :size="14" />你的回复</h4>
+      <div class="section-content plain-text">{{ studentResponse }}</div>
     </div>
 
     <!-- AI 回复 -->
     <div v-if="aiResponse" class="ai-response-content">
       <!-- 纯文本显示（当无法解析为结构化 JSON 时） -->
       <div v-if="aiResponse.content && !isStructured" class="section">
-        <div class="section-header">
-          <span class="section-icon">🤖</span>
-          <span class="section-title">AI 助手</span>
-        </div>
         <div class="section-content markdown-body" v-html="renderMarkdown(aiResponse.content)"></div>
       </div>
 
       <!-- 学生思路 -->
       <div v-if="aiResponse.student_thought" class="section">
-        <div class="section-header">
-          <span class="section-icon">💭</span>
-          <span class="section-title">你的思路</span>
-        </div>
-        <div class="section-content">
-          {{ aiResponse.student_thought }}
-        </div>
+        <h4 class="section-title"><AppIcon name="chat" :size="14" />你的思路</h4>
+        <div class="section-content plain-text">{{ aiResponse.student_thought }}</div>
       </div>
 
       <!-- 建议修正 -->
       <div v-if="aiResponse.suggested_correction" class="section">
-        <div class="section-header">
-          <span class="section-icon">✏️</span>
-          <span class="section-title">建议修正</span>
-        </div>
-        <div class="section-content">
-          {{ aiResponse.suggested_correction }}
-        </div>
+        <h4 class="section-title"><AppIcon name="check" :size="14" />建议修正</h4>
+        <div class="section-content plain-text">{{ aiResponse.suggested_correction }}</div>
       </div>
 
       <!-- 问题总结 -->
       <div v-if="aiResponse.problem_summary" class="section">
-        <div class="section-header">
-          <span class="section-icon">📋</span>
-          <span class="section-title">问题总结</span>
-        </div>
-        <div class="section-content">
-          {{ aiResponse.problem_summary }}
-        </div>
+        <h4 class="section-title"><AppIcon name="file" :size="14" />问题总结</h4>
+        <div class="section-content plain-text">{{ aiResponse.problem_summary }}</div>
       </div>
 
       <!-- 关键问题列表 -->
       <div v-if="normalizedIssues && normalizedIssues.length > 0" class="section">
-        <div class="section-header">
-          <span class="section-icon">⚠️</span>
-          <span class="section-title">关键问题</span>
-        </div>
-        <div class="section-content">
-          <div
+        <h4 class="section-title section-title-warning"><AppIcon name="alert" :size="14" />关键问题</h4>
+        <ul class="section-content issue-list">
+          <li
             v-for="(issue, index) in normalizedIssues"
             :key="index"
             class="issue-item"
           >
             <div class="issue-description">{{ issue.description }}</div>
             <div v-if="issue.location" class="issue-location">
-              <span class="location-label">位置：</span>
+              <span class="location-label">位置</span>
               <code>{{ issue.location }}</code>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </div>
 
       <!-- 薄弱点 -->
       <div v-if="normalizedWeakpoints && normalizedWeakpoints.length > 0" class="section">
-        <div class="section-header">
-          <span class="section-icon">🎯</span>
-          <span class="section-title">薄弱点</span>
-        </div>
-        <div class="section-content">
-          <div class="weakpoints-list">
-            <span
-              v-for="(wp, index) in normalizedWeakpoints"
-              :key="index"
-              class="weakpoint-tag"
-            >
-              {{ wp }}
-            </span>
-          </div>
+        <h4 class="section-title"><AppIcon name="target" :size="14" />薄弱点</h4>
+        <div class="section-content weakpoints-list">
+          <span
+            v-for="(wp, index) in normalizedWeakpoints"
+            :key="index"
+            class="weakpoint-tag"
+          >
+            {{ wp }}
+          </span>
         </div>
       </div>
 
       <!-- 调试指导 -->
       <div v-if="aiResponse.debug_guidance" class="section">
-        <div class="section-header">
-          <span class="section-icon">🔧</span>
-          <span class="section-title">调试指导</span>
-        </div>
+        <h4 class="section-title"><AppIcon name="lightbulb" :size="14" />调试指导</h4>
         <div class="section-content guidance-content markdown-body" v-html="renderMarkdown(aiResponse.debug_guidance)"></div>
       </div>
 
       <!-- 详细请求 -->
-      <div v-if="aiResponse.ask_for_detail" class="section">
-        <div class="section-header">
-          <span class="section-icon">❓</span>
-          <span class="section-title">请补充</span>
-        </div>
-        <div class="section-content">
-          {{ aiResponse.ask_for_detail }}
-        </div>
+      <div v-if="aiResponse.ask_for_detail" class="section section-callout">
+        <h4 class="section-title"><AppIcon name="help" :size="14" />请补充</h4>
+        <div class="section-content plain-text">{{ aiResponse.ask_for_detail }}</div>
       </div>
 
       <!-- 求助内容 -->
-      <div v-if="aiResponse.ask_for_help" class="section">
-        <div class="section-header">
-          <span class="section-icon">🆘</span>
-          <span class="section-title">需要帮助</span>
-        </div>
-        <div class="section-content">
-          {{ aiResponse.ask_for_help }}
-        </div>
+      <div v-if="aiResponse.ask_for_help" class="section section-callout">
+        <h4 class="section-title"><AppIcon name="help" :size="14" />需要帮助</h4>
+        <div class="section-content plain-text">{{ aiResponse.ask_for_help }}</div>
       </div>
 
       <!-- 建议列表 -->
       <div v-if="aiResponse.suggestions && aiResponse.suggestions.length > 0" class="section">
-        <div class="section-header">
-          <span class="section-icon">💡</span>
-          <span class="section-title">建议</span>
-        </div>
-        <div class="section-content">
-          <ul class="suggestions-list">
-            <li v-for="(suggestion, index) in aiResponse.suggestions" :key="index">
-              <div class="markdown-body" v-html="renderMarkdown(suggestion)"></div>
-            </li>
-          </ul>
-        </div>
+        <h4 class="section-title"><AppIcon name="sparkles" :size="14" />建议</h4>
+        <ul class="section-content suggestions-list">
+          <li v-for="(suggestion, index) in aiResponse.suggestions" :key="index">
+            <div class="markdown-body" v-html="renderMarkdown(suggestion)"></div>
+          </li>
+        </ul>
       </div>
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="empty-state">
-      暂无 AI 回复
-    </div>
+    <p v-else class="empty-state">暂无 AI 回复</p>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps({
   aiResponse: {
@@ -190,46 +139,63 @@ const normalizedWeakpoints = computed(() => {
 
 <style scoped>
 .ai-response-display {
-  font-size: 14px;
-  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  font-size: var(--fs-base);
+  line-height: 1.7;
 }
 
-.section {
-  margin-bottom: 12px;
-  padding: 8px 0;
+.ai-response-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.section:last-child {
-  margin-bottom: 0;
-}
-
-.student-response-section {
-  padding: 8px 12px;
-  background: #f0f9eb;
-  border-radius: 6px;
-}
-
-.section-header {
+.section-title {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 4px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-secondary);
 }
 
-.section-icon {
-  font-size: 14px;
+.section-title .app-icon {
+  color: var(--color-primary-text);
 }
 
-.section-title {
-  font-weight: 600;
-  color: #303133;
-  font-size: 14px;
+.section-title-warning .app-icon {
+  color: var(--color-warning);
 }
 
 .section-content {
-  color: #606266;
+  color: var(--color-text);
   word-break: break-word;
-  padding-left: 22px;
+}
+
+.student-response-section {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.section-callout {
+  padding: var(--space-3);
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+}
+
+.section-callout .section-title .app-icon {
+  color: var(--color-warning);
+}
+
+.issue-list {
+  display: flex;
+  flex-direction: column;
 }
 
 .issue-item {
@@ -237,25 +203,30 @@ const normalizedWeakpoints = computed(() => {
 }
 
 .issue-item:not(:last-child) {
-  border-bottom: 1px dashed #ebeef5;
+  border-bottom: 1px dashed var(--color-border);
 }
 
-.issue-description {
-  color: #303133;
-  margin-bottom: 2px;
+.issue-item:first-child {
+  padding-top: 0;
 }
 
 .issue-location {
-  font-size: 12px;
-  color: #909399;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
 .issue-location code {
-  background: #f5f7fa;
-  padding: 1px 4px;
-  border-radius: 2px;
-  font-family: 'Consolas', monospace;
-  color: #e6a23c;
+  padding: 1px 6px;
+  font-size: var(--fs-xs);
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border-radius: 4px;
+  word-break: break-all;
 }
 
 .weakpoints-list {
@@ -266,62 +237,31 @@ const normalizedWeakpoints = computed(() => {
 
 .weakpoint-tag {
   display: inline-block;
-  padding: 2px 8px;
-  background: #f56c6c;
-  color: white;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.guidance-content :deep(pre) {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 8px 0;
-}
-
-.guidance-content :deep(code) {
-  font-family: 'Consolas', 'Monaco', monospace;
-}
-
-.guidance-content :deep(ul) {
-  margin: 8px 0;
-  padding-left: 20px;
-}
-
-.guidance-content :deep(li) {
-  margin: 4px 0;
+  padding: 1px 10px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-full);
 }
 
 .suggestions-list {
-  margin: 0;
   padding-left: 20px;
+  list-style: decimal;
 }
 
 .suggestions-list li {
-  margin: 8px 0;
-  color: #606266;
+  margin: 4px 0;
 }
 
-.suggestions-list li :deep(pre) {
-  background: #2d2d2d;
-  color: #f8f8f2;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 8px 0;
-}
-
-.suggestions-list li :deep(code) {
-  font-family: 'Consolas', 'Monaco', monospace;
+.suggestions-list li::marker {
+  color: var(--color-text-muted);
 }
 
 .empty-state {
+  padding: var(--space-4);
   text-align: center;
-  color: #909399;
-  padding: 20px;
+  color: var(--color-text-muted);
 }
 </style>

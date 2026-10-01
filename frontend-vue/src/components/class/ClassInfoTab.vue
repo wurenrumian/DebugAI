@@ -1,64 +1,75 @@
 <template>
   <div class="class-info-tab">
-    <div v-if="classStore.loading" class="loading">
-      加载中...
-    </div>
-    
+    <AppSpinner v-if="classStore.loading" block label="加载中..." />
+
     <div v-else-if="classStore.currentClass" class="class-info">
       <!-- 班级基本信息 -->
-      <div class="info-section">
-        <h4>班级信息</h4>
-        <div class="info-item">
-          <span class="label">班级名称：</span>
-          <span class="value">{{ classStore.currentClass.name }}</span>
-        </div>
-        <div class="info-item">
-          <span class="label">创建者：</span>
-          <span class="value">{{ classStore.currentClass.creator_name || classStore.currentClass.creator_username || '未知' }}</span>
-        </div>
-        <div class="info-item">
-          <span class="label">创建时间：</span>
-          <span class="value">{{ formatDate(classStore.currentClass.created_at) }}</span>
-        </div>
-      </div>
+      <section class="info-section" aria-labelledby="class-info-title">
+        <h3 id="class-info-title" class="section-title">班级信息</h3>
+        <dl class="info-grid">
+          <div class="info-item">
+            <dt>班级名称</dt>
+            <dd>{{ classStore.currentClass.name }}</dd>
+          </div>
+          <div class="info-item">
+            <dt>创建者</dt>
+            <dd>{{ classStore.currentClass.creator_name || classStore.currentClass.creator_username || '未知' }}</dd>
+          </div>
+          <div class="info-item">
+            <dt>创建时间</dt>
+            <dd>{{ formatDate(classStore.currentClass.created_at) }}</dd>
+          </div>
+          <div class="info-item">
+            <dt>成员人数</dt>
+            <dd>{{ members.length }}</dd>
+          </div>
+        </dl>
+      </section>
 
       <!-- 成员列表 -->
-      <div class="members-section">
-        <h4>班级成员 ({{ members.length }})</h4>
-        <div class="members-table">
-          <table>
+      <section class="members-section" aria-labelledby="class-members-title">
+        <h3 id="class-members-title" class="section-title">
+          班级成员
+          <span class="count">{{ members.length }}</span>
+        </h3>
+        <div class="table-wrap">
+          <table class="data-table">
             <thead>
               <tr>
-                <th>学号</th>
-                <th>姓名</th>
-                <th>角色</th>
+                <th scope="col">学号</th>
+                <th scope="col">姓名</th>
+                <th scope="col">角色</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="member in members" :key="member.student_id">
-                <td>{{ member.student_id }}</td>
+                <td class="mono">{{ member.student_id }}</td>
                 <td>{{ member.username }}</td>
                 <td>
-                  <span :class="['role-badge', getRoleClass(member.role)]">
+                  <AppBadge :tone="getRoleTone(member.role)" size="sm">
                     {{ getRoleName(member.role) }}
-                  </span>
+                  </AppBadge>
                 </td>
+              </tr>
+              <tr v-if="members.length === 0">
+                <td colspan="3" class="empty-cell">暂无成员</td>
               </tr>
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </div>
 
-    <div v-else class="empty-state">
-      请选择一个班级
-    </div>
+    <p v-else class="empty-state">请选择一个班级</p>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { useClassStore } from '../../stores/class'
+import AppBadge from '../ui/AppBadge.vue'
+import AppSpinner from '../ui/AppSpinner.vue'
+import { getRoleName, getRoleTone } from './roles'
 
 const classStore = useClassStore()
 
@@ -76,114 +87,66 @@ const formatDate = (dateString) => {
   })
 }
 
-const getRoleClass = (role) => {
-  const roleMap = {
-    'teacher': 'role-teacher',
-    'ta': 'role-ta',
-    'student': 'role-student'
-  }
-  return roleMap[role] || 'role-student'
-}
-
-const getRoleName = (role) => {
-  const roleNameMap = {
-    'teacher': '教师',
-    'ta': '助教',
-    'student': '学生'
-  }
-  return roleNameMap[role] || '学生'
-}
 </script>
 
 <style scoped>
-.class-info-tab {
-  padding: 16px 0;
+.class-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
 }
 
-.loading {
-  text-align: center;
-  padding: 40px;
-  color: #909399;
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--fs-md);
 }
 
-.empty-state {
-  text-align: center;
-  padding: 40px;
-  color: #909399;
-  background-color: #f5f7fa;
-  border-radius: 4px;
+.count {
+  padding: 0 7px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 18px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-3);
+  border-radius: var(--radius-full);
 }
 
-.info-section, .members-section {
-  margin-bottom: 24px;
-}
-
-h4 {
-  margin: 0 0 16px 0;
-  font-size: 16px;
-  color: #303133;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #ebeef5;
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
 }
 
 .info-item {
-  display: flex;
-  padding: 8px 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.info-item .label {
-  width: 100px;
-  color: #606266;
+.info-item dt {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
-.info-item .value {
-  color: #303133;
+.info-item dd {
+  margin-top: 2px;
+  font-weight: var(--fw-medium);
+  word-break: break-word;
 }
 
-.members-table {
-  overflow-x: auto;
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th, td {
-  padding: 12px;
-  text-align: left;
-  border-bottom: 1px solid #ebeef5;
-}
-
-th {
-  background-color: #f5f7fa;
-  color: #606266;
-  font-weight: 500;
-}
-
-td {
-  color: #303133;
-}
-
-.role-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.role-teacher {
-  background-color: #fdf6ec;
-  color: #e6a23c;
-}
-
-.role-ta {
-  background-color: #ecf5ff;
-  color: #409eff;
-}
-
-.role-student {
-  background-color: #f0f9ff;
-  color: #909399;
+.empty-cell,
+.empty-state {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
 }
 </style>

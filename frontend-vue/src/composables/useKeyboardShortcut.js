@@ -12,8 +12,8 @@ export function useKeyboardShortcut(keys, handler) {
 	const handleKeydown = (event) => {
 		// 检查是否在输入框内
 		const target = event.target
-		const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
-		const isEditable = target.isContentEditable
+		// contenteditable（如 CodeMirror 代码编辑器）同样视为输入框，避免 Enter 换行时误触发提交
+		const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || !!target.isContentEditable
 
 		// 构建按键组合字符串
 		const keyCombo = buildKeyCombo(event)

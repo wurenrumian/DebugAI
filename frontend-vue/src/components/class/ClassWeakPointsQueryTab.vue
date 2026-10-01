@@ -1,56 +1,53 @@
 <template>
   <div class="class-weak-points-query-tab">
     <!-- 筛选器区域 -->
-    <div class="filter-section">
-      <div class="filter-row">
-        <div class="filter-item">
-          <label>学生筛选：</label>
-          <select v-model="selectedStudents" multiple class="multi-select">
-            <option v-for="student in students" :key="student.student_id" :value="student.student_id">
-              {{ student.username }} ({{ student.student_id }})
-            </option>
-          </select>
-          <span class="hint">按住 Ctrl/Cmd 可多选，不选默认为全班</span>
-        </div>
-        <div class="filter-item">
-          <label>时间范围：</label>
-          <input type="date" v-model="startDate" class="date-input" />
-          <span class="date-separator">至</span>
-          <input type="date" v-model="endDate" class="date-input" />
-        </div>
-      </div>
-      <div class="filter-actions">
-        <button class="btn btn-primary" @click="handleQuery" :disabled="classStore.loading">
+    <ClassRecordFilters
+      v-model:selected-students="selectedStudents"
+      v-model:start-date="startDate"
+      v-model:end-date="endDate"
+      :students="students"
+    >
+      <template #actions>
+        <AppButton variant="primary" icon="search" :loading="classStore.loading" @click="handleQuery">
           {{ classStore.loading ? '查询中...' : '查询' }}
-        </button>
-        <button class="btn btn-secondary" @click="handleExport" :disabled="classStore.loading || !classStore.currentClass">
+        </AppButton>
+        <AppButton icon="download" :disabled="classStore.loading || !classStore.currentClass" @click="handleExport">
           导出CSV
-        </button>
-      </div>
-    </div>
+        </AppButton>
+      </template>
+    </ClassRecordFilters>
 
     <!-- 结果展示区域 -->
     <div class="result-section">
-      <div v-if="classStore.loading" class="loading">
-        加载中...
+      <AppSpinner v-if="classStore.loading" block label="加载中..." />
+
+      <div v-else-if="classStore.classWeakPoints.length === 0" class="state-card">
+        <AppEmpty
+          icon="chart"
+          title="暂无薄弱点数据"
+          description="所选时间范围内没有统计到薄弱点，可以调整筛选条件后重新查询。"
+          compact
+        />
       </div>
-      <div v-else-if="classStore.classWeakPoints.length === 0" class="empty-state">
-        暂无薄弱点数据
-      </div>
+
       <div v-else class="weak-points-result">
         <!-- 统计信息 -->
         <div class="stats-bar">
-          <span class="stat-item">
-            <span class="stat-icon">👥</span>
-            {{ studentCount }} 位学生
-          </span>
-          <span class="stat-item">
-            <span class="stat-icon">🎯</span>
-            {{ totalWeakPoints }} 个薄弱点
-          </span>
-        
-        <!-- 薄弱点展示 -->
+          <div class="stat-tile">
+            <span class="stat-label">学生人数</span>
+            <span class="stat-value">{{ studentCount }}</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-label">薄弱点总次数</span>
+            <span class="stat-value">{{ totalWeakPoints }}</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-label">涉及关键词</span>
+            <span class="stat-value">{{ transformedWeakPoints.length }}</span>
+          </div>
         </div>
+
+        <!-- 薄弱点展示 -->
         <WeakPointDisplay
           :weak-points="transformedWeakPoints"
           :show-description="true"
@@ -70,6 +67,10 @@ import { classAPI } from '../../api'
 import WeakPointDisplay from '../WeakPointDisplay.vue'
 import { toast } from '../../utils/toast'
 import { getErrorMessage } from '../../utils/errors'
+import ClassRecordFilters from './ClassRecordFilters.vue'
+import AppButton from '../ui/AppButton.vue'
+import AppEmpty from '../ui/AppEmpty.vue'
+import AppSpinner from '../ui/AppSpinner.vue'
 
 const classStore = useClassStore()
 
@@ -203,152 +204,51 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.class-weak-points-query-tab {
-  padding: 16px;
-}
-
-.filter-section {
-  background: white;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.filter-row {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.filter-item label {
-  font-weight: 600;
-  white-space: nowrap;
-  color: #303133;
-  font-size: 14px;
-}
-
-.multi-select {
-  min-width: 200px;
-  height: 100px;
-  padding: 8px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-  transition: border-color 0.3s;
-}
-
-.multi-select:focus {
-  border-color: #409eff;
-}
-
-.date-input {
-  padding: 8px 12px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.3s;
-}
-
-.date-input:focus {
-  border-color: #409eff;
-}
-
-.date-separator {
-  color: #909399;
-  font-size: 14px;
-}
-
-.hint {
-  font-size: 12px;
-  color: #909399;
-}
-
-.filter-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.btn {
-  padding: 8px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.3s;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #409eff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #66b1ff;
-}
-
-.btn-secondary {
-  background: #f5f7fa;
-  color: #606266;
-  border: 1px solid #dcdfe6;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: #ecf5ff;
-  border-color: #409eff;
-  color: #409eff;
-}
-
-.result-section {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  padding: 16px;
-  min-height: 300px;
+.state-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .stats-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.stat-tile {
   display: flex;
-  gap: 24px;
-  padding: 12px 16px;
-  background: #f5f7fa;
-  border-radius: 6px;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  color: #495057;
+.stat-label {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
-.stat-icon {
-  font-size: 16px;
+.stat-value {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
-.loading, .empty-state {
-  text-align: center;
-  padding: 40px;
-  color: #909399;
-}
+@media (max-width: 640px) {
+  .stats-bar {
+    gap: var(--space-2);
+  }
 
-.weak-points-result {
-  margin-top: 16px;
+  .stat-tile {
+    padding: var(--space-3);
+  }
+
+  .stat-value {
+    font-size: var(--fs-xl);
+  }
 }
 </style>

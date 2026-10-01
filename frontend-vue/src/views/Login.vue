@@ -1,59 +1,63 @@
 <template>
-  <div class="login-container">
-    <div class="login-box">
-      <div class="login-header">
-        <h1>AI 教学辅助平台</h1>
-        <p>智能代码调试助手</p>
-      </div>
-      
-      <form @submit.prevent="handleLogin" class="login-form">
-        <div v-if="errorMessage" class="message message-error">
-          {{ errorMessage }}
-        </div>
-        
-        <div v-if="emailVerificationRequired" class="message message-warning">
-          请先验证邮箱：{{ email }}
-          <button type="button" @click="handleResendVerification" :disabled="resendLoading" class="btn-link">
-            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
-          </button>
-        </div>
-        
-        <div class="form-group">
-          <label for="studentId">学号</label>
-          <input 
-            id="studentId"
-            v-model="formData.student_id" 
-            type="text" 
-            placeholder="请输入学号"
-            required
-          />
-        </div>
-        
-        <div class="form-group">
-          <label for="password">密码</label>
-          <input 
-            id="password"
-            v-model="formData.password" 
-            type="password" 
-            placeholder="请输入密码"
-            required
-          />
-        </div>
-        
-        <div class="form-options">
-          <router-link to="/forgot-password" class="link forgot-link">忘记密码？</router-link>
-        </div>
-        
-        <button type="submit" class="btn btn-primary login-btn" :disabled="loading">
-          {{ loading ? '登录中...' : '登录' }}
-        </button>
-      </form>
-      
-      <div class="login-footer">
-        <span>还没有账号？</span>
-        <router-link to="/register" class="link">立即注册</router-link>
-      </div>
+  <div class="login-page">
+    <div class="auth-heading">
+      <h1 class="auth-title">欢迎回来</h1>
+      <p class="auth-subtitle">登录 AI 教学辅助平台，继续你的编程学习</p>
     </div>
+
+    <form class="auth-form" @submit.prevent="handleLogin">
+      <AppAlert v-if="errorMessage" tone="danger">{{ errorMessage }}</AppAlert>
+
+      <AppAlert v-if="emailVerificationRequired" tone="warning">
+        请先验证邮箱：{{ email }}
+        <div class="alert-action">
+          <AppButton
+            variant="link"
+            size="sm"
+            :loading="resendLoading"
+            @click="handleResendVerification"
+          >
+            {{ resendLoading ? '发送中...' : '重新发送验证邮件' }}
+          </AppButton>
+        </div>
+      </AppAlert>
+
+      <div class="field">
+        <label class="field-label" for="studentId">学号</label>
+        <input
+          id="studentId"
+          v-model="formData.student_id"
+          type="text"
+          placeholder="请输入学号"
+          autocomplete="username"
+          required
+        />
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="password">密码</label>
+        <input
+          id="password"
+          v-model="formData.password"
+          type="password"
+          placeholder="请输入密码"
+          autocomplete="current-password"
+          required
+        />
+      </div>
+
+      <div class="auth-row-end">
+        <router-link to="/forgot-password">忘记密码？</router-link>
+      </div>
+
+      <AppButton type="submit" variant="primary" size="lg" block :loading="loading">
+        {{ loading ? '登录中...' : '登录' }}
+      </AppButton>
+    </form>
+
+    <p class="auth-footer">
+      还没有账号？<router-link to="/register">立即注册</router-link>
+    </p>
   </div>
 </template>
 
@@ -64,6 +68,8 @@ import { useAuthStore } from '../stores/auth'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
 import { toast } from '../utils/toast'
 import { safeRedirectPath } from '../utils/session'
+import AppAlert from '../components/ui/AppAlert.vue'
+import AppButton from '../components/ui/AppButton.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -134,98 +140,7 @@ const handleResendVerification = async () => {
 </script>
 
 <style scoped>
-.login-container {
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.login-box {
-  width: 400px;
-  background: white;
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.login-header h1 {
-  font-size: 24px;
-  color: #303133;
-  margin-bottom: 8px;
-}
-
-.login-header p {
-  font-size: 14px;
-  color: #909399;
-}
-
-.login-form {
-  margin-bottom: 20px;
-}
-
-.login-btn {
-  width: 100%;
-  padding: 12px;
-  font-size: 16px;
-  margin-top: 10px;
-}
-
-.form-options {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 20px;
-}
-
-.forgot-link {
-  font-size: 14px;
-}
-
-.login-footer {
-  text-align: center;
-  font-size: 14px;
-  color: #606266;
-}
-
-.link {
-  color: #409eff;
-  margin-left: 5px;
-}
-
-.link:hover {
-  text-decoration: underline;
-}
-
-.message-warning {
-  background-color: #fff3cd;
-  border: 1px solid #ffeaa7;
-  color: #856404;
-  padding: 12px;
-  border-radius: 4px;
-  margin-bottom: 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.btn-link {
-  background: none;
-  border: none;
-  color: #409eff;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-  font-size: 14px;
-}
-
-.btn-link:disabled {
-  color: #c0c4cc;
-  cursor: not-allowed;
+.alert-action {
+  margin-top: var(--space-1);
 }
 </style>
